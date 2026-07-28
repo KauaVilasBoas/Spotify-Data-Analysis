@@ -15,6 +15,33 @@ public sealed class JobsOptions
 
     /// <summary>Settings for the Outbox dispatcher job.</summary>
     public OutboxDispatcherOptions OutboxDispatcher { get; init; } = new();
+
+    /// <summary>Settings for the scheduled playlist collection job.</summary>
+    public PlaylistIngestionOptions PlaylistIngestion { get; init; } = new();
+}
+
+/// <summary>
+/// Settings for the scheduled collection of the seed playlists (E1.6).
+///
+/// Disabled by default <b>on purpose</b>: the job calls the Spotify Web API, so it must never start just
+/// because someone ran the host — it only runs where credentials and seeds were deliberately configured.
+/// </summary>
+public sealed class PlaylistIngestionOptions
+{
+    /// <summary>Whether the scheduled collection runs at all. Default: <see langword="false"/>.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// How often every seed playlist is re-collected. Default: 6 hours — track popularity moves slowly and
+    /// the API has rate limits, so a tighter cadence spends quota without adding information.
+    /// </summary>
+    public TimeSpan Interval { get; init; } = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Spotify ids of the playlists used as collection seeds. Empty means nothing to collect, which keeps
+    /// the job idle instead of failing.
+    /// </summary>
+    public IReadOnlyList<string> SeedPlaylistIds { get; init; } = [];
 }
 
 /// <summary>

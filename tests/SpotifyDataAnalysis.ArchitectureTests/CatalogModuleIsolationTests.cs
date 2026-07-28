@@ -23,6 +23,7 @@ public sealed class CatalogModuleIsolationTests
     private const string CatalogContractsAssembly = "SpotifyDataAnalysis.Modules.Catalog.Contracts";
     private const string CatalogInfrastructureAssembly = "SpotifyDataAnalysis.Modules.Catalog.Infrastructure";
     private const string SharedInfrastructureAssembly = "SpotifyDataAnalysis.Infrastructure";
+    private const string JobsAssembly = "SpotifyDataAnalysis.Jobs";
 
     // ---- (c) Pureza do Domain do Catalog ----
 
@@ -119,6 +120,38 @@ public sealed class CatalogModuleIsolationTests
             .Types().That().ResideInAssembly(CatalogContractsAssembly)
             .Should().NotDependOnAnyTypesThat()
             .ResideInNamespace("Microsoft.EntityFrameworkCore")
+            .WithoutRequiringPositiveResults();
+
+        rule.Check(Architecture);
+    }
+
+    // ---- (d) Fronteira dos jobs de domínio (E1.6) ----
+
+    /// <summary>
+    /// Os jobs de domínio despacham COMMANDS do módulo (a Application é o ponto de entrada público), mas não
+    /// podem alcançar o Domain interno — mesma fronteira que o Host respeita. A referência de projeto
+    /// Jobs → Catalog.Application traz o Domain transitivamente, então é esta regra, e não a ausência da
+    /// referência, que sustenta o isolamento.
+    /// </summary>
+    [Fact]
+    public void Jobs_ShouldNotDependOn_CatalogDomain()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(JobsAssembly)
+            .Should().NotDependOnAnyTypesThat()
+            .ResideInAssembly(CatalogDomainAssembly)
+            .WithoutRequiringPositiveResults();
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void Jobs_ShouldNotDependOn_CatalogInfrastructure()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(JobsAssembly)
+            .Should().NotDependOnAnyTypesThat()
+            .ResideInAssembly(CatalogInfrastructureAssembly)
             .WithoutRequiringPositiveResults();
 
         rule.Check(Architecture);

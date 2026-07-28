@@ -35,12 +35,10 @@ namespace SpotifyDataAnalysis.Jobs.Scheduling;
 /// </summary>
 public abstract class TimedBackgroundService : BackgroundService
 {
-    private readonly ILogger _logger;
-
     protected TimedBackgroundService(IServiceScopeFactory scopeFactory, ILogger logger)
     {
         ScopeFactory = scopeFactory;
-        _logger = logger;
+        Logger = logger;
     }
 
     /// <summary>
@@ -48,6 +46,13 @@ public abstract class TimedBackgroundService : BackgroundService
     /// use this instead of holding their own duplicate reference.
     /// </summary>
     protected IServiceScopeFactory ScopeFactory { get; }
+
+    /// <summary>
+    /// The job's logger, shared with the hierarchy for the same reason as <see cref="ScopeFactory"/>:
+    /// subclasses that log their own progress reuse it instead of keeping a duplicate reference to the
+    /// very instance they already handed to this base.
+    /// </summary>
+    protected ILogger Logger { get; }
 
     /// <summary>Human-readable job name used in logs (defaults to the concrete type name).</summary>
     protected virtual string JobName => GetType().Name;
@@ -68,7 +73,7 @@ public abstract class TimedBackgroundService : BackgroundService
     /// <inheritdoc />
     protected sealed override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation(
+        Logger.LogInformation(
             "Job {JobName} started (interval: {Interval}).", JobName, Interval);
 
         // Run once immediately at startup, then on every timer tick. This drains any Outbox backlog
@@ -89,7 +94,7 @@ public abstract class TimedBackgroundService : BackgroundService
             // Expected on host shutdown — WaitForNextTickAsync throws when the token is cancelled.
         }
 
-        _logger.LogInformation("Job {JobName} stopped.", JobName);
+        Logger.LogInformation("Job {JobName} stopped.", JobName);
     }
 
     private async Task RunTickSafelyAsync(CancellationToken cancellationToken)
@@ -112,7 +117,7 @@ public abstract class TimedBackgroundService : BackgroundService
         catch (Exception ex)
         {
             // A failed tick must NOT tear down the worker: log and let the next interval retry.
-            _logger.LogError(ex,
+            Logger.LogError(ex,
                 "Job {JobName} tick failed and was skipped; will retry on the next interval.", JobName);
         }
     }
