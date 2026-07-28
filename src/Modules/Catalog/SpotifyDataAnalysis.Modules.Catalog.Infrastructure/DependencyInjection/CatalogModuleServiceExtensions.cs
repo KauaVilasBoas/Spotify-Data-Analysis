@@ -34,13 +34,18 @@ public static class CatalogModuleServiceExtensions
         // token no processo inteiro (não por request/escopo); credenciais lidas via User Secrets/ambiente.
         services.AddSingleton<ISpotifyTokenProvider, SpotifyClientCredentialsTokenProvider>();
 
-        // Cliente HTTP tipado. A BaseAddress vem da configuração; a resiliência (retry/429) é o E0.4.
+        // Handler de resiliência (E0.4): retry com backoff exponencial + 429/Retry-After, encadeado no
+        // pipeline do HttpClient da Web API.
+        services.AddTransient<SpotifyResilienceHandler>();
+
+        // Cliente HTTP tipado. A BaseAddress vem da configuração; o handler de resiliência é encadeado.
         // (AddHttpClient também registra o IHttpClientFactory usado pelo provider de token.)
         services.AddHttpClient<ISpotifyClient, SpotifyApiClient>((sp, http) =>
         {
             SpotifyApiOptions options = sp.GetRequiredService<IOptions<SpotifyApiOptions>>().Value;
             http.BaseAddress = new Uri(options.BaseUrl);
-        });
+        })
+        .AddHttpMessageHandler<SpotifyResilienceHandler>();
 
         return services;
     }

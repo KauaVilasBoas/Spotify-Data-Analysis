@@ -14,6 +14,13 @@ public interface ISpotifyClient
     Task<SpotifyPlaylistTracksPage> GetPlaylistTracksAsync(
         string playlistId, int offset, int limit, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Percorre TODAS as faixas de uma playlist, paginando automaticamente até acabar. Preguiçoso
+    /// (um yield por faixa, uma página por vez), sem materializar tudo em memória — base para a ingestão do E1.
+    /// </summary>
+    IAsyncEnumerable<SpotifyTrack> StreamPlaylistTracksAsync(
+        string playlistId, int pageSize = 100, CancellationToken cancellationToken = default);
+
     /// <summary>Uma faixa por id; <see langword="null"/> quando não existe (404).</summary>
     Task<SpotifyTrack?> GetTrackAsync(string trackId, CancellationToken cancellationToken = default);
 

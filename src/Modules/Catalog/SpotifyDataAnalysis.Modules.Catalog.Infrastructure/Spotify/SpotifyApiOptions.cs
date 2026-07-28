@@ -20,4 +20,10 @@ public sealed class SpotifyApiOptions
 
     /// <summary>Client secret do app Spotify (User Secrets/env).</summary>
     public string ClientSecret { get; init; } = string.Empty;
+
+    /// <summary>Máximo de RE-tentativas em falhas transitórias (429/5xx/rede). Default: 3.</summary>
+    public int MaxRetries { get; init; } = 3;
+
+    /// <summary>Atraso base do backoff exponencial, em ms (dobra a cada tentativa). Default: 200.</summary>
+    public int RetryBaseDelayMilliseconds { get; init; } = 200;
 }

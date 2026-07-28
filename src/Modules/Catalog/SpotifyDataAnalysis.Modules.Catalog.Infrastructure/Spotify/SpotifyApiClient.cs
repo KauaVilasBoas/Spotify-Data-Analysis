@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
@@ -84,6 +85,28 @@ public sealed class SpotifyApiClient : ISpotifyClient
             .ToList();
 
         return new SpotifyPlaylistTracksPage(tracks, json.Offset, json.Limit, json.Total);
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<SpotifyTrack> StreamPlaylistTracksAsync(
+        string playlistId, int pageSize = 100,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        int offset = 0;
+        while (true)
+        {
+            SpotifyPlaylistTracksPage page =
+                await GetPlaylistTracksAsync(playlistId, offset, pageSize, cancellationToken);
+
+            foreach (SpotifyTrack track in page.Items)
+                yield return track;
+
+            // Termina quando não há próxima página (ou a página veio vazia, evitando laço infinito).
+            if (!page.HasNext || page.Items.Count == 0)
+                yield break;
+
+            offset += page.Items.Count;
+        }
     }
 
     private async Task<T?> GetAsync<T>(string relativeUrl, CancellationToken cancellationToken)
