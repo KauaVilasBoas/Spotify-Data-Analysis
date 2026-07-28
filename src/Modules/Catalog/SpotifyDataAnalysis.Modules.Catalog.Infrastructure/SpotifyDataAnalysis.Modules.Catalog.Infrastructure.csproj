@@ -22,6 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Leitura do CSV do dataset Kaggle (E1.4). -->
+    <PackageReference Include="CsvHelper" Version="33.0.1" />
     <!-- Design-time do EF Core (para `dotnet ef migrations` neste projeto) — dependência só de design-time. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.15">
       <PrivateAssets>all</PrivateAssets>

@@ -13,6 +13,7 @@ using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Events;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Repositories;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Spotify;
@@ -73,6 +74,9 @@ public static class CatalogModuleServiceExtensions
 
         // Repositório do agregado Track (interface no Domain, implementação EF aqui).
         services.AddScoped<ITrackRepository, TrackRepository>();
+
+        // Leitor do CSV do Kaggle (E1.4): importa audio-features e casa por track_id.
+        services.AddScoped<IKaggleAudioFeaturesReader, KaggleAudioFeaturesCsvReader>();
 
         // Write-side UnitOfWork + Outbox (estratégia híbrida de consistência):
         //  - IOutboxDbContext aponta para o DbContext do módulo (write do agregado + outbox na MESMA transação);

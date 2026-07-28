@@ -32,6 +32,10 @@ public sealed class AudioFeatures : ValueObject
     /// <summary>True quando algum valor foi preenchido por imputação (não medido).</summary>
     public bool IsImputed { get; }
 
+    // Construtor sem parâmetros para a materialização do EF Core (owned/JSON): a hidratação preenche os
+    // campos; Source recebe um placeholder só para satisfazer o não-nulo.
+    private AudioFeatures() => Source = string.Empty;
+
     private AudioFeatures(
         double danceability, double energy, double valence, double tempo, double acousticness,
         double instrumentalness, double liveness, double speechiness, double loudness,

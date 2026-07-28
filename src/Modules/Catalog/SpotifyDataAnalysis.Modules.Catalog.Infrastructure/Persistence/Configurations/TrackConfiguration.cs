@@ -71,8 +71,7 @@ internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
             .HasConversion(ArtistIdsConverter, ArtistIdsComparer)
             .IsRequired();
 
-        // AudioFeatures: persistência adiada para o E1.4 (importador Kaggle), quando as features são de fato
-        // casadas/populadas. Por ora, ignorada no mapeamento — não vira coluna nesta migration.
-        builder.Ignore(track => track.AudioFeatures);
+        // AudioFeatures (E1.4): owned type opcional serializado como JSON numa única coluna "audio_features".
+        builder.OwnsOne(track => track.AudioFeatures, owned => owned.ToJson("audio_features"));
     }
 }
