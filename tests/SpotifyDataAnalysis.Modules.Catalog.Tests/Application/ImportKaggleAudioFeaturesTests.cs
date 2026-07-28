@@ -73,6 +73,24 @@ public sealed class ImportKaggleAudioFeaturesTests
     }
 
     [Fact]
+    public async Task Import_ProcessesEachTrackOnlyOnce_WhenTheDatasetRepeatsIt()
+    {
+        // O dataset Kaggle lista a mesma faixa uma vez por gênero — a primeira ocorrência vence.
+        var repo = new InMemoryTrackRepository();
+        repo.Seed(TrackWithId("t1"));
+        var handler = new ImportKaggleAudioFeaturesCommandHandler(
+            new FakeReader(Row("t1"), Row("t1"), Row("t1")), repo);
+
+        ImportKaggleAudioFeaturesResult result =
+            await handler.HandleAsync(new ImportKaggleAudioFeaturesCommand("dataset.csv"));
+
+        Assert.Equal(1, result.Matched);
+        Assert.Equal(2, result.Duplicates);
+        Assert.Equal(0, result.Unmatched);
+        Assert.Equal(3, result.Total);
+    }
+
+    [Fact]
     public async Task CsvReader_ParsesRows_ByHeaderName()
     {
         const string csv =

@@ -28,7 +28,11 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
     public async Task<ImportKaggleAudioFeaturesResult> HandleAsync(
         ImportKaggleAudioFeaturesCommand request, CancellationToken cancellationToken = default)
     {
-        int matched = 0, unmatched = 0, total = 0;
+        // Dedupe: o dataset Kaggle lista a mesma faixa uma vez por gênero — processamos cada track_id só na
+        // primeira ocorrência (evita reprocessar e um gênero arbitrário "ganhar" as features).
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        int matched = 0, unmatched = 0, duplicates = 0, total = 0;
 
         await foreach (KaggleAudioFeaturesRow row in _reader.ReadAsync(request.CsvFilePath, cancellationToken))
         {
@@ -37,6 +41,12 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
             if (string.IsNullOrWhiteSpace(row.TrackId))
             {
                 unmatched++;
+                continue;
+            }
+
+            if (!seen.Add(row.TrackId))
+            {
+                duplicates++;
                 continue;
             }
 
@@ -55,6 +65,6 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
             matched++;
         }
 
-        return new ImportKaggleAudioFeaturesResult(matched, unmatched, total);
+        return new ImportKaggleAudioFeaturesResult(matched, unmatched, duplicates, total);
     }
 }
