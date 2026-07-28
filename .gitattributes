@@ -1,0 +1,19 @@
+# Normaliza fins de linha: o repo guarda LF; o checkout usa o do SO.
+* text=auto eol=lf
+
+# Arquivos C#/.NET
+*.cs      text diff=csharp
+*.csproj  text
+*.props   text
+*.targets text
+*.json    text
+*.sln     text eol=crlf
+
+# Binários (nunca normalizar)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.dll binary

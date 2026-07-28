@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SpotifyDataAnalysis.Jobs is a CLASS LIBRARY, not a standalone worker executable. The background jobs
+    run IN-PROCESS with the API: the host references this library and calls AddSpotifyJobs(configuration)
+    to register the IHostedService(s). This avoids a second composition root.
+
+    The classes are deliberately host-agnostic: promoting them to a standalone worker process later
+    (Host.CreateApplicationBuilder + AddSpotifyJobs) needs no rewrite.
+
+    Microsoft.AspNetCore.App is referenced because SpotifyDataAnalysis.Infrastructure targets that shared
+    framework (IServiceCollection, IHostedService, ILogger), and the scheduling base + jobs here build on
+    Microsoft.Extensions.Hosting (BackgroundService, IServiceScopeFactory).
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared infrastructure: OutboxDispatcher, InMemoryEventBus, IClock. -->
+    <ProjectReference Include="..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

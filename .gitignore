@@ -1,0 +1,38 @@
+## .NET / build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+
+## Rider / IDE
+.idea/
+.vs/
+*.DotSettings.user
+
+## Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+
+## App secrets / local config (never commit)
+appsettings.*.local.json
+secrets.json
+# Connection strings / credenciais vão para User Secrets ou variáveis de ambiente — nunca no repo.
+
+## Docs / planejamento (não publicados no portfólio)
+docs/
+
+## Claude Code (tooling local — agentes e settings da máquina)
+.claude/
+
+## Frontend (quando existir)
+node_modules/
+frontend/dist/
+
+## OS
+.DS_Store
+Thumbs.db

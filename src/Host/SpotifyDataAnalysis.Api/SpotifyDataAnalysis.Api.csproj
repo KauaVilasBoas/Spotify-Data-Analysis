@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <UserSecretsId>b7e2c1a4-8f3d-4e6a-9c2b-1d5f7a9e3c40</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Infraestrutura compartilhada (IModule, Mediator, etc.) -->
+    <ProjectReference Include="..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+
+    <!--
+      Background jobs run in-process with the API: the host references the SpotifyDataAnalysis.Jobs library
+      and registers its IHostedService(s) via AddSpotifyJobs. No separate worker process.
+    -->
+    <ProjectReference Include="..\..\Jobs\SpotifyDataAnalysis.Jobs\SpotifyDataAnalysis.Jobs.csproj" />
+
+    <!--
+      Módulos: o Host referencia o COMPOSITION ROOT de cada módulo (o projeto Infrastructure, que hospeda
+      o IModule), descobrindo-o por varredura de assembly. Nunca usa tipos do Domain interno de um módulo —
+      isso é garantido pelos ArchitectureTests (Host !-> Domain), não pela ausência da referência de projeto.
+    -->
+    <ProjectReference Include="..\..\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+    <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="8.0.2" />
+    <!-- Structured logging: Console JSON. -->
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Api.Tests" />
+  </ItemGroup>
+
+</Project>

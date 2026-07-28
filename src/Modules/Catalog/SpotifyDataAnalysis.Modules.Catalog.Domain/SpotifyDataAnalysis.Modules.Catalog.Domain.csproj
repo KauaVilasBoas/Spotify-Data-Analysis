@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Domain do Catalog: PURO (só SharedKernel). Sem EF/ASP/Dapper, sem outros módulos.
+    Os agregados (Track/AudioFeatures/Artist/Album/Playlist) chegam no E1.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Infrastructure: composition root do módulo. Hospeda o CatalogModule (IModule) e os ADAPTERS de
+    serviços externos (SpotifyApiClient). Depende para DENTRO: Application (portas), Domain, Contracts e a
+    Infrastructure compartilhada (IModule, mediator, DI). É o assembly que o Host referencia para descobrir
+    o módulo — o isolamento do Domain interno é garantido pelos ArchitectureTests, não pela ausência da ref.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Catalog.Application\SpotifyDataAnalysis.Modules.Catalog.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Catalog.Tests" />
+  </ItemGroup>
+
+</Project>
