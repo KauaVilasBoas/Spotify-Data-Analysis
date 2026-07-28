@@ -10,6 +10,7 @@ using SpotifyDataAnalysis.Infrastructure.Outbox;
 using SpotifyDataAnalysis.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
+using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Matching;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
@@ -96,6 +97,10 @@ public static class CatalogModuleServiceExtensions
         services.AddScoped<ITrackMatchingStrategy, SpotifyTrackIdMatchingStrategy>();
         services.AddScoped<ITrackMatchingStrategy, NameAndArtistMatchingStrategy>();
         services.AddScoped<TrackMatcher>();
+
+        // Política de tratamento de faltantes (E1.5): mediana por gênero com retaguarda global. Trocar a
+        // política (kNN, exclusão do treino) é trocar esta implementação — o handler não muda.
+        services.AddScoped<IAudioFeatureImputer, MedianAudioFeatureImputer>();
 
         // Write-side UnitOfWork + Outbox (estratégia híbrida de consistência):
         //  - IOutboxDbContext aponta para o DbContext do módulo (write do agregado + outbox na MESMA transação);

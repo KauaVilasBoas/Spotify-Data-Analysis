@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
+using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Matching;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Tests.Fakes;
@@ -40,7 +41,8 @@ public sealed class ImportKaggleAudioFeaturesTests
             new TrackMatcher([
                 new SpotifyTrackIdMatchingStrategy(tracks),
                 new NameAndArtistMatchingStrategy(tracks)
-            ]));
+            ]),
+            new MedianAudioFeatureImputer());
 
     private static Task<ImportKaggleAudioFeaturesResult> ImportAsync(
         ImportKaggleAudioFeaturesCommandHandler handler)
@@ -151,6 +153,81 @@ public sealed class ImportKaggleAudioFeaturesTests
     }
 
     [Fact]
+    public async Task Import_FillsMissingValues_WithTheGenreMedian_AndFlagsThemAsImputed()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track("t1"));
+        tracks.Seed(CatalogFixtures.Track("t2"));
+        tracks.Seed(CatalogFixtures.Track("t3"));
+
+        // Energias observadas no genero "rock": 0.2, 0.4 e 0.6 -> mediana 0.4. A faixa t3 nao tem energy.
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(Build(
+            tracks,
+            Row("t1") with { Energy = 0.2 },
+            Row("t2") with { Energy = 0.6 },
+            Row("t-fora-do-catalogo") with { Energy = 0.4 },
+            Row("t3") with { Energy = null }));
+
+        Assert.Equal(0.4, tracks.Store["t3"].AudioFeatures!.Energy, precision: 10);
+        Assert.True(tracks.Store["t3"].AudioFeatures!.IsImputed);
+        Assert.False(tracks.Store["t1"].AudioFeatures!.IsImputed);
+        Assert.Equal(1, result.Imputed);
+        Assert.InRange(result.ImputationRate, 0.33, 0.34); // 1 de 3 casadas
+    }
+
+    [Fact]
+    public async Task Import_PrefersTheGenreMedian_OverTheGlobalOne()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track("rock1"));
+        tracks.Seed(CatalogFixtures.Track("rock2"));
+        tracks.Seed(CatalogFixtures.Track("bolero1"));
+        tracks.Seed(CatalogFixtures.Track("bolero2"));
+        tracks.Seed(CatalogFixtures.Track("alvo"));
+
+        await ImportAsync(Build(
+            tracks,
+            Row("rock1", genre: "rock") with { Energy = 0.90 },
+            Row("rock2", genre: "rock") with { Energy = 0.94 },
+            Row("bolero1", genre: "bolero") with { Energy = 0.10 },
+            Row("bolero2", genre: "bolero") with { Energy = 0.14 },
+            // A mediana global seria ~0.52; a de bolero e 0.12.
+            Row("alvo", genre: "bolero") with { Energy = null }));
+
+        Assert.Equal(0.12, tracks.Store["alvo"].AudioFeatures!.Energy, precision: 10);
+    }
+
+    [Fact]
+    public async Task Import_RoundsTheMedian_ForDiscreteFeatures()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track("t1"));
+        tracks.Seed(CatalogFixtures.Track("t2"));
+        tracks.Seed(CatalogFixtures.Track("t3"));
+
+        // Medianas de "key": (4 + 5) / 2 = 4.5 -> 5 (nao existe tonalidade fracionaria).
+        await ImportAsync(Build(
+            tracks,
+            Row("t1") with { Key = 4 },
+            Row("t2") with { Key = 5 },
+            Row("t3") with { Key = null }));
+
+        Assert.Equal(5, tracks.Store["t3"].AudioFeatures!.Key);
+    }
+
+    [Fact]
+    public async Task Import_FallsBackToZero_WhenTheFeatureIsMissingFromTheWholeDataset()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track("t1"));
+
+        await ImportAsync(Build(tracks, Row("t1") with { Tempo = null }));
+
+        Assert.Equal(0d, tracks.Store["t1"].AudioFeatures!.Tempo);
+        Assert.True(tracks.Store["t1"].AudioFeatures!.IsImputed);
+    }
+
+    [Fact]
     public async Task CsvReader_ParsesRows_ByHeaderName()
     {
         const string csv =
@@ -169,5 +246,22 @@ public sealed class ImportKaggleAudioFeaturesTests
         Assert.Equal(0.75, parsed.Danceability);
         Assert.Equal(120.5, parsed.Tempo);
         Assert.Equal(4, parsed.TimeSignature);
+    }
+
+    [Fact]
+    public async Task CsvReader_ReadsEmptyCells_AsMissing_NotAsZero()
+    {
+        const string csv =
+            "track_id,artists,track_name,danceability,energy,key,loudness,mode,speechiness,acousticness,instrumentalness,liveness,valence,tempo,time_signature,track_genre\n" +
+            "abc,Queen,Bohemian Rhapsody,0.75,,5,-3.2,1,0.04,0.12,0.0,0.2,0.55,,4,rock\n";
+
+        var rows = new List<KaggleAudioFeaturesRow>();
+        await foreach (KaggleAudioFeaturesRow row in KaggleAudioFeaturesCsvReader.ParseAsync(new StringReader(csv)))
+            rows.Add(row);
+
+        KaggleAudioFeaturesRow parsed = Assert.Single(rows);
+        Assert.Null(parsed.Energy);
+        Assert.Null(parsed.Tempo);
+        Assert.Equal(0.75, parsed.Danceability);
     }
 }

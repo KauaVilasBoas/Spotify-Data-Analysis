@@ -13,16 +13,18 @@ public sealed record ImportKaggleAudioFeaturesCommand(string CsvFilePath)
     : ICommand<ImportKaggleAudioFeaturesResult>;
 
 /// <summary>
-/// Métrica de qualidade da importação. Além do total, discrimina <b>como</b> cada linha foi casada — a
-/// proporção entre <see cref="MatchedById"/> e <see cref="MatchedByNameAndArtist"/> diz o quanto o resultado
-/// depende de heurística textual — e quantas linhas eram duplicadas (o dataset repete a mesma faixa uma vez
-/// por gênero; a primeira ocorrência vence).
+/// Métrica de qualidade da importação — o relatório que diz o quanto confiar no dado que acabou de entrar.
+/// Discrimina <b>como</b> cada linha foi casada (a proporção entre <see cref="MatchedById"/> e
+/// <see cref="MatchedByNameAndArtist"/> mede a dependência de heurística textual), quantas linhas eram
+/// duplicadas (o dataset repete a mesma faixa uma vez por gênero; a primeira ocorrência vence) e quantas
+/// faixas ficaram com pelo menos um atributo <b>imputado</b> em vez de medido.
 /// </summary>
 public sealed record ImportKaggleAudioFeaturesResult(
     int MatchedById,
     int MatchedByNameAndArtist,
     int Unmatched,
     int Duplicates,
+    int Imputed,
     int Total)
 {
     /// <summary>Linhas que casaram com alguma faixa do catálogo, por qualquer estratégia.</summary>
@@ -36,4 +38,7 @@ public sealed record ImportKaggleAudioFeaturesResult(
     /// heurística — o indicador a observar antes de confiar nas features importadas.
     /// </summary>
     public double FallbackRate => Matched == 0 ? 0d : (double)MatchedByNameAndArtist / Matched;
+
+    /// <summary>Fração das faixas casadas cujas features tiveram algum valor inferido (0..1).</summary>
+    public double ImputationRate => Matched == 0 ? 0d : (double)Imputed / Matched;
 }

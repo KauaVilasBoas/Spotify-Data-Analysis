@@ -9,6 +9,10 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 /// Leitor CSV (CsvHelper) do dataset Kaggle de audio-features. Lê por <b>nome de coluna do header</b> (a
 /// ordem das colunas não importa), com <see cref="CultureInfo.InvariantCulture"/> para os decimais, e
 /// materializa uma <see cref="KaggleAudioFeaturesRow"/> por linha — preguiçosamente.
+///
+/// Células vazias, ilegíveis ou colunas ausentes viram <see langword="null"/> em vez de exceção: uma linha
+/// defeituosa no meio de ~114k não pode abortar a importação inteira, e o tratamento de faltantes (E1.5)
+/// existe exatamente para decidir o que fazer com esses buracos — de forma explícita e marcada.
 /// </summary>
 internal sealed class KaggleAudioFeaturesCsvReader : IKaggleAudioFeaturesReader
 {
@@ -36,22 +40,33 @@ internal sealed class KaggleAudioFeaturesCsvReader : IKaggleAudioFeaturesReader
             cancellationToken.ThrowIfCancellationRequested();
 
             yield return new KaggleAudioFeaturesRow(
-                TrackId: csv.GetField<string>("track_id") ?? string.Empty,
-                TrackName: csv.GetField<string>("track_name"),
-                Artists: csv.GetField<string>("artists"),
-                Genre: csv.GetField<string>("track_genre"),
-                Danceability: csv.GetField<double>("danceability"),
-                Energy: csv.GetField<double>("energy"),
-                Valence: csv.GetField<double>("valence"),
-                Tempo: csv.GetField<double>("tempo"),
-                Acousticness: csv.GetField<double>("acousticness"),
-                Instrumentalness: csv.GetField<double>("instrumentalness"),
-                Liveness: csv.GetField<double>("liveness"),
-                Speechiness: csv.GetField<double>("speechiness"),
-                Loudness: csv.GetField<double>("loudness"),
-                Key: csv.GetField<int>("key"),
-                Mode: csv.GetField<int>("mode"),
-                TimeSignature: csv.GetField<int>("time_signature"));
+                TrackId: Text(csv, "track_id") ?? string.Empty,
+                TrackName: Text(csv, "track_name"),
+                Artists: Text(csv, "artists"),
+                Genre: Text(csv, "track_genre"),
+                Danceability: Number(csv, "danceability"),
+                Energy: Number(csv, "energy"),
+                Valence: Number(csv, "valence"),
+                Tempo: Number(csv, "tempo"),
+                Acousticness: Number(csv, "acousticness"),
+                Instrumentalness: Number(csv, "instrumentalness"),
+                Liveness: Number(csv, "liveness"),
+                Speechiness: Number(csv, "speechiness"),
+                Loudness: Number(csv, "loudness"),
+                Key: Discrete(csv, "key"),
+                Mode: Discrete(csv, "mode"),
+                TimeSignature: Discrete(csv, "time_signature"));
         }
     }
+
+    private static string? Text(CsvReader csv, string column)
+        => csv.TryGetField(column, out string? value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
+
+    private static double? Number(CsvReader csv, string column)
+        => csv.TryGetField(column, out double value) ? value : null;
+
+    private static int? Discrete(CsvReader csv, string column)
+        => csv.TryGetField(column, out int value) ? value : null;
 }
