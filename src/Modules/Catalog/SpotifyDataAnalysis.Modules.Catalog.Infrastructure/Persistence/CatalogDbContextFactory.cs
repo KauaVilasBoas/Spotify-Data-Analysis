@@ -12,10 +12,17 @@ internal sealed class CatalogDbContextFactory : IDesignTimeDbContextFactory<Cata
 {
     public CatalogDbContext CreateDbContext(string[] args)
     {
+        // `migrations add` não conecta no banco (o placeholder basta para construir o modelo).
+        // `database update` conecta: aí lê a connection string real da variável de ambiente
+        // ConnectionStrings__SpotifyDb (ou usa o placeholder como fallback).
+        string connectionString =
+            Environment.GetEnvironmentVariable("ConnectionStrings__SpotifyDb")
+            ?? "Host=localhost;Database=spotify_design;Username=postgres;Password=postgres";
+
         DbContextOptionsBuilder<CatalogDbContext> optionsBuilder =
             new DbContextOptionsBuilder<CatalogDbContext>()
                 .UseNpgsql(
-                    "Host=localhost;Database=spotify_design;Username=postgres;Password=postgres",
+                    connectionString,
                     npgsql =>
                     {
                         npgsql.MigrationsHistoryTable("__ef_migrations_history", schema: "catalog");
