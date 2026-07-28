@@ -27,6 +27,15 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         _artistIds = artistIds;
     }
 
+    // Construtor sem parâmetros para a materialização do EF Core: a hidratação sobrescreve Id/propriedades/
+    // campo via setters e backing fields; os valores abaixo são só placeholders para satisfazer o não-nulo.
+    private Track() : base(SpotifyTrackId.Of("_"))
+    {
+        Name = string.Empty;
+        Popularity = Popularity.Of(0);
+        _artistIds = [];
+    }
+
     public string Name { get; private set; }
     public Popularity Popularity { get; private set; }
     public int DurationMs { get; private set; }

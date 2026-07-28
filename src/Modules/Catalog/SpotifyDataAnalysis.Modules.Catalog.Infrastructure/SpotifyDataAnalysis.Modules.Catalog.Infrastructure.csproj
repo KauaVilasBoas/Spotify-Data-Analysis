@@ -21,4 +21,12 @@
     <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Catalog.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Design-time do EF Core (para `dotnet ef migrations` neste projeto) — dependência só de design-time. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.15">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
 </Project>

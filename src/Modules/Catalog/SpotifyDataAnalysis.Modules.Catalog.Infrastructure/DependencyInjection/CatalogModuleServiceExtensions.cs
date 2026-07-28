@@ -1,21 +1,29 @@
 using System;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
+using SpotifyDataAnalysis.Infrastructure.Messaging;
+using SpotifyDataAnalysis.Infrastructure.Messaging.Behaviors;
+using SpotifyDataAnalysis.Infrastructure.Outbox;
+using SpotifyDataAnalysis.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Repositories;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Spotify;
+using SpotifyDataAnalysis.SharedKernel.Messaging;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.DependencyInjection;
 
 /// <summary>
 /// Composição de DI do módulo Catalog. Chamado por <see cref="CatalogModule"/> durante o bootstrap.
 ///
-/// E0.1: registra os handlers CQRS da Application por varredura.
-/// E0.2: registra o cliente da Spotify Web API (opções + HttpClient tipado + seam de token).
-/// E0.3: registra o provider de token real (Client Credentials, cache/refresh) como singleton.
-/// E1 adiciona o <c>CatalogDbContext</c> (write-side EF), repositórios, UnitOfWork/Outbox e o TransactionBehavior.
+/// E0.1: handlers CQRS por varredura. E0.2: cliente da Spotify Web API. E0.3: token Client Credentials.
+/// E0.4: handler de resiliência. E1.1: write-side EF (<c>CatalogDbContext</c>), repositórios,
+/// UnitOfWork/Outbox e o TransactionBehavior do módulo.
 /// </summary>
 public static class CatalogModuleServiceExtensions
 {
@@ -46,6 +54,36 @@ public static class CatalogModuleServiceExtensions
             http.BaseAddress = new Uri(options.BaseUrl);
         })
         .AddHttpMessageHandler<SpotifyResilienceHandler>();
+
+        // --- Persistência (E1.1): write-side EF Core + Outbox, no schema "catalog" ---
+        string? connectionString = configuration.GetConnectionString("SpotifyDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException(
+                "Connection string 'SpotifyDb' não configurada. Defina em User Secrets ou na variável de " +
+                "ambiente ConnectionStrings__SpotifyDb.");
+
+        services.AddDbContext<CatalogDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+            {
+                npgsql.MigrationsHistoryTable("__ef_migrations_history", schema: "catalog");
+                npgsql.MigrationsAssembly(typeof(CatalogDbContext).Assembly.GetName().Name);
+            }));
+
+        // Repositório do agregado Track (interface no Domain, implementação EF aqui).
+        services.AddScoped<ITrackRepository, TrackRepository>();
+
+        // Write-side UnitOfWork + Outbox (estratégia híbrida de consistência):
+        //  - IOutboxDbContext aponta para o DbContext do módulo (write do agregado + outbox na MESMA transação);
+        //  - OutboxWriter serializa integration events; IDomainEventDispatcher despacha e enfileira no Outbox;
+        //  - IUnitOfWork = EfUnitOfWork<CatalogDbContext>: o SaveChanges é disparado pelo TransactionBehavior.
+        services.AddScoped<IOutboxDbContext>(sp => sp.GetRequiredService<CatalogDbContext>());
+        services.AddScoped<OutboxWriter>();
+        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+        services.AddScoped<IUnitOfWork, EfUnitOfWork<CatalogDbContext>>();
+
+        // TransactionBehavior registrado AQUI (depende do IUnitOfWork deste módulo). Após os behaviors
+        // compartilhados Logging/Validation, o mediator resolve: Logging → Validation → Transaction → Handler.
+        services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
 
         return services;
     }
