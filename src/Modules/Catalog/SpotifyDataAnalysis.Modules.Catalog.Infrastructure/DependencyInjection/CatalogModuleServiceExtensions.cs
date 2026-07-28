@@ -1,7 +1,6 @@
 using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
@@ -15,6 +14,7 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.DependencyInjection
 ///
 /// E0.1: registra os handlers CQRS da Application por varredura.
 /// E0.2: registra o cliente da Spotify Web API (opções + HttpClient tipado + seam de token).
+/// E0.3: registra o provider de token real (Client Credentials, cache/refresh) como singleton.
 /// E1 adiciona o <c>CatalogDbContext</c> (write-side EF), repositórios, UnitOfWork/Outbox e o TransactionBehavior.
 /// </summary>
 public static class CatalogModuleServiceExtensions
@@ -30,11 +30,12 @@ public static class CatalogModuleServiceExtensions
         services.AddOptions<SpotifyApiOptions>()
             .Bind(configuration.GetSection(SpotifyApiOptions.SectionName));
 
-        // Seam de token: placeholder até o E0.3 (fluxo Client Credentials). TryAdd para o E0.3 substituir
-        // pelo provider real sem tocar nos callers.
-        services.TryAddScoped<ISpotifyTokenProvider, NotConfiguredSpotifyTokenProvider>();
+        // Provider de token (E0.3): fluxo Client Credentials com cache/refresh. Singleton para cachear o
+        // token no processo inteiro (não por request/escopo); credenciais lidas via User Secrets/ambiente.
+        services.AddSingleton<ISpotifyTokenProvider, SpotifyClientCredentialsTokenProvider>();
 
         // Cliente HTTP tipado. A BaseAddress vem da configuração; a resiliência (retry/429) é o E0.4.
+        // (AddHttpClient também registra o IHttpClientFactory usado pelo provider de token.)
         services.AddHttpClient<ISpotifyClient, SpotifyApiClient>((sp, http) =>
         {
             SpotifyApiOptions options = sp.GetRequiredService<IOptions<SpotifyApiOptions>>().Value;
