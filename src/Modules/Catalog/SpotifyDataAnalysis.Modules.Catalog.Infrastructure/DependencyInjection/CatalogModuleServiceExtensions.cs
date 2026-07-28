@@ -9,8 +9,10 @@ using SpotifyDataAnalysis.Infrastructure.Messaging.Behaviors;
 using SpotifyDataAnalysis.Infrastructure.Outbox;
 using SpotifyDataAnalysis.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
+using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Events;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Repositories;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Spotify;
@@ -84,6 +86,11 @@ public static class CatalogModuleServiceExtensions
         // TransactionBehavior registrado AQUI (depende do IUnitOfWork deste módulo). Após os behaviors
         // compartilhados Logging/Validation, o mediator resolve: Logging → Validation → Transaction → Handler.
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
+
+        // DomainEvent → IntegrationEvent (E1.3): o DomainEventDispatcher resolve o translator por tipo de
+        // evento durante o SaveChanges e enfileira o TrackIngested no Outbox.
+        services.AddScoped<IDomainEventToIntegrationEventTranslator<TrackRegisteredDomainEvent>,
+            TrackRegisteredToIntegrationEventTranslator>();
 
         return services;
     }

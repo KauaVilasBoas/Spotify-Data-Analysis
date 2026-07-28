@@ -60,10 +60,11 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Guard.AgainstNullOrWhiteSpace(name, nameof(name));
         Guard.AgainstNegative(durationMs, nameof(durationMs));
 
-        var track = new Track(id, name.Trim(), popularity, durationMs, @explicit, albumId,
+        string trimmedName = name.Trim();
+        var track = new Track(id, trimmedName, popularity, durationMs, @explicit, albumId,
             artistIds?.ToList() ?? []);
 
-        track.RaiseDomainEvent(new TrackRegisteredDomainEvent(id.Value, DateTime.UtcNow));
+        track.RaiseDomainEvent(new TrackRegisteredDomainEvent(id.Value, trimmedName, popularity.Value, DateTime.UtcNow));
         return track;
     }
 
