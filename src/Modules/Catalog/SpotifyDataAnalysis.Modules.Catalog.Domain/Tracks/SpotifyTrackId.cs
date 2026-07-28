@@ -1,28 +1,14 @@
-using SpotifyDataAnalysis.SharedKernel.Domain;
-using SpotifyDataAnalysis.SharedKernel.Guards;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Common;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 
 /// <summary>
-/// Identificador de uma faixa no Spotify (a <i>track id</i> da API). Value object com igualdade estrutural
-/// e validação de não-vazio — é a identidade do agregado <see cref="Track"/>.
+/// Identificador de uma faixa no Spotify (a <i>track id</i> da API) — a identidade do agregado
+/// <see cref="Track"/> e a chave primária de casamento com o dataset Kaggle.
 /// </summary>
-public sealed class SpotifyTrackId : ValueObject
+public sealed class SpotifyTrackId : SpotifyResourceId
 {
-    public string Value { get; }
+    private SpotifyTrackId(string value) : base(value) { }
 
-    private SpotifyTrackId(string value) => Value = value;
-
-    public static SpotifyTrackId Of(string value)
-    {
-        Guard.AgainstNullOrWhiteSpace(value, nameof(value));
-        return new SpotifyTrackId(value.Trim());
-    }
-
-    protected override IEnumerable<object?> GetEqualityComponents()
-    {
-        yield return Value;
-    }
-
-    public override string ToString() => Value;
+    public static SpotifyTrackId Of(string value) => new(Normalize(value, nameof(value)));
 }

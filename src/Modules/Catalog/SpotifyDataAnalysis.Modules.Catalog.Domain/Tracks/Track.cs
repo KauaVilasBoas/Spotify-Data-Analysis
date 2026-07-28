@@ -1,3 +1,4 @@
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Common;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Events;
 using SpotifyDataAnalysis.SharedKernel.Domain;
 using SpotifyDataAnalysis.SharedKernel.Guards;
@@ -13,18 +14,18 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 /// </summary>
 public sealed class Track : AggregateRoot<SpotifyTrackId>
 {
-    private readonly List<string> _artistIds;
+    private readonly List<TrackArtist> _artists;
 
     private Track(
         SpotifyTrackId id, string name, Popularity popularity, int durationMs, bool @explicit,
-        string? albumId, List<string> artistIds) : base(id)
+        string? albumId, List<TrackArtist> artists) : base(id)
     {
         Name = name;
         Popularity = popularity;
         DurationMs = durationMs;
         Explicit = @explicit;
         AlbumId = albumId;
-        _artistIds = artistIds;
+        _artists = artists;
     }
 
     // Construtor sem parâmetros para a materialização do EF Core: a hidratação sobrescreve Id/propriedades/
@@ -32,8 +33,8 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     private Track() : base(SpotifyTrackId.Of("_"))
     {
         Name = string.Empty;
-        Popularity = Popularity.Of(0);
-        _artistIds = [];
+        Popularity = Popularity.Unknown;
+        _artists = [];
     }
 
     public string Name { get; private set; }
@@ -44,8 +45,14 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     /// <summary>Id do álbum no Spotify (por valor; sem FK/navegação cross-agregado).</summary>
     public string? AlbumId { get; private set; }
 
-    /// <summary>Ids dos artistas no Spotify (por valor).</summary>
-    public IReadOnlyList<string> ArtistIds => _artistIds.AsReadOnly();
+    /// <summary>Créditos de artista da faixa (id por valor + nome), na ordem devolvida pela API.</summary>
+    public IReadOnlyList<TrackArtist> Artists => _artists.AsReadOnly();
+
+    /// <summary>Ids dos artistas no Spotify (por valor), derivados dos créditos.</summary>
+    public IReadOnlyList<string> ArtistIds => _artists.Select(artist => artist.Id).ToList().AsReadOnly();
+
+    /// <summary>Artista principal (o primeiro crédito); nulo quando a faixa veio sem artistas.</summary>
+    public TrackArtist? PrimaryArtist => _artists.Count == 0 ? null : _artists[0];
 
     /// <summary>Atributos de áudio (anexados a partir do dataset externo); nulos até serem casados.</summary>
     public AudioFeatures? AudioFeatures { get; private set; }
@@ -53,7 +60,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     /// <summary>Registra uma nova faixa no catálogo (named constructor), validando as invariantes.</summary>
     public static Track Register(
         SpotifyTrackId id, string name, Popularity popularity, int durationMs, bool @explicit,
-        string? albumId, IEnumerable<string> artistIds)
+        string? albumId, IEnumerable<TrackArtist> artists)
     {
         Guard.AgainstNull(id, nameof(id));
         Guard.AgainstNull(popularity, nameof(popularity));
@@ -62,10 +69,36 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
 
         string trimmedName = name.Trim();
         var track = new Track(id, trimmedName, popularity, durationMs, @explicit, albumId,
-            artistIds?.ToList() ?? []);
+            artists?.ToList() ?? []);
 
         track.RaiseDomainEvent(new TrackRegisteredDomainEvent(id.Value, trimmedName, popularity.Value, DateTime.UtcNow));
         return track;
+    }
+
+    /// <summary>
+    /// Reaplica sobre a faixa já catalogada o retrato mais recente vindo da API. É o caminho da <b>reingestão
+    /// idempotente</b> (E1.6): popularidade varia com o tempo, faixas são renomeadas e créditos de artista
+    /// mudam, mas o registro continua sendo o mesmo agregado.
+    ///
+    /// Não emite <c>TrackRegistered</c> — a faixa não é nova; emitir de novo faria os consumidores do Outbox
+    /// reprocessarem a cada ciclo de coleta.
+    /// </summary>
+    public void RefreshFromSource(
+        string name, Popularity popularity, int durationMs, bool @explicit,
+        string? albumId, IEnumerable<TrackArtist> artists)
+    {
+        Guard.AgainstNullOrWhiteSpace(name, nameof(name));
+        Guard.AgainstNull(popularity, nameof(popularity));
+        Guard.AgainstNegative(durationMs, nameof(durationMs));
+
+        Name = name.Trim();
+        Popularity = popularity;
+        DurationMs = durationMs;
+        Explicit = @explicit;
+        AlbumId = albumId;
+
+        _artists.Clear();
+        _artists.AddRange(artists ?? []);
     }
 
     /// <summary>Anexa (ou substitui) os atributos de áudio da faixa.</summary>
@@ -73,12 +106,5 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     {
         Guard.AgainstNull(features, nameof(features));
         AudioFeatures = features;
-    }
-
-    /// <summary>Atualiza a popularidade (reingestão — a popularidade varia com o tempo).</summary>
-    public void UpdatePopularity(Popularity popularity)
-    {
-        Guard.AgainstNull(popularity, nameof(popularity));
-        Popularity = popularity;
     }
 }

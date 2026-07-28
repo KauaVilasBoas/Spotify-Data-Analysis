@@ -11,6 +11,10 @@ using SpotifyDataAnalysis.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Artists;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Playlists;
+using SpotifyDataAnalysis.Modules.Catalog.Domain.Playlists.Events;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Events;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
@@ -72,8 +76,15 @@ public static class CatalogModuleServiceExtensions
                 npgsql.MigrationsAssembly(typeof(CatalogDbContext).Assembly.GetName().Name);
             }));
 
-        // Repositório do agregado Track (interface no Domain, implementação EF aqui).
+        // Repositórios dos agregados (interfaces no Domain, implementações EF aqui).
         services.AddScoped<ITrackRepository, TrackRepository>();
+        services.AddScoped<IArtistRepository, ArtistRepository>();
+        services.AddScoped<IAlbumRepository, AlbumRepository>();
+        services.AddScoped<IPlaylistRepository, PlaylistRepository>();
+
+        // Registrador de referências (E1.2): upsert idempotente de artistas/álbuns descobertos na ingestão.
+        // Scoped porque mantém um cache de ids já vistos válido pelo tempo do command.
+        services.AddScoped<CatalogReferenceRegistrar>();
 
         // Leitor do CSV do Kaggle (E1.4): importa audio-features e casa por track_id.
         services.AddScoped<IKaggleAudioFeaturesReader, KaggleAudioFeaturesCsvReader>();
@@ -95,6 +106,9 @@ public static class CatalogModuleServiceExtensions
         // evento durante o SaveChanges e enfileira o TrackIngested no Outbox.
         services.AddScoped<IDomainEventToIntegrationEventTranslator<TrackRegisteredDomainEvent>,
             TrackRegisteredToIntegrationEventTranslator>();
+
+        services.AddScoped<IDomainEventToIntegrationEventTranslator<PlaylistIngestedDomainEvent>,
+            PlaylistIngestedToIntegrationEventTranslator>();
 
         return services;
     }

@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
+using SpotifyDataAnalysis.Modules.Catalog.Tests.Fakes;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Tests.Application;
 
@@ -26,29 +27,10 @@ public sealed class ImportKaggleAudioFeaturesTests
         }
     }
 
-    private sealed class InMemoryTrackRepository : ITrackRepository
-    {
-        private readonly Dictionary<string, Track> _store = new();
-
-        public IReadOnlyDictionary<string, Track> Store => _store;
-
-        public void Seed(Track track) => _store[track.Id.Value] = track;
-
-        public Task<Track?> GetByIdAsync(SpotifyTrackId id, CancellationToken cancellationToken = default)
-            => Task.FromResult(_store.TryGetValue(id.Value, out Track? track) ? track : null);
-
-        public Task AddAsync(Track track, CancellationToken cancellationToken = default)
-        {
-            _store[track.Id.Value] = track;
-            return Task.CompletedTask;
-        }
-    }
-
     private static KaggleAudioFeaturesRow Row(string trackId)
         => new(trackId, 0.8, 0.6, 0.5, 120, 0.1, 0.0, 0.2, 0.05, -5.0, 5, 1, 4);
 
-    private static Track TrackWithId(string id)
-        => Track.Register(SpotifyTrackId.Of(id), "Song", Popularity.Of(50), 1000, false, null, Array.Empty<string>());
+    private static Track TrackWithId(string id) => CatalogFixtures.Track(id);
 
     [Fact]
     public async Task Import_AttachesFeatures_ToMatchingTracks_AndReportsMatchRate()

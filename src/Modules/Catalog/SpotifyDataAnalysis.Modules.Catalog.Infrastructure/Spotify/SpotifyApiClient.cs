@@ -70,6 +70,24 @@ public sealed class SpotifyApiClient : ISpotifyClient
     }
 
     /// <inheritdoc />
+    public async Task<SpotifyPlaylist?> GetPlaylistAsync(
+        string playlistId, CancellationToken cancellationToken = default)
+    {
+        // "fields" enxuga a resposta: sem isso a API devolve a primeira página de faixas junto (payload
+        // muito maior) — as faixas são coletadas à parte por GetPlaylistTracksAsync.
+        PlaylistJson? json = await GetAsync<PlaylistJson>(
+            $"playlists/{playlistId}?fields=id,name,owner(display_name),tracks(total)", cancellationToken);
+
+        if (json is null) return null;
+
+        return new SpotifyPlaylist(
+            json.Id ?? string.Empty,
+            json.Name ?? string.Empty,
+            json.Owner?.DisplayName,
+            json.Tracks?.Total ?? 0);
+    }
+
+    /// <inheritdoc />
     public async Task<SpotifyPlaylistTracksPage> GetPlaylistTracksAsync(
         string playlistId, int offset, int limit, CancellationToken cancellationToken = default)
     {
@@ -181,6 +199,18 @@ public sealed class SpotifyApiClient : ISpotifyClient
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("release_date")] string? ReleaseDate,
         [property: JsonPropertyName("total_tracks")] int TotalTracks);
+
+    private sealed record PlaylistJson(
+        [property: JsonPropertyName("id")] string? Id,
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("owner")] PlaylistOwnerJson? Owner,
+        [property: JsonPropertyName("tracks")] PlaylistTracksSummaryJson? Tracks);
+
+    private sealed record PlaylistOwnerJson(
+        [property: JsonPropertyName("display_name")] string? DisplayName);
+
+    private sealed record PlaylistTracksSummaryJson(
+        [property: JsonPropertyName("total")] int Total);
 
     private sealed record PlaylistTracksPageJson(
         [property: JsonPropertyName("items")] List<PlaylistItemJson>? Items,

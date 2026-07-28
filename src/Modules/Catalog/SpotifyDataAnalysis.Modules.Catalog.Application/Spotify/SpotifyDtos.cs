@@ -32,6 +32,16 @@ public sealed record SpotifyAlbum(
     int TotalTracks);
 
 /// <summary>
+/// DTO interno de uma playlist (os metadados, sem as faixas — estas vêm paginadas à parte). É o que a
+/// ingestão usa para registrar/atualizar a playlist-semente no catálogo.
+/// </summary>
+public sealed record SpotifyPlaylist(
+    string Id,
+    string Name,
+    string? OwnerDisplayName,
+    int TotalTracks);
+
+/// <summary>
 /// Página de faixas de uma playlist. Espelha o envelope de paginação da Spotify (offset/limit/total) e
 /// deriva <see cref="HasNext"/> para o caller iterar sem reprocessar o link <c>next</c> cru.
 /// </summary>

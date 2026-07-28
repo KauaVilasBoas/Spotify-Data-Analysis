@@ -10,6 +10,11 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 /// </summary>
 public interface ISpotifyClient
 {
+    /// <summary>
+    /// Metadados de uma playlist (nome, dono, total de faixas); <see langword="null"/> quando não existe (404).
+    /// </summary>
+    Task<SpotifyPlaylist?> GetPlaylistAsync(string playlistId, CancellationToken cancellationToken = default);
+
     /// <summary>Faixas de uma playlist, paginadas (offset/limit da Spotify Web API).</summary>
     Task<SpotifyPlaylistTracksPage> GetPlaylistTracksAsync(
         string playlistId, int offset, int limit, CancellationToken cancellationToken = default);
