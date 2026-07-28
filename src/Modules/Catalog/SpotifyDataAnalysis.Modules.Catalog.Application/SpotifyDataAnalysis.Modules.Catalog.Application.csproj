@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Application: casos de uso do módulo (CQRS handlers) + PORTAS de abstração (ex.: ISpotifyClient) e
+    seus DTOs. Depende para DENTRO: Domain, Contracts e a Infrastructure COMPARTILHADA (mediator, base de
+    controller, DI). NÃO referencia a Infrastructure do próprio módulo (a direção é Infra -> Application).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Catalog.Domain\SpotifyDataAnalysis.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Catalog.Contracts\SpotifyDataAnalysis.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Expõe tipos internos (portas/DTOs) aos testes do módulo. -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Catalog.Tests" />
+  </ItemGroup>
+
+</Project>

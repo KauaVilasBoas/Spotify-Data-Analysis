@@ -17,7 +17,12 @@ internal static class AssemblyRegistry
         .LoadAssemblies(
             typeof(SharedKernel.Domain.Entity<Guid>).Assembly,                     // SpotifyDataAnalysis.SharedKernel
             typeof(Infrastructure.Persistence.SpotifyDbContextBase).Assembly,      // SpotifyDataAnalysis.Infrastructure
-            typeof(Jobs.Scheduling.TimedBackgroundService).Assembly                // SpotifyDataAnalysis.Jobs
+            typeof(Jobs.Scheduling.TimedBackgroundService).Assembly,               // SpotifyDataAnalysis.Jobs
+            // Catalog (E0): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais.
+            typeof(Modules.Catalog.Domain.CatalogDomainAssemblyReference).Assembly,          // Catalog.Domain
+            typeof(Modules.Catalog.Contracts.CatalogContractsAssemblyReference).Assembly,    // Catalog.Contracts
+            typeof(Modules.Catalog.Application.CatalogApplicationAssemblyReference).Assembly, // Catalog.Application
+            typeof(Modules.Catalog.Infrastructure.CatalogModule).Assembly                    // Catalog.Infrastructure
         )
         .Build();
 

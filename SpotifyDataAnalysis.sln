@@ -25,6 +25,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Archite
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.SharedKernel.Tests", "tests\SpotifyDataAnalysis.SharedKernel.Tests\SpotifyDataAnalysis.SharedKernel.Tests.csproj", "{53E0D5B3-B5ED-4491-916F-24E55AC458FC}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Modules", "Modules", "{0F377722-1F2F-422C-AC6A-D50EE75B5FBE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Catalog", "Catalog", "{3CD17E4E-E13F-4676-A0F9-E5945698BD9C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules.Catalog.Domain", "src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Domain\SpotifyDataAnalysis.Modules.Catalog.Domain.csproj", "{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules.Catalog.Contracts", "src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Contracts\SpotifyDataAnalysis.Modules.Catalog.Contracts.csproj", "{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules.Catalog.Application", "src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Application\SpotifyDataAnalysis.Modules.Catalog.Application.csproj", "{34B70CFA-B6A9-4061-9DB2-184A14D07FDD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules.Catalog.Infrastructure", "src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj", "{BE50BA97-6936-43D0-A2AC-88C16791A9C0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -58,6 +70,22 @@ Global
 		{53E0D5B3-B5ED-4491-916F-24E55AC458FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{53E0D5B3-B5ED-4491-916F-24E55AC458FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{53E0D5B3-B5ED-4491-916F-24E55AC458FC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{34B70CFA-B6A9-4061-9DB2-184A14D07FDD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{34B70CFA-B6A9-4061-9DB2-184A14D07FDD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{34B70CFA-B6A9-4061-9DB2-184A14D07FDD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{34B70CFA-B6A9-4061-9DB2-184A14D07FDD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BE50BA97-6936-43D0-A2AC-88C16791A9C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BE50BA97-6936-43D0-A2AC-88C16791A9C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BE50BA97-6936-43D0-A2AC-88C16791A9C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BE50BA97-6936-43D0-A2AC-88C16791A9C0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{820AD640-FAA4-4EE6-892A-261972099F1F} = {2C4252D2-6F10-4D05-842B-2E09CCBA7591}
@@ -69,5 +97,11 @@ Global
 		{60651E96-1806-4F0F-9E8C-6C00E89EFDAC} = {CA76C046-1529-4A2D-9DA7-89CE02076C4B}
 		{1D247067-2FA6-47B7-81C2-057872F7A9B6} = {58B40D1B-742B-42CB-90F6-5B4E086F0D95}
 		{53E0D5B3-B5ED-4491-916F-24E55AC458FC} = {58B40D1B-742B-42CB-90F6-5B4E086F0D95}
+		{0F377722-1F2F-422C-AC6A-D50EE75B5FBE} = {2C4252D2-6F10-4D05-842B-2E09CCBA7591}
+		{3CD17E4E-E13F-4676-A0F9-E5945698BD9C} = {0F377722-1F2F-422C-AC6A-D50EE75B5FBE}
+		{B2DA9EC7-B175-4B5D-8A3B-C0D65A1B1727} = {3CD17E4E-E13F-4676-A0F9-E5945698BD9C}
+		{F06C0E0B-6EA3-4157-B9FD-9C798129AE7B} = {3CD17E4E-E13F-4676-A0F9-E5945698BD9C}
+		{34B70CFA-B6A9-4061-9DB2-184A14D07FDD} = {3CD17E4E-E13F-4676-A0F9-E5945698BD9C}
+		{BE50BA97-6936-43D0-A2AC-88C16791A9C0} = {3CD17E4E-E13F-4676-A0F9-E5945698BD9C}
 	EndGlobalSection
 EndGlobal

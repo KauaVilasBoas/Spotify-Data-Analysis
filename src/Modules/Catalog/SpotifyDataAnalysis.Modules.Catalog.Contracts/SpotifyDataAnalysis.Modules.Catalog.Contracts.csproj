@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Contracts: fronteira PÚBLICA do módulo para OUTROS módulos (interfaces + DTOs achatados,
+    integration events). Depende só do SharedKernel (IIntegrationEvent). Nada de EF/Domain/Application.
+    Os contratos reais (ex.: eventos de integração de ingestão) chegam quando outro módulo consumir o Catalog.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

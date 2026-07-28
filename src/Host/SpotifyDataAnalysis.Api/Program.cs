@@ -7,6 +7,7 @@ using SpotifyDataAnalysis.Api.Observability;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
 using SpotifyDataAnalysis.Infrastructure.Modules;
 using SpotifyDataAnalysis.Jobs.DependencyInjection;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
 using SpotifyDataAnalysis.SharedKernel.Observability;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -35,10 +36,13 @@ builder.Services.Replace(
 
 // ---------------------------------------------------------------------------
 // Composition Root — module discovery and registration via assembly scanning.
-// Load order is determined by IModule.Order (lower = first). Modules are added
-// to this array as each bounded context is created.
+// Load order is determined by IModule.Order (lower = first). Each module's IModule
+// lives in its Infrastructure (composition root) assembly. New modules are appended here.
 // ---------------------------------------------------------------------------
-Assembly[] moduleAssemblies = [];
+Assembly[] moduleAssemblies =
+[
+    typeof(CatalogModule).Assembly,
+];
 
 ModuleLoader.RegisterModules(builder.Services, builder.Configuration, moduleAssemblies);
 
