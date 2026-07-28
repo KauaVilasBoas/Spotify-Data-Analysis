@@ -10,6 +10,7 @@ using SpotifyDataAnalysis.Infrastructure.Outbox;
 using SpotifyDataAnalysis.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Application;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
+using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Matching;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Artists;
@@ -88,6 +89,13 @@ public static class CatalogModuleServiceExtensions
 
         // Leitor do CSV do Kaggle (E1.4): importa audio-features e casa por track_id.
         services.AddScoped<IKaggleAudioFeaturesReader, KaggleAudioFeaturesCsvReader>();
+
+        // Estratégias de casamento CSV → catálogo (E1.4). A ORDEM DE REGISTRO é a ordem da chain: o
+        // casamento exato por track_id vem primeiro e o fallback textual (nome+artista) só é tentado quando
+        // aquele falha. Acrescentar uma estratégia (ISRC, duração aproximada) é acrescentar uma linha aqui.
+        services.AddScoped<ITrackMatchingStrategy, SpotifyTrackIdMatchingStrategy>();
+        services.AddScoped<ITrackMatchingStrategy, NameAndArtistMatchingStrategy>();
+        services.AddScoped<TrackMatcher>();
 
         // Write-side UnitOfWork + Outbox (estratégia híbrida de consistência):
         //  - IOutboxDbContext aponta para o DbContext do módulo (write do agregado + outbox na MESMA transação);

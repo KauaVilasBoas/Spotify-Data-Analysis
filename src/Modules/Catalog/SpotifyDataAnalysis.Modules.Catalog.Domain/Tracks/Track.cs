@@ -26,6 +26,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Explicit = @explicit;
         AlbumId = albumId;
         _artists = artists;
+        MatchKey = BuildMatchKey(name, artists);
     }
 
     // Construtor sem parâmetros para a materialização do EF Core: a hidratação sobrescreve Id/propriedades/
@@ -35,6 +36,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Name = string.Empty;
         Popularity = Popularity.Unknown;
         _artists = [];
+        MatchKey = TrackMatchKey.From(null, null);
     }
 
     public string Name { get; private set; }
@@ -53,6 +55,13 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
 
     /// <summary>Artista principal (o primeiro crédito); nulo quando a faixa veio sem artistas.</summary>
     public TrackArtist? PrimaryArtist => _artists.Count == 0 ? null : _artists[0];
+
+    /// <summary>
+    /// Chave normalizada "artista principal + título", derivada do nome e dos créditos. Existe para o
+    /// fallback de casamento com o dataset externo quando o <c>track_id</c> não bate (E1.4); é mantida em
+    /// sincronia pelo próprio agregado a cada mudança de nome/créditos, nunca por quem consome.
+    /// </summary>
+    public TrackMatchKey MatchKey { get; private set; }
 
     /// <summary>Atributos de áudio (anexados a partir do dataset externo); nulos até serem casados.</summary>
     public AudioFeatures? AudioFeatures { get; private set; }
@@ -99,6 +108,8 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
 
         _artists.Clear();
         _artists.AddRange(artists ?? []);
+
+        MatchKey = BuildMatchKey(Name, _artists);
     }
 
     /// <summary>Anexa (ou substitui) os atributos de áudio da faixa.</summary>
@@ -107,4 +118,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Guard.AgainstNull(features, nameof(features));
         AudioFeatures = features;
     }
+
+    private static TrackMatchKey BuildMatchKey(string name, IReadOnlyList<TrackArtist> artists)
+        => TrackMatchKey.From(name, artists.Count == 0 ? null : artists[0].Name);
 }

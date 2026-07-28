@@ -27,6 +27,9 @@ internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
     private static readonly ValueConverter<Popularity, int> PopularityConverter =
         new(popularity => popularity.Value, value => Popularity.Of(value));
 
+    private static readonly ValueConverter<TrackMatchKey, string> MatchKeyConverter =
+        new(key => key.Value, value => TrackMatchKey.FromNormalized(value));
+
     public void Configure(EntityTypeBuilder<Track> builder)
     {
         builder.ToTable("tracks");
@@ -46,6 +49,16 @@ internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
             .HasColumnName("popularity")
             .HasConversion(PopularityConverter)
             .IsRequired();
+
+        // MatchKey: coluna indexada (não-única — homônimos do mesmo artista colidem por natureza) que
+        // sustenta o fallback de casamento com o dataset externo sem varredura de tabela.
+        builder.Property(track => track.MatchKey)
+            .HasColumnName("match_key")
+            .HasConversion(MatchKeyConverter)
+            .HasMaxLength(800)
+            .IsRequired();
+
+        builder.HasIndex(track => track.MatchKey).HasDatabaseName("ix_tracks_match_key");
 
         builder.Property(track => track.DurationMs).IsRequired();
         builder.Property(track => track.Explicit).IsRequired();

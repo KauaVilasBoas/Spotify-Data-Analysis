@@ -17,6 +17,16 @@ internal sealed class TrackRepository : ITrackRepository
     public async Task<Track?> GetByIdAsync(SpotifyTrackId id, CancellationToken cancellationToken = default)
         => await _dbContext.Tracks.FindAsync([id], cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<Track?> FindByMatchKeyAsync(
+        TrackMatchKey matchKey, CancellationToken cancellationToken = default)
+        // A chave não é única: ordenar por id torna a escolha determinística — reimportar o mesmo CSV leva
+        // sempre à mesma faixa, em vez de depender da ordem física das linhas no PostgreSQL.
+        => await _dbContext.Tracks
+            .Where(track => track.MatchKey == matchKey)
+            .OrderBy(track => track.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
     public async Task AddAsync(Track track, CancellationToken cancellationToken = default)
         => await _dbContext.Tracks.AddAsync(track, cancellationToken);
 }

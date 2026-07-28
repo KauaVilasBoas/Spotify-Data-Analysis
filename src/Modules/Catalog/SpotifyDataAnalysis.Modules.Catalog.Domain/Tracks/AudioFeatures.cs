@@ -26,6 +26,12 @@ public sealed class AudioFeatures : ValueObject
     public int Mode { get; }
     public int TimeSignature { get; }
 
+    /// <summary>
+    /// Gênero declarado pelo dataset para a faixa. É o recorte que a EDA (E2) agrupa, a feature categórica
+    /// do modelo (E3) e — já no E1.5 — o estrato usado para imputar valores faltantes pela mediana.
+    /// </summary>
+    public string? Genre { get; }
+
     /// <summary>De onde vieram as features (ex.: nome do dataset Kaggle).</summary>
     public string Source { get; }
 
@@ -39,8 +45,9 @@ public sealed class AudioFeatures : ValueObject
     private AudioFeatures(
         double danceability, double energy, double valence, double tempo, double acousticness,
         double instrumentalness, double liveness, double speechiness, double loudness,
-        int key, int mode, int timeSignature, string source, bool isImputed)
+        int key, int mode, int timeSignature, string? genre, string source, bool isImputed)
     {
+        Genre = genre;
         Danceability = danceability;
         Energy = energy;
         Valence = valence;
@@ -60,13 +67,15 @@ public sealed class AudioFeatures : ValueObject
     public static AudioFeatures Create(
         double danceability, double energy, double valence, double tempo, double acousticness,
         double instrumentalness, double liveness, double speechiness, double loudness,
-        int key, int mode, int timeSignature, string source, bool isImputed = false)
+        int key, int mode, int timeSignature, string source, string? genre = null, bool isImputed = false)
     {
         Guard.AgainstNullOrWhiteSpace(source, nameof(source));
 
         return new AudioFeatures(
             danceability, energy, valence, tempo, acousticness, instrumentalness, liveness,
-            speechiness, loudness, key, mode, timeSignature, source.Trim(), isImputed);
+            speechiness, loudness, key, mode, timeSignature,
+            string.IsNullOrWhiteSpace(genre) ? null : genre.Trim().ToLowerInvariant(),
+            source.Trim(), isImputed);
     }
 
     protected override IEnumerable<object?> GetEqualityComponents()
@@ -83,6 +92,7 @@ public sealed class AudioFeatures : ValueObject
         yield return Key;
         yield return Mode;
         yield return TimeSignature;
+        yield return Genre;
         yield return Source;
         yield return IsImputed;
     }

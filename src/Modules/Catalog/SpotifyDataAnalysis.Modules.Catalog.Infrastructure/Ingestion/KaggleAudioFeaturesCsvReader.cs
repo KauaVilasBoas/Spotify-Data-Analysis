@@ -37,6 +37,9 @@ internal sealed class KaggleAudioFeaturesCsvReader : IKaggleAudioFeaturesReader
 
             yield return new KaggleAudioFeaturesRow(
                 TrackId: csv.GetField<string>("track_id") ?? string.Empty,
+                TrackName: csv.GetField<string>("track_name"),
+                Artists: csv.GetField<string>("artists"),
+                Genre: csv.GetField<string>("track_genre"),
                 Danceability: csv.GetField<double>("danceability"),
                 Energy: csv.GetField<double>("energy"),
                 Valence: csv.GetField<double>("valence"),
