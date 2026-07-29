@@ -16,5 +16,19 @@ public interface ITrackRepository
     /// </summary>
     Task<Track?> FindByMatchKeyAsync(TrackMatchKey matchKey, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Entre as faixas que colidem na mesma <paramref name="matchKey"/>, devolve a que melhor casa com a
+    /// duração <paramref name="durationMs"/> — a de menor diferença absoluta, desde que dentro de
+    /// <paramref name="toleranceMs"/>. É a desambiguação de homônimos do mesmo artista (E1.9): a chave textual
+    /// sozinha os confunde, a duração da gravação os separa.
+    ///
+    /// Devolve <see langword="null"/> quando nenhuma candidata cai na tolerância — a estratégia então cede a
+    /// vez ao fallback textual puro. Empates de diferença são resolvidos de forma determinística pelo id, para
+    /// que reimportar o mesmo CSV leve sempre à mesma faixa.
+    /// </summary>
+    Task<Track?> FindByMatchKeyAndDurationAsync(
+        TrackMatchKey matchKey, int durationMs, int toleranceMs,
+        CancellationToken cancellationToken = default);
+
     Task AddAsync(Track track, CancellationToken cancellationToken = default);
 }

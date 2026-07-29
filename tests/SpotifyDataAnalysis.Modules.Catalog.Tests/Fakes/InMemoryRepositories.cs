@@ -30,6 +30,16 @@ internal sealed class InMemoryTrackRepository : ITrackRepository
             .OrderBy(track => track.Id.Value, StringComparer.Ordinal)
             .FirstOrDefault());
 
+    public Task<Track?> FindByMatchKeyAndDurationAsync(
+        TrackMatchKey matchKey, int durationMs, int toleranceMs,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(_store.Values
+            .Where(track => track.MatchKey == matchKey
+                && Math.Abs(track.DurationMs - durationMs) <= toleranceMs)
+            .OrderBy(track => Math.Abs(track.DurationMs - durationMs))
+            .ThenBy(track => track.Id.Value, StringComparer.Ordinal)
+            .FirstOrDefault());
+
     public Task AddAsync(Track track, CancellationToken cancellationToken = default)
     {
         _store[track.Id.Value] = track;
@@ -115,9 +125,10 @@ internal sealed class FixedClock : IClock
 internal static class CatalogFixtures
 {
     public static Track Track(
-        string id, string name = "Song", int popularity = 50, TrackArtist? artist = null, Isrc? isrc = null)
+        string id, string name = "Song", int popularity = 50, TrackArtist? artist = null, Isrc? isrc = null,
+        int durationMs = 200_000)
         => global::SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Track.Register(
-            SpotifyTrackId.Of(id), name, Popularity.Of(popularity), durationMs: 200_000,
+            SpotifyTrackId.Of(id), name, Popularity.Of(popularity), durationMs,
             @explicit: false, albumId: null, artists: artist is null ? [] : [artist], isrc: isrc);
 
     public static TrackArtist Artist(string id = "artist1", string name = "Queen")

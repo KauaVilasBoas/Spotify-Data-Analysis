@@ -10,7 +10,7 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Tests.Application;
 public sealed class AudioFeatureImputationTests
 {
     private static KaggleAudioFeaturesRow Row(string? genre, double? energy = 0.5, int? key = 1)
-        => new("id", "Song", "Artist", genre,
+        => new("id", "Song", "Artist", genre, DurationMs: 200_000,
             Danceability: 0.5, Energy: energy, Valence: 0.5, Tempo: 120, Acousticness: 0.1,
             Instrumentalness: 0.0, Liveness: 0.2, Speechiness: 0.05, Loudness: -5.0,
             Key: key, Mode: 1, TimeSignature: 4);

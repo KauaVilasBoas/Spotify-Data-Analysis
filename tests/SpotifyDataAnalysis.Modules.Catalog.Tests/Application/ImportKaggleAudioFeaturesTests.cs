@@ -30,16 +30,19 @@ public sealed class ImportKaggleAudioFeaturesTests
     }
 
     private static KaggleAudioFeaturesRow Row(
-        string trackId, string? trackName = null, string? artists = null, string? genre = "rock")
-        => new(trackId, trackName, artists, genre,
+        string trackId, string? trackName = null, string? artists = null, string? genre = "rock",
+        int? durationMs = null)
+        => new(trackId, trackName, artists, genre, durationMs,
             0.8, 0.6, 0.5, 120, 0.1, 0.0, 0.2, 0.05, -5.0, 5, 1, 4);
 
+    // A chain de teste espelha a ORDEM registrada na DI (E1.9): track_id → nome+duração → nome+artista.
     private static ImportKaggleAudioFeaturesCommandHandler Build(
         InMemoryTrackRepository tracks, params KaggleAudioFeaturesRow[] rows)
         => new(
             new FakeReader(rows),
             new TrackMatcher([
                 new SpotifyTrackIdMatchingStrategy(tracks),
+                new NameAndDurationMatchingStrategy(tracks),
                 new NameAndArtistMatchingStrategy(tracks)
             ]),
             new MedianAudioFeatureImputer());
@@ -228,6 +231,119 @@ public sealed class ImportKaggleAudioFeaturesTests
     }
 
     [Fact]
+    public async Task Import_DisambiguatesHomonyms_ByDuration_WhenTheTrackIdDoesNotMatch()
+    {
+        // Duas gravações homônimas do mesmo artista colidem na TrackMatchKey ("queen|song"). A chave textual
+        // pura casaria com a primeira arbitrariamente; a duração separa: o CSV traz 300s (dentro da
+        // tolerancia de "longa", nao da "curta").
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track(
+            "curta", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 200_000));
+        tracks.Seed(CatalogFixtures.Track(
+            "longa", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 300_000));
+
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(
+            Build(tracks, Row("kaggle-id", "Song", "Queen", durationMs: 300_500)));
+
+        Assert.Equal(1, result.MatchedByNameAndDuration);
+        Assert.Equal(0, result.MatchedByNameAndArtist);
+        Assert.Equal(0, result.MatchedById);
+        // A features foi anexada a faixa CERTA (a longa), nao a primeira ocorrencia da chave.
+        Assert.NotNull(tracks.Store["longa"].AudioFeatures);
+        Assert.Null(tracks.Store["curta"].AudioFeatures);
+        // O casamento por duracao NAO conta como fallback textual — a duracao confirma a faixa.
+        Assert.Equal(0d, result.FallbackRate);
+    }
+
+    [Fact]
+    public async Task Import_FollowsThePrecedenceOrder_TrackId_ThenDuration_ThenNameAndArtist()
+    {
+        var tracks = new InMemoryTrackRepository();
+        // Alvo do match exato por id.
+        tracks.Seed(CatalogFixtures.Track(
+            "id-exato", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 210_000));
+        // Homônimas que só a duração separa.
+        tracks.Seed(CatalogFixtures.Track(
+            "dur-curta", "Ballad", artist: CatalogFixtures.Artist("a2", "Abba"), durationMs: 180_000));
+        tracks.Seed(CatalogFixtures.Track(
+            "dur-longa", "Ballad", artist: CatalogFixtures.Artist("a2", "Abba"), durationMs: 320_000));
+        // Alvo do fallback textual puro (linha sem duração).
+        tracks.Seed(CatalogFixtures.Track(
+            "so-texto", "Anthem", artist: CatalogFixtures.Artist("a3", "Rush")));
+
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(Build(
+            tracks,
+            // Casa por id exato mesmo com duração divergente — o track_id vem primeiro.
+            Row("id-exato", "Song", "Queen", durationMs: 999_000),
+            // id inexistente + duração presente -> desambiguação por duração escolhe a longa.
+            Row("kaggle-x", "Ballad", "Abba", durationMs: 319_000),
+            // id inexistente + SEM duração -> a estratégia de duração cede a vez, cai no fallback textual.
+            Row("kaggle-y", "Anthem", "Rush", durationMs: null)));
+
+        Assert.Equal(1, result.MatchedById);
+        Assert.Equal(1, result.MatchedByNameAndDuration);
+        Assert.Equal(1, result.MatchedByNameAndArtist);
+        Assert.NotNull(tracks.Store["id-exato"].AudioFeatures);
+        Assert.NotNull(tracks.Store["dur-longa"].AudioFeatures);
+        Assert.Null(tracks.Store["dur-curta"].AudioFeatures);
+        Assert.NotNull(tracks.Store["so-texto"].AudioFeatures);
+        Assert.InRange(result.FallbackRate, 0.33, 0.34); // 1 de 3 casamentos veio do fallback textual puro
+    }
+
+    [Fact]
+    public async Task Import_YieldsToTheTextualFallback_WhenNoCandidateMatchesTheDurationWithinTolerance()
+    {
+        // Uma única faixa homônima, mas com duração muito distante da linha do CSV: a estratégia de duração
+        // não encontra candidata na tolerância e CEDE A VEZ ao fallback textual puro, que então casa.
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track(
+            "unica", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 200_000));
+
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(
+            Build(tracks, Row("kaggle-id", "Song", "Queen", durationMs: 260_000))); // 60s fora da tolerância
+
+        Assert.Equal(0, result.MatchedByNameAndDuration);
+        Assert.Equal(1, result.MatchedByNameAndArtist);
+        Assert.Equal(1d, result.FallbackRate);
+        Assert.NotNull(tracks.Store["unica"].AudioFeatures);
+    }
+
+    [Fact]
+    public async Task Import_KeepsHomonymsApart_WhenNoDurationCandidateMatches()
+    {
+        // Duas homônimas, ambas longe da duração do CSV: sem candidata na tolerância, a estratégia de duração
+        // cede a vez. O fallback textual puro assume e escolhe a primeira ocorrência determinística — mas o
+        // ponto do teste é que a estratégia de duração NÃO inventou um casamento errado.
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track(
+            "a", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 100_000));
+        tracks.Seed(CatalogFixtures.Track(
+            "b", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 400_000));
+
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(
+            Build(tracks, Row("kaggle-id", "Song", "Queen", durationMs: 250_000)));
+
+        Assert.Equal(0, result.MatchedByNameAndDuration);
+        Assert.Equal(1, result.MatchedByNameAndArtist);
+    }
+
+    [Fact]
+    public async Task Import_CountsAsMatchedByNameAndDuration_InTheMetric()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track(
+            "t1", "Song", artist: CatalogFixtures.Artist("a1", "Queen"), durationMs: 200_000));
+
+        ImportKaggleAudioFeaturesResult result = await ImportAsync(
+            Build(tracks, Row("kaggle-id", "Song", "Queen", durationMs: 200_000)));
+
+        Assert.Equal(1, result.Matched);
+        Assert.Equal(1, result.MatchedByNameAndDuration);
+        Assert.Equal(1d, result.MatchRate);
+        Assert.Equal(0d, result.FallbackRate);
+    }
+
+    [Fact]
     public async Task CsvReader_ParsesRows_ByHeaderName()
     {
         const string csv =
@@ -243,6 +359,7 @@ public sealed class ImportKaggleAudioFeaturesTests
         Assert.Equal("Bohemian Rhapsody", parsed.TrackName);
         Assert.Equal("Queen", parsed.Artists);
         Assert.Equal("rock", parsed.Genre);
+        Assert.Equal(354000, parsed.DurationMs);
         Assert.Equal(0.75, parsed.Danceability);
         Assert.Equal(120.5, parsed.Tempo);
         Assert.Equal(4, parsed.TimeSignature);

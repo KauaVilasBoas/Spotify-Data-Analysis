@@ -15,8 +15,15 @@ public enum TrackMatchKind
     /// <summary>Casada pelo <c>track_id</c> do Spotify — casamento exato, o caminho preferencial.</summary>
     SpotifyTrackId = 1,
 
+    /// <summary>
+    /// Casada pela chave normalizada "artista + título" <b>confirmada pela duração</b> — a mesma heurística
+    /// textual do <see cref="NameAndArtist"/>, mas desambiguando homônimos do mesmo artista pela duração da
+    /// gravação (E1.9). Mais confiável que a textual pura porque distingue faixas distintas que colidem na chave.
+    /// </summary>
+    NameAndDuration = 2,
+
     /// <summary>Casada pela chave normalizada "artista + título" — heurística, sujeita a colisão.</summary>
-    NameAndArtist = 2
+    NameAndArtist = 3
 }
 
 /// <summary>Resultado de um casamento: a faixa encontrada (se houve) e por qual estratégia.</summary>

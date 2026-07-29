@@ -91,10 +91,18 @@ public static class CatalogModuleServiceExtensions
         // Leitor do CSV do Kaggle (E1.4): importa audio-features e casa por track_id.
         services.AddScoped<IKaggleAudioFeaturesReader, KaggleAudioFeaturesCsvReader>();
 
-        // Estratégias de casamento CSV → catálogo (E1.4). A ORDEM DE REGISTRO é a ordem da chain: o
-        // casamento exato por track_id vem primeiro e o fallback textual (nome+artista) só é tentado quando
-        // aquele falha. Acrescentar uma estratégia (ISRC, duração aproximada) é acrescentar uma linha aqui.
+        // Estratégias de casamento CSV → catálogo (E1.4/E1.9). A ORDEM DE REGISTRO É a ordem da chain no
+        // TrackMatcher — da mais confiável para a menos confiável — e é aqui, na composição, que essa
+        // precedência fica registrada (não escondida no matcher):
+        //  1. SpotifyTrackId     — casamento exato por track_id; quando bate, não há dúvida.
+        //  2. NameAndDuration    — chave textual "artista+título" CONFIRMADA pela duração da gravação;
+        //                          desambigua homônimos do mesmo artista que a chave textual pura confunde.
+        //  3. NameAndArtist      — fallback textual puro; último recurso, escolhe a 1ª ocorrência da chave.
+        // A #2 vem ANTES da #3 de propósito: só assume quando a duração confirma uma candidata, e cede a vez
+        // (retorna null) caso contrário — então nunca "rouba" um caso que a #3 resolveria. Acrescentar uma
+        // estratégia é acrescentar uma linha aqui, na posição certa da precedência.
         services.AddScoped<ITrackMatchingStrategy, SpotifyTrackIdMatchingStrategy>();
+        services.AddScoped<ITrackMatchingStrategy, NameAndDurationMatchingStrategy>();
         services.AddScoped<ITrackMatchingStrategy, NameAndArtistMatchingStrategy>();
         services.AddScoped<TrackMatcher>();
 

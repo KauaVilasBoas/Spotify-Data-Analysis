@@ -50,7 +50,12 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
         // de deduplicar também cobre duas linhas de ids diferentes que caem na mesma faixa via fallback.
         var attachedTrackIds = new HashSet<string>(StringComparer.Ordinal);
 
-        int matchedById = 0, matchedByNameAndArtist = 0, unmatched = 0, duplicates = 0, imputed = 0, total = 0;
+        // A contagem é dirigida pelo TrackMatchKind da estratégia vencedora (não por um if/else por modo):
+        // acrescentar uma estratégia à chain passa a discriminar sua métrica sem tocar neste laço — só o
+        // Result precisa expor o novo contador.
+        var matchedByKind = new Dictionary<TrackMatchKind, int>();
+
+        int unmatched = 0, duplicates = 0, imputed = 0, total = 0;
 
         await foreach (KaggleAudioFeaturesRow row in _reader.ReadAsync(request.CsvFilePath, cancellationToken))
         {
@@ -78,14 +83,14 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
             if (values.IsImputed)
                 imputed++;
 
-            if (match.Kind == TrackMatchKind.SpotifyTrackId)
-                matchedById++;
-            else
-                matchedByNameAndArtist++;
+            matchedByKind[match.Kind] = matchedByKind.GetValueOrDefault(match.Kind) + 1;
         }
 
         return new ImportKaggleAudioFeaturesResult(
-            matchedById, matchedByNameAndArtist, unmatched, duplicates, imputed, total);
+            MatchedById: matchedByKind.GetValueOrDefault(TrackMatchKind.SpotifyTrackId),
+            MatchedByNameAndDuration: matchedByKind.GetValueOrDefault(TrackMatchKind.NameAndDuration),
+            MatchedByNameAndArtist: matchedByKind.GetValueOrDefault(TrackMatchKind.NameAndArtist),
+            Unmatched: unmatched, Duplicates: duplicates, Imputed: imputed, Total: total);
     }
 
     private async Task<AudioFeatureMedianProfile> BuildMedianProfileAsync(

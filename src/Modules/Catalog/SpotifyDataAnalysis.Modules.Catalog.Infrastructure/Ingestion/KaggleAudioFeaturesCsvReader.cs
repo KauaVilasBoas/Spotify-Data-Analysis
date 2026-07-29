@@ -44,6 +44,7 @@ internal sealed class KaggleAudioFeaturesCsvReader : IKaggleAudioFeaturesReader
                 TrackName: Text(csv, "track_name"),
                 Artists: Text(csv, "artists"),
                 Genre: Text(csv, "track_genre"),
+                DurationMs: Discrete(csv, "duration_ms"),
                 Danceability: Number(csv, "danceability"),
                 Energy: Number(csv, "energy"),
                 Valence: Number(csv, "valence"),
