@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\src\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Jobs\SpotifyDataAnalysis.Jobs\SpotifyDataAnalysis.Jobs.csproj" />
+    <!-- Host: analisado para provar a fronteira Host !-> Domain dos módulos (E0.1). -->
+    <ProjectReference Include="..\..\src\Host\SpotifyDataAnalysis.Api\SpotifyDataAnalysis.Api.csproj" />
     <!-- Catalog (E0): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais. -->
     <ProjectReference Include="..\..\src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Domain\SpotifyDataAnalysis.Modules.Catalog.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Contracts\SpotifyDataAnalysis.Modules.Catalog.Contracts.csproj" />
