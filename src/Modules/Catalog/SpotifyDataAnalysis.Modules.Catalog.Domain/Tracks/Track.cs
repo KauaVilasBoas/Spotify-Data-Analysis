@@ -18,7 +18,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
 
     private Track(
         SpotifyTrackId id, string name, Popularity popularity, int durationMs, bool @explicit,
-        string? albumId, List<TrackArtist> artists) : base(id)
+        string? albumId, List<TrackArtist> artists, Isrc? isrc) : base(id)
     {
         Name = name;
         Popularity = popularity;
@@ -26,6 +26,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Explicit = @explicit;
         AlbumId = albumId;
         _artists = artists;
+        Isrc = isrc;
         MatchKey = BuildMatchKey(name, artists);
     }
 
@@ -47,6 +48,13 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     /// <summary>Id do álbum no Spotify (por valor; sem FK/navegação cross-agregado).</summary>
     public string? AlbumId { get; private set; }
 
+    /// <summary>
+    /// Código ISRC da gravação, quando a fonte o informa. É <b>opcional por natureza</b>: parte do catálogo
+    /// do Spotify não traz <c>external_ids.isrc</c>, então a ausência é um estado legítimo da faixa e nunca
+    /// impede o registro.
+    /// </summary>
+    public Isrc? Isrc { get; private set; }
+
     /// <summary>Créditos de artista da faixa (id por valor + nome), na ordem devolvida pela API.</summary>
     public IReadOnlyList<TrackArtist> Artists => _artists.AsReadOnly();
 
@@ -66,10 +74,13 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     /// <summary>Atributos de áudio (anexados a partir do dataset externo); nulos até serem casados.</summary>
     public AudioFeatures? AudioFeatures { get; private set; }
 
-    /// <summary>Registra uma nova faixa no catálogo (named constructor), validando as invariantes.</summary>
+    /// <summary>
+    /// Registra uma nova faixa no catálogo (named constructor), validando as invariantes.
+    /// <paramref name="isrc"/> é opcional — nem toda gravação tem código registrado na fonte.
+    /// </summary>
     public static Track Register(
         SpotifyTrackId id, string name, Popularity popularity, int durationMs, bool @explicit,
-        string? albumId, IEnumerable<TrackArtist> artists)
+        string? albumId, IEnumerable<TrackArtist> artists, Isrc? isrc)
     {
         Guard.AgainstNull(id, nameof(id));
         Guard.AgainstNull(popularity, nameof(popularity));
@@ -78,7 +89,7 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
 
         string trimmedName = name.Trim();
         var track = new Track(id, trimmedName, popularity, durationMs, @explicit, albumId,
-            artists?.ToList() ?? []);
+            artists?.ToList() ?? [], isrc);
 
         track.RaiseDomainEvent(new TrackRegisteredDomainEvent(id.Value, trimmedName, popularity.Value, DateTime.UtcNow));
         return track;
@@ -94,11 +105,16 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
     /// </summary>
     public void RefreshFromSource(
         string name, Popularity popularity, int durationMs, bool @explicit,
-        string? albumId, IEnumerable<TrackArtist> artists)
+        string? albumId, IEnumerable<TrackArtist> artists, Isrc? isrc)
     {
         Guard.AgainstNullOrWhiteSpace(name, nameof(name));
         Guard.AgainstNull(popularity, nameof(popularity));
         Guard.AgainstNegative(durationMs, nameof(durationMs));
+
+        // Materializa ANTES do Clear: se o chamador passar uma projeção da própria coleção do agregado
+        // (Artists é uma view sobre _artists), limpar primeiro esvaziaria a sequência que está sendo lida
+        // e a faixa perderia os créditos.
+        List<TrackArtist> incomingArtists = artists?.ToList() ?? [];
 
         Name = name.Trim();
         Popularity = popularity;
@@ -106,8 +122,14 @@ public sealed class Track : AggregateRoot<SpotifyTrackId>
         Explicit = @explicit;
         AlbumId = albumId;
 
+        // O ISRC identifica a GRAVAÇÃO e não muda com o tempo — ao contrário de nome, popularidade e
+        // créditos, que são um retrato. Uma resposta sem o campo significa "a fonte não informou", não
+        // "a gravação perdeu o código": apagar o valor já conhecido seria perda de dado.
+        if (isrc is not null)
+            Isrc = isrc;
+
         _artists.Clear();
-        _artists.AddRange(artists ?? []);
+        _artists.AddRange(incomingArtists);
 
         MatchKey = BuildMatchKey(Name, _artists);
     }

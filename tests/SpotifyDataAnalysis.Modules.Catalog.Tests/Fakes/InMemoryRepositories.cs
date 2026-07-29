@@ -98,10 +98,11 @@ internal sealed class FixedClock : IClock
 /// <summary>Atalhos para montar agregados válidos nos testes sem repetir os parâmetros irrelevantes.</summary>
 internal static class CatalogFixtures
 {
-    public static Track Track(string id, string name = "Song", int popularity = 50, TrackArtist? artist = null)
+    public static Track Track(
+        string id, string name = "Song", int popularity = 50, TrackArtist? artist = null, Isrc? isrc = null)
         => global::SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Track.Register(
             SpotifyTrackId.Of(id), name, Popularity.Of(popularity), durationMs: 200_000,
-            @explicit: false, albumId: null, artists: artist is null ? [] : [artist]);
+            @explicit: false, albumId: null, artists: artist is null ? [] : [artist], isrc: isrc);
 
     public static TrackArtist Artist(string id = "artist1", string name = "Queen")
         => TrackArtist.Of(id, name);

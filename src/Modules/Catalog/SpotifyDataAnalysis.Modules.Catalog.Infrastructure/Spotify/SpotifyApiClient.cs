@@ -162,7 +162,8 @@ public sealed class SpotifyApiClient : ISpotifyClient
             json.DurationMs,
             json.Explicit,
             artists,
-            album);
+            album,
+            json.ExternalIds?.Isrc);
     }
 
     // ---- Modelos de desserialização do JSON externo (mantidos privados ao adapter) ----
@@ -174,7 +175,18 @@ public sealed class SpotifyApiClient : ISpotifyClient
         [property: JsonPropertyName("duration_ms")] int DurationMs,
         [property: JsonPropertyName("explicit")] bool Explicit,
         [property: JsonPropertyName("artists")] List<ArtistRefJson>? Artists,
-        [property: JsonPropertyName("album")] AlbumRefJson? Album);
+        [property: JsonPropertyName("album")] AlbumRefJson? Album,
+        [property: JsonPropertyName("external_ids")] ExternalIdsJson? ExternalIds);
+
+    /// <summary>
+    /// Identificadores da faixa em catálogos externos ao Spotify. Só o <c>isrc</c> interessa ao módulo — os
+    /// demais (<c>ean</c>, <c>upc</c>) identificam o produto comercial, não a gravação.
+    ///
+    /// <para>O objeto vem no <b>full track object</b> (endpoints de faixa e de itens de playlist, que este
+    /// adapter consome sem filtro <c>fields</c>) e é omitido nos objetos simplificados. Ausente ⇒ nulo.</para>
+    /// </summary>
+    private sealed record ExternalIdsJson(
+        [property: JsonPropertyName("isrc")] string? Isrc);
 
     private sealed record ArtistRefJson(
         [property: JsonPropertyName("id")] string? Id,

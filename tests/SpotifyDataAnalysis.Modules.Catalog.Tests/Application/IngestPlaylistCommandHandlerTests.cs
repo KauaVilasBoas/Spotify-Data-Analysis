@@ -42,8 +42,8 @@ public sealed class IngestPlaylistCommandHandlerTests
 
     private static SpotifyTrack Dto(
         string id, string name, int popularity = 50,
-        IReadOnlyList<SpotifyArtistRef>? artists = null, SpotifyAlbumRef? album = null)
-        => new(id, name, popularity, DurationMs: 1000, Explicit: false, artists ?? [], album);
+        IReadOnlyList<SpotifyArtistRef>? artists = null, SpotifyAlbumRef? album = null, string? isrc = null)
+        => new(id, name, popularity, DurationMs: 1000, Explicit: false, artists ?? [], album, isrc);
 
     [Fact]
     public async Task Ingests_NewTracks_AndRecordsTheSeedPlaylist()
@@ -105,6 +105,47 @@ public sealed class IngestPlaylistCommandHandlerTests
         Assert.Equal("One (Remastered)", tracks.Store["t1"].Name);
         // Reingestão não pode reemitir TrackRegistered (o Outbox reprocessaria a cada ciclo).
         Assert.Single(tracks.Store["t1"].DomainEvents);
+    }
+
+    [Fact]
+    public async Task Ingests_TheIsrc_WhenTheApiReportsIt_AndLeavesItAbsentWhenItDoesNot()
+    {
+        Harness harness = Build(new FakeSpotifyClient(
+            Dto("t1", "One", isrc: "br-bmg-03-00729"), // notação com hifens: o VO normaliza
+            Dto("t2", "Two")));                        // faixa sem ISRC (a API omite external_ids)
+
+        await harness.Handler.HandleAsync(new IngestPlaylistCommand("pl1"));
+
+        Assert.Equal("BRBMG0300729", harness.Tracks.Store["t1"].Isrc!.Value);
+        Assert.Null(harness.Tracks.Store["t2"].Isrc);
+    }
+
+    /// <summary>
+    /// ISRC é enriquecimento opcional, não invariante: um código malformado numa faixa não pode derrubar o
+    /// ciclo de coleta — a faixa entra no catálogo sem ISRC.
+    /// </summary>
+    [Fact]
+    public async Task Ingests_TrackWithMalformedIsrc_AsIfItHadNone()
+    {
+        Harness harness = Build(new FakeSpotifyClient(Dto("t1", "One", isrc: "???")));
+
+        IngestPlaylistResult result = await harness.Handler.HandleAsync(new IngestPlaylistCommand("pl1"));
+
+        Assert.Equal(1, result.Ingested);
+        Assert.Null(harness.Tracks.Store["t1"].Isrc);
+    }
+
+    [Fact]
+    public async Task Refreshing_AnExistingTrack_AttachesTheIsrcTheApiStartedReporting()
+    {
+        var tracks = new InMemoryTrackRepository();
+        tracks.Seed(CatalogFixtures.Track("t1", "One"));
+
+        Harness harness = Build(new FakeSpotifyClient(Dto("t1", "One", isrc: "USUM71703861")), tracks);
+
+        await harness.Handler.HandleAsync(new IngestPlaylistCommand("pl1"));
+
+        Assert.Equal("USUM71703861", tracks.Store["t1"].Isrc!.Value);
     }
 
     [Fact]

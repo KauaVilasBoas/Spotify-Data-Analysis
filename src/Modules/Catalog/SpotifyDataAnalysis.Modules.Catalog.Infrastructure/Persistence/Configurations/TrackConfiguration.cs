@@ -17,6 +17,8 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence.Configu
 ///   mapeada pelo campo de apoio; as propriedades derivadas read-only são ignoradas.</item>
 ///   <item><see cref="Track.AudioFeatures"/> → owned type serializado como JSON numa única coluna
 ///   <c>audio_features</c> (opcional; nulo até ser casado com o dataset externo).</item>
+///   <item><see cref="Track.Isrc"/> → coluna <c>isrc</c> opcional via value converter, com índice
+///   não-único que servirá ao casamento por ISRC.</item>
 /// </list>
 /// </summary>
 internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
@@ -29,6 +31,11 @@ internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
 
     private static readonly ValueConverter<TrackMatchKey, string> MatchKeyConverter =
         new(key => key.Value, value => TrackMatchKey.FromNormalized(value));
+
+    // Declarado sobre Isrc? (a propriedade é opcional). O null-forgiving na ida é seguro: o EF nunca invoca
+    // o converter para NULL — a coluna recebe NULL direto e a volta só roda com valor presente.
+    private static readonly ValueConverter<Isrc?, string> IsrcConverter =
+        new(isrc => isrc!.Value, value => Isrc.Of(value));
 
     public void Configure(EntityTypeBuilder<Track> builder)
     {
@@ -63,6 +70,18 @@ internal sealed class TrackConfiguration : IEntityTypeConfiguration<Track>
         builder.Property(track => track.DurationMs).IsRequired();
         builder.Property(track => track.Explicit).IsRequired();
         builder.Property(track => track.AlbumId).HasMaxLength(64);
+
+        // Isrc: coluna OPCIONAL (parte do catálogo não tem o código) de tamanho fixo — o value object já
+        // normaliza para 12 caracteres sem hifens. O converter só roda em valores não-nulos, então uma faixa
+        // sem ISRC persiste NULL. O índice é NÃO-único de propósito: o mesmo ISRC aparece em faixas
+        // distintas do Spotify (relançamentos, edições por mercado), e ele existe para servir o match por
+        // ISRC (E1.9) sem varredura de tabela.
+        builder.Property(track => track.Isrc)
+            .HasColumnName("isrc")
+            .HasConversion(IsrcConverter)
+            .HasMaxLength(Isrc.Length);
+
+        builder.HasIndex(track => track.Isrc).HasDatabaseName("ix_tracks_isrc");
 
         // Artists: mapeado pelo campo de apoio como jsonb; as projeções read-only não viram coluna.
         builder.Ignore(track => track.Artists);

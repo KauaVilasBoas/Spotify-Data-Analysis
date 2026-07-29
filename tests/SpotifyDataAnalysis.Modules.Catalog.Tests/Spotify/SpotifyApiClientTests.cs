@@ -59,7 +59,8 @@ public sealed class SpotifyApiClientTests
           "duration_ms": 354000,
           "explicit": false,
           "artists": [ { "id": "q1", "name": "Queen" } ],
-          "album": { "id": "alb1", "name": "A Night at the Opera" }
+          "album": { "id": "alb1", "name": "A Night at the Opera" },
+          "external_ids": { "isrc": "GBUM71029604" }
         }
         """;
         SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
@@ -76,6 +77,25 @@ public sealed class SpotifyApiClientTests
         Assert.Equal("Queen", track.Artists[0].Name);
         Assert.NotNull(track.Album);
         Assert.Equal("alb1", track.Album!.Id);
+        Assert.Equal("GBUM71029604", track.Isrc);
+    }
+
+    /// <summary>
+    /// A Spotify omite <c>external_ids</c> em parte do catálogo (faixas locais, lançamentos sem código
+    /// registrado). O adapter tem de tratar a ausência como "sem ISRC", não como erro.
+    /// </summary>
+    [Theory]
+    [InlineData("""{ "id": "x", "name": "n", "popularity": 0, "duration_ms": 0, "explicit": false, "artists": [], "album": null }""")]
+    [InlineData("""{ "id": "x", "name": "n", "popularity": 0, "duration_ms": 0, "explicit": false, "artists": [], "album": null, "external_ids": {} }""")]
+    [InlineData("""{ "id": "x", "name": "n", "popularity": 0, "duration_ms": 0, "explicit": false, "artists": [], "album": null, "external_ids": { "upc": "00602537" } }""")]
+    public async Task GetTrackAsync_WithoutIsrc_MapsItAsAbsent(string json)
+    {
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyTrack? track = await client.GetTrackAsync("x");
+
+        Assert.NotNull(track);
+        Assert.Null(track!.Isrc);
     }
 
     [Fact]
@@ -106,12 +126,149 @@ public sealed class SpotifyApiClientTests
     }
 
     [Fact]
+    public async Task GetArtistAsync_MapsJson_ToInternalDto()
+    {
+        const string json = """
+        {
+          "id": "q1",
+          "name": "Queen",
+          "popularity": 84,
+          "followers": { "total": 43210987 },
+          "genres": [ "classic rock", "glam rock" ]
+        }
+        """;
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyArtist? artist = await client.GetArtistAsync("q1");
+
+        Assert.NotNull(artist);
+        Assert.Equal("q1", artist!.Id);
+        Assert.Equal("Queen", artist.Name);
+        Assert.Equal(84, artist.Popularity);
+        Assert.Equal(43210987, artist.Followers);
+        Assert.Equal(new[] { "classic rock", "glam rock" }, artist.Genres);
+    }
+
+    /// <summary>
+    /// Campos opcionais ausentes viram valores neutros previsíveis (0 seguidores, lista de gêneros vazia) —
+    /// nunca <see langword="null"/>, para o consumidor não precisar se defender.
+    /// </summary>
+    [Fact]
+    public async Task GetArtistAsync_WithoutFollowersOrGenres_MapsToNeutralValues()
+    {
+        const string json = """{ "id": "q1", "name": "Queen", "popularity": 0 }""";
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyArtist? artist = await client.GetArtistAsync("q1");
+
+        Assert.NotNull(artist);
+        Assert.Equal(0, artist!.Followers);
+        Assert.Empty(artist.Genres);
+    }
+
+    [Fact]
+    public async Task GetArtistAsync_NotFound_ReturnsNull()
+    {
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.NotFound, string.Empty));
+
+        Assert.Null(await client.GetArtistAsync("missing"));
+    }
+
+    [Fact]
+    public async Task GetAlbumAsync_MapsJson_ToInternalDto()
+    {
+        const string json = """
+        {
+          "id": "alb1",
+          "name": "A Night at the Opera",
+          "release_date": "1975-11-21",
+          "total_tracks": 12
+        }
+        """;
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyAlbum? album = await client.GetAlbumAsync("alb1");
+
+        Assert.NotNull(album);
+        Assert.Equal("alb1", album!.Id);
+        Assert.Equal("A Night at the Opera", album.Name);
+        Assert.Equal("1975-11-21", album.ReleaseDate);
+        Assert.Equal(12, album.TotalTracks);
+    }
+
+    /// <summary>
+    /// A Spotify devolve <c>release_date</c> em precisão variável (ano, ano-mês ou data completa) e às vezes
+    /// nem devolve. O adapter repassa a string crua — interpretar a precisão é do domínio (<c>ReleaseDate</c>).
+    /// </summary>
+    [Theory]
+    [InlineData("""{ "id": "alb1", "name": "Álbum", "release_date": "1975", "total_tracks": 12 }""", "1975")]
+    [InlineData("""{ "id": "alb1", "name": "Álbum", "release_date": "1975-11", "total_tracks": 12 }""", "1975-11")]
+    [InlineData("""{ "id": "alb1", "name": "Álbum", "total_tracks": 12 }""", null)]
+    public async Task GetAlbumAsync_PassesTheRawReleaseDate_WhateverItsPrecision(
+        string json, string? expected)
+    {
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyAlbum? album = await client.GetAlbumAsync("alb1");
+
+        Assert.NotNull(album);
+        Assert.Equal(expected, album!.ReleaseDate);
+    }
+
+    [Fact]
+    public async Task GetAlbumAsync_NotFound_ReturnsNull()
+    {
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.NotFound, string.Empty));
+
+        Assert.Null(await client.GetAlbumAsync("missing"));
+    }
+
+    [Fact]
+    public async Task GetPlaylistAsync_MapsMetadata_AndRequestsOnlyTheNeededFields()
+    {
+        const string json = """
+        {
+          "id": "pl1",
+          "name": "Minha semente",
+          "owner": { "display_name": "kaua" },
+          "tracks": { "total": 137 }
+        }
+        """;
+        var handler = new StubHandler(HttpStatusCode.OK, json);
+        SpotifyApiClient client = CreateClient(handler);
+
+        SpotifyPlaylist? playlist = await client.GetPlaylistAsync("pl1");
+
+        Assert.NotNull(playlist);
+        Assert.Equal("pl1", playlist!.Id);
+        Assert.Equal("Minha semente", playlist.Name);
+        Assert.Equal("kaua", playlist.OwnerDisplayName);
+        Assert.Equal(137, playlist.TotalTracks);
+
+        // O filtro "fields" evita trazer a primeira página de faixas junto (payload muito maior).
+        Assert.Contains("fields=", handler.LastRequest!.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task GetPlaylistAsync_WithoutOwner_MapsTheDisplayNameAsAbsent()
+    {
+        const string json = """{ "id": "pl1", "name": "Sem dono", "tracks": { "total": 0 } }""";
+        SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.OK, json));
+
+        SpotifyPlaylist? playlist = await client.GetPlaylistAsync("pl1");
+
+        Assert.NotNull(playlist);
+        Assert.Null(playlist!.OwnerDisplayName);
+        Assert.Equal(0, playlist.TotalTracks);
+    }
+
+    [Fact]
     public async Task GetPlaylistTracksAsync_MapsItems_AndComputesHasNext()
     {
         const string json = """
         {
           "items": [
-            { "track": { "id": "t1", "name": "One", "popularity": 10, "duration_ms": 1000, "explicit": false, "artists": [], "album": null } },
+            { "track": { "id": "t1", "name": "One", "popularity": 10, "duration_ms": 1000, "explicit": false, "artists": [], "album": null, "external_ids": { "isrc": "USUM71703861" } } },
             { "track": { "id": "t2", "name": "Two", "popularity": 20, "duration_ms": 2000, "explicit": true,  "artists": [], "album": null } }
           ],
           "offset": 0,
@@ -127,5 +284,9 @@ public sealed class SpotifyApiClientTests
         Assert.Equal("t2", page.Items[1].Id);
         Assert.Equal(5, page.Total);
         Assert.True(page.HasNext); // 0 + 2 < 5
+
+        // O ISRC vem do full track object dos itens da playlist — é o caminho real da ingestão.
+        Assert.Equal("USUM71703861", page.Items[0].Isrc);
+        Assert.Null(page.Items[1].Isrc);
     }
 }

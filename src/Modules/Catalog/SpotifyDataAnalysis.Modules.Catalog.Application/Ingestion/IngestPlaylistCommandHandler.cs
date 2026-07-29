@@ -133,19 +133,24 @@ internal sealed class IngestPlaylistCommandHandler : ICommandHandler<IngestPlayl
             .ToList();
 
         Popularity popularity = Popularity.Of(dto.Popularity);
+
+        // ISRC é enriquecimento opcional: código ausente ou malformado vira "sem ISRC", nunca uma exceção
+        // que derrubaria o ciclo de coleta inteiro por causa de uma faixa.
+        Isrc.TryParse(dto.Isrc, out Isrc? isrc);
+
         Track? existing = await _tracks.GetByIdAsync(id, cancellationToken);
 
         if (existing is null)
         {
             Track track = Track.Register(
-                id, dto.Name, popularity, dto.DurationMs, dto.Explicit, dto.Album?.Id, artists);
+                id, dto.Name, popularity, dto.DurationMs, dto.Explicit, dto.Album?.Id, artists, isrc);
 
             await _tracks.AddAsync(track, cancellationToken);
             return true;
         }
 
         existing.RefreshFromSource(
-            dto.Name, popularity, dto.DurationMs, dto.Explicit, dto.Album?.Id, artists);
+            dto.Name, popularity, dto.DurationMs, dto.Explicit, dto.Album?.Id, artists, isrc);
 
         return false;
     }
