@@ -18,6 +18,36 @@ public sealed class JobsOptions
 
     /// <summary>Settings for the scheduled playlist collection job.</summary>
     public PlaylistIngestionOptions PlaylistIngestion { get; init; } = new();
+
+    /// <summary>Settings for the scheduled catalog enrichment job (E1.8).</summary>
+    public CatalogEnrichmentOptions CatalogEnrichment { get; init; } = new();
+}
+
+/// <summary>
+/// Settings for the scheduled enrichment of catalog references (E1.8): loading the full artist/album profile
+/// from the Spotify Web API for the aggregates that entered the catalog as bare references.
+///
+/// Disabled by default <b>on purpose</b>, for the same reason as the playlist collection: the job calls the
+/// Spotify Web API and would burn rate-limit quota where credentials were not deliberately configured. It is
+/// the heaviest API consumer in the project, so its own cadence and batch size are tunable per environment.
+/// </summary>
+public sealed class CatalogEnrichmentOptions
+{
+    /// <summary>Whether the scheduled enrichment runs at all. Default: <see langword="false"/>.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// How often a batch of pending references is enriched. Default: 1 hour — the backlog drains a batch per
+    /// tick and popularity/followers move slowly, so a tighter cadence spends API quota without adding value.
+    /// </summary>
+    public TimeSpan Interval { get; init; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How many pending artists and albums are enriched per tick. Default: 200 — a batch large enough to make
+    /// progress yet small enough to keep each command's transaction short. Zero falls back to the command's
+    /// own default.
+    /// </summary>
+    public int BatchSize { get; init; } = 200;
 }
 
 /// <summary>

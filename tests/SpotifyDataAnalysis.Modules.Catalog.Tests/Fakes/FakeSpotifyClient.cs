@@ -43,4 +43,12 @@ internal sealed class FakeSpotifyClient : ISpotifyClient
 
     public Task<SpotifyAlbum?> GetAlbumAsync(string albumId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
+
+    public Task<IReadOnlyList<SpotifyArtist>> GetArtistsAsync(
+        IReadOnlyCollection<string> artistIds, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
+
+    public Task<IReadOnlyList<SpotifyAlbum>> GetAlbumsAsync(
+        IReadOnlyCollection<string> albumIds, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
 }

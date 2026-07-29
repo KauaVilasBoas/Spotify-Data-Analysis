@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 
@@ -12,6 +13,15 @@ internal sealed class AlbumRepository : IAlbumRepository
 
     public async Task<Album?> GetByIdAsync(SpotifyAlbumId id, CancellationToken cancellationToken = default)
         => await _dbContext.Albums.FindAsync([id], cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Album>> ListPendingEnrichmentAsync(
+        int limit, CancellationToken cancellationToken = default)
+        => await _dbContext.Albums
+            .Where(album => !album.IsEnriched)
+            .OrderBy(album => album.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
 
     public async Task AddAsync(Album album, CancellationToken cancellationToken = default)
         => await _dbContext.Albums.AddAsync(album, cancellationToken);

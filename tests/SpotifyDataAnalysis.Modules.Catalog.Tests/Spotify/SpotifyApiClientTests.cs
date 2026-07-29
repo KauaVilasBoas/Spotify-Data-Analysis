@@ -42,7 +42,7 @@ public sealed class SpotifyApiClientTests
             => Task.FromResult("fake-token");
     }
 
-    private static SpotifyApiClient CreateClient(StubHandler handler)
+    private static SpotifyApiClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { BaseAddress = new Uri("https://api.spotify.com/v1/") };
         return new SpotifyApiClient(http, new FixedTokenProvider());
@@ -221,6 +221,108 @@ public sealed class SpotifyApiClientTests
         SpotifyApiClient client = CreateClient(new StubHandler(HttpStatusCode.NotFound, string.Empty));
 
         Assert.Null(await client.GetAlbumAsync("missing"));
+    }
+
+    // ---- Endpoints em lote (E1.8) ----
+
+    /// <summary>
+    /// Handler que devolve, por requisição, o próximo JSON da fila e registra cada URL chamada — para provar
+    /// quantas requisições HTTP o adapter emitiu ao fatiar um lote grande.
+    /// </summary>
+    private sealed class QueueHandler : HttpMessageHandler
+    {
+        private readonly Queue<string> _responses;
+
+        public QueueHandler(params string[] responses) => _responses = new Queue<string>(responses);
+
+        public List<string> RequestedUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestedUris.Add(request.RequestUri!.PathAndQuery);
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_responses.Dequeue(), System.Text.Encoding.UTF8, "application/json")
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    [Fact]
+    public async Task GetArtistsAsync_MapsBatch_AndDropsNullPositionsForUnknownIds()
+    {
+        // A API devolve a lista "artists" com null na posição de um id inválido.
+        const string json = """
+        {
+          "artists": [
+            { "id": "q1", "name": "Queen", "popularity": 84, "followers": { "total": 100 }, "genres": ["rock"] },
+            null,
+            { "id": "b1", "name": "Bowie", "popularity": 80, "followers": { "total": 90 }, "genres": [] }
+          ]
+        }
+        """;
+        var handler = new QueueHandler(json);
+        SpotifyApiClient client = CreateClient(handler);
+
+        IReadOnlyList<SpotifyArtist> artists = await client.GetArtistsAsync(["q1", "invalido", "b1"]);
+
+        Assert.Equal(2, artists.Count);
+        Assert.Equal("q1", artists[0].Id);
+        Assert.Equal("b1", artists[1].Id);
+        Assert.Single(handler.RequestedUris); // 3 ids < 50: uma única requisição
+        Assert.Contains("ids=q1,invalido,b1", handler.RequestedUris[0]);
+    }
+
+    [Fact]
+    public async Task GetArtistsAsync_SplitsInto50IdChunks()
+    {
+        // Duas respostas vazias bastam: só nos importa quantas requisições o adapter emitiu.
+        const string empty = """{ "artists": [] }""";
+        var handler = new QueueHandler(empty, empty);
+        SpotifyApiClient client = CreateClient(handler);
+
+        string[] ids = Enumerable.Range(0, 51).Select(i => $"a{i}").ToArray();
+        await client.GetArtistsAsync(ids);
+
+        // 51 ids > teto de 50 por chamada ⇒ dois lotes.
+        Assert.Equal(2, handler.RequestedUris.Count);
+    }
+
+    [Fact]
+    public async Task GetAlbumsAsync_MapsBatch_AndSplitsInto20IdChunks()
+    {
+        const string first = """
+        {
+          "albums": [
+            { "id": "al1", "name": "One", "release_date": "1975", "total_tracks": 12 }
+          ]
+        }
+        """;
+        const string second = """{ "albums": [] }""";
+        var handler = new QueueHandler(first, second);
+        SpotifyApiClient client = CreateClient(handler);
+
+        string[] ids = Enumerable.Range(0, 21).Select(i => $"al{i}").ToArray();
+        IReadOnlyList<SpotifyAlbum> albums = await client.GetAlbumsAsync(ids);
+
+        // 21 ids > teto de 20 por chamada ⇒ dois lotes.
+        Assert.Equal(2, handler.RequestedUris.Count);
+        SpotifyAlbum album = Assert.Single(albums);
+        Assert.Equal("al1", album.Id);
+        Assert.Equal(12, album.TotalTracks);
+    }
+
+    [Fact]
+    public async Task GetArtistsAsync_EmptyInput_MakesNoHttpCall()
+    {
+        var handler = new QueueHandler();
+        SpotifyApiClient client = CreateClient(handler);
+
+        IReadOnlyList<SpotifyArtist> artists = await client.GetArtistsAsync([]);
+
+        Assert.Empty(artists);
+        Assert.Empty(handler.RequestedUris);
     }
 
     [Fact]

@@ -58,6 +58,16 @@ public static class JobsServiceExtensions
         if (playlistIngestionEnabled)
             services.AddHostedService<PlaylistIngestionJob>();
 
+        // 6. Scheduled catalog enrichment (E1.8). Registered ONLY when explicitly enabled, for the same
+        //    reason as the playlist collection: it calls the Spotify Web API (heavily), so it must not start
+        //    just because the host booted. Read here so a disabled job is never even instantiated.
+        bool catalogEnrichmentEnabled = configuration
+            .GetSection($"{JobsOptions.SectionName}:{nameof(JobsOptions.CatalogEnrichment)}:{nameof(CatalogEnrichmentOptions.Enabled)}")
+            .Get<bool>();
+
+        if (catalogEnrichmentEnabled)
+            services.AddHostedService<CatalogEnrichmentJob>();
+
         return services;
     }
 }

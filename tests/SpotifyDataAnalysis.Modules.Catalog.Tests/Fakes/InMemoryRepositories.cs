@@ -46,6 +46,14 @@ internal sealed class InMemoryArtistRepository : IArtistRepository
     public Task<Artist?> GetByIdAsync(SpotifyArtistId id, CancellationToken cancellationToken = default)
         => Task.FromResult(_store.GetValueOrDefault(id.Value));
 
+    public Task<IReadOnlyList<Artist>> ListPendingEnrichmentAsync(
+        int limit, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Artist>>(_store.Values
+            .Where(artist => !artist.IsEnriched)
+            .OrderBy(artist => artist.Id.Value, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList());
+
     public Task AddAsync(Artist artist, CancellationToken cancellationToken = default)
     {
         _store[artist.Id.Value] = artist;
@@ -61,6 +69,14 @@ internal sealed class InMemoryAlbumRepository : IAlbumRepository
 
     public Task<Album?> GetByIdAsync(SpotifyAlbumId id, CancellationToken cancellationToken = default)
         => Task.FromResult(_store.GetValueOrDefault(id.Value));
+
+    public Task<IReadOnlyList<Album>> ListPendingEnrichmentAsync(
+        int limit, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Album>>(_store.Values
+            .Where(album => !album.IsEnriched)
+            .OrderBy(album => album.Id.Value, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList());
 
     public Task AddAsync(Album album, CancellationToken cancellationToken = default)
     {

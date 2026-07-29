@@ -42,32 +42,80 @@ public sealed class SpotifyApiClient : ISpotifyClient
         return json is null ? null : MapTrack(json);
     }
 
+    /// <summary>Ids por chamada dos endpoints em lote — os tetos que a Spotify Web API impõe.</summary>
+    private const int MaxArtistsPerRequest = 50;
+    private const int MaxAlbumsPerRequest = 20;
+
     /// <inheritdoc />
     public async Task<SpotifyArtist?> GetArtistAsync(string artistId, CancellationToken cancellationToken = default)
     {
         ArtistJson? json = await GetAsync<ArtistJson>($"artists/{artistId}", cancellationToken);
-        if (json is null) return null;
-
-        return new SpotifyArtist(
-            json.Id ?? string.Empty,
-            json.Name ?? string.Empty,
-            json.Popularity,
-            json.Followers?.Total ?? 0,
-            json.Genres ?? []);
+        return json is null ? null : MapArtist(json);
     }
 
     /// <inheritdoc />
     public async Task<SpotifyAlbum?> GetAlbumAsync(string albumId, CancellationToken cancellationToken = default)
     {
         AlbumJson? json = await GetAsync<AlbumJson>($"albums/{albumId}", cancellationToken);
-        if (json is null) return null;
+        return json is null ? null : MapAlbum(json);
+    }
 
-        return new SpotifyAlbum(
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SpotifyArtist>> GetArtistsAsync(
+        IReadOnlyCollection<string> artistIds, CancellationToken cancellationToken = default)
+    {
+        var artists = new List<SpotifyArtist>(artistIds.Count);
+
+        foreach (string[] chunk in Chunk(artistIds, MaxArtistsPerRequest))
+        {
+            ArtistsEnvelopeJson? envelope = await GetAsync<ArtistsEnvelopeJson>(
+                $"artists?ids={string.Join(',', chunk)}", cancellationToken);
+
+            // A API devolve `null` na posição de um id inválido/desconhecido — descartamos essas lacunas.
+            artists.AddRange((envelope?.Artists ?? [])
+                .Where(json => json is not null)
+                .Select(json => MapArtist(json!)));
+        }
+
+        return artists;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SpotifyAlbum>> GetAlbumsAsync(
+        IReadOnlyCollection<string> albumIds, CancellationToken cancellationToken = default)
+    {
+        var albums = new List<SpotifyAlbum>(albumIds.Count);
+
+        foreach (string[] chunk in Chunk(albumIds, MaxAlbumsPerRequest))
+        {
+            AlbumsEnvelopeJson? envelope = await GetAsync<AlbumsEnvelopeJson>(
+                $"albums?ids={string.Join(',', chunk)}", cancellationToken);
+
+            albums.AddRange((envelope?.Albums ?? [])
+                .Where(json => json is not null)
+                .Select(json => MapAlbum(json!)));
+        }
+
+        return albums;
+    }
+
+    private static IEnumerable<string[]> Chunk(IReadOnlyCollection<string> ids, int size)
+        => ids.Where(id => !string.IsNullOrWhiteSpace(id)).Chunk(size);
+
+    private static SpotifyArtist MapArtist(ArtistJson json)
+        => new(
+            json.Id ?? string.Empty,
+            json.Name ?? string.Empty,
+            json.Popularity,
+            json.Followers?.Total ?? 0,
+            json.Genres ?? []);
+
+    private static SpotifyAlbum MapAlbum(AlbumJson json)
+        => new(
             json.Id ?? string.Empty,
             json.Name ?? string.Empty,
             json.ReleaseDate,
             json.TotalTracks);
-    }
 
     /// <inheritdoc />
     public async Task<SpotifyPlaylist?> GetPlaylistAsync(
@@ -211,6 +259,13 @@ public sealed class SpotifyApiClient : ISpotifyClient
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("release_date")] string? ReleaseDate,
         [property: JsonPropertyName("total_tracks")] int TotalTracks);
+
+    /// <summary>Envelope dos endpoints em lote: a lista pode conter <c>null</c> nas posições de ids inválidos.</summary>
+    private sealed record ArtistsEnvelopeJson(
+        [property: JsonPropertyName("artists")] List<ArtistJson?>? Artists);
+
+    private sealed record AlbumsEnvelopeJson(
+        [property: JsonPropertyName("albums")] List<AlbumJson?>? Albums);
 
     private sealed record PlaylistJson(
         [property: JsonPropertyName("id")] string? Id,
