@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SpotifyDataAnalysis.Infrastructure.Modules;
+using SpotifyDataAnalysis.Modules.Catalog.Application;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.DependencyInjection;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
@@ -21,7 +22,13 @@ public sealed class CatalogModule : IModule
 
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection services, IConfiguration configuration)
-        => services.AddCatalogModule(configuration);
+    {
+        // Controllers MVC deste módulo (co-locados na Application): registra o ApplicationPart para o MVC
+        // do Host descobrir as actions. AddControllers é idempotente entre módulos.
+        services.AddControllers().AddApplicationPart(typeof(CatalogApplicationAssemblyReference).Assembly);
+
+        services.AddCatalogModule(configuration);
+    }
 
     /// <inheritdoc />
     public void MapEndpoints(IEndpointRouteBuilder endpoints)
