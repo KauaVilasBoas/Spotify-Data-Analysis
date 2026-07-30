@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Infrastructure: composition root do módulo Analytics. Hospeda o AnalyticsModule (IModule). Depende para
+    DENTRO: Application (queries/handlers) e a Infrastructure compartilhada (IModule, DI). É o assembly que
+    o Host referencia para descobrir o módulo. Read-side: sem DbContext/EF próprio — as queries usam o
+    DbConnectionFactory/Dapper da Infrastructure compartilhada.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Analytics.Application\SpotifyDataAnalysis.Modules.Analytics.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Analytics.Tests" />
+  </ItemGroup>
+
+</Project>

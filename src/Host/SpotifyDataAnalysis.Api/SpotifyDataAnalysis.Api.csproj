@@ -21,6 +21,7 @@
       pela ausência da referência de projeto.
     -->
     <ProjectReference Include="..\..\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Infrastructure\SpotifyDataAnalysis.Modules.Analytics.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

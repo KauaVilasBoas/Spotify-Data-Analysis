@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Domain do Analytics: PURO (só SharedKernel). Sem EF/ASP/Dapper, sem outros módulos.
+    O read-side de EDA (E2) não tem agregados próprios — LÊ o schema "catalog" via Dapper. Este projeto
+    carrega apenas o marcador de assembly (âncora dos ArchTests) e, se necessário no futuro, tipos de
+    domínio puros de analytics (ex.: enums de recorte). A pureza é guardada pelos ArchitectureTests.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Contracts: fronteira PÚBLICA do módulo Analytics para OUTROS módulos/consumidores (DTOs achatados).
+    Depende só do SharedKernel. Nada de EF/Domain/Application. Os DTOs públicos de insights chegam quando
+    o dashboard (E5) consumir o Analytics; por ora carrega apenas o marcador de assembly.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

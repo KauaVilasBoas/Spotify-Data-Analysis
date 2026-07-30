@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Application: casos de uso de LEITURA (CQRS queries) do módulo Analytics + controllers co-locados.
+    Depende para DENTRO: Domain, Contracts e a Infrastructure COMPARTILHADA — que traz o read-side
+    (BaseDataAccess, DbConnectionFactory, Dapper) e a base de controller. Read-side puro: NÃO referencia a
+    Infrastructure do próprio módulo nem EF Core. Não referencia NENHUM projeto do Catalog: o acoplamento
+    com o catálogo é só o schema "catalog" lido por SQL (acoplamento por dado, não por código .NET).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Analytics.Domain\SpotifyDataAnalysis.Modules.Analytics.Domain.csproj" />
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Analytics.Contracts\SpotifyDataAnalysis.Modules.Analytics.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Expõe tipos internos (queries/handlers) aos testes do módulo. -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Analytics.Tests" />
+    <!--
+      A Infrastructure é o COMPOSITION ROOT do módulo: precisa enxergar os colaboradores internos da
+      Application (handlers) para registrá-los na DI, sem que eles virem API pública do módulo.
+    -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Analytics.Infrastructure" />
+  </ItemGroup>
+
+</Project>
