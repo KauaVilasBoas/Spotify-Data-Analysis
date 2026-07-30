@@ -9,6 +9,7 @@ using SpotifyDataAnalysis.Infrastructure.Modules;
 using SpotifyDataAnalysis.Jobs.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Analytics.Infrastructure;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure;
 using SpotifyDataAnalysis.SharedKernel.Observability;
 
@@ -144,6 +145,25 @@ builder.Services.AddProblemDetails();
 // Build
 // ---------------------------------------------------------------------------
 WebApplication app = builder.Build();
+
+// ---------------------------------------------------------------------------
+// Dev CLI (E1.10): `dotnet run -- seed-catalog [csvPath]` popula catalog.tracks a partir do dataset Kaggle
+// (faixas + audio-features medidas + gênero) e ENCERRA — não sobe o servidor web nem os jobs. É carga de
+// dados local (o catálogo não vem da API do Spotify neste projeto sem credenciais).
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "seed-catalog")
+{
+    string csvPath = args.Length >= 2 ? args[1] : "dataset.csv";
+    using IServiceScope seedScope = app.Services.CreateScope();
+    KaggleCatalogSeeder seeder = seedScope.ServiceProvider.GetRequiredService<KaggleCatalogSeeder>();
+
+    CatalogSeedResult seed = await seeder.SeedAsync(csvPath);
+
+    Console.WriteLine(
+        $"[seed-catalog] {seed.Created} faixas criadas, {seed.DuplicatesSkipped} duplicadas, " +
+        $"{seed.IncompleteSkipped} incompletas de {seed.TotalRows} linhas em {seed.ElapsedMilliseconds} ms.");
+    return;
+}
 
 // ---------------------------------------------------------------------------
 // HTTP pipeline
