@@ -38,7 +38,14 @@ public static class PredictionModuleServiceExtensions
             seed: serviceProvider.GetRequiredService<IOptions<TrainingDatasetSettings>>().Value.Seed));
 
         services.AddScoped<ITrackTrainingCandidateSource, CatalogTrackTrainingCandidateSource>();
-        services.AddScoped<ITrainingDatasetProvider, MlNetTrainingDatasetProvider>();
+
+        // O provider é registrado pelo tipo CONCRETO e a porta aponta para a MESMA instância: o treino (E3.2)
+        // precisa das IDataViews que só o concreto expõe, enquanto a Application enxerga apenas a porta.
+        services.AddScoped<MlNetTrainingDatasetProvider>();
+        services.AddScoped<ITrainingDatasetProvider>(serviceProvider =>
+            serviceProvider.GetRequiredService<MlNetTrainingDatasetProvider>());
+
+        services.AddScoped<IPopularityModelTrainer, FastTreePopularityModelTrainer>();
 
         services.AddHandlersFromAssembly(typeof(PredictionApplicationAssemblyReference).Assembly);
 

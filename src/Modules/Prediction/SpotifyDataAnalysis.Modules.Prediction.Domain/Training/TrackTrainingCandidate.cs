@@ -23,6 +23,15 @@ public sealed record TrackTrainingCandidate
     /// <summary>Se os valores das audio-features foram preenchidos por imputação em vez de medidos.</summary>
     public required bool IsImputed { get; init; }
 
+    /// <summary>
+    /// Duração em milissegundos. Diferente das audio-features, é coluna própria e obrigatória no catálogo —
+    /// por isso não é opcional aqui: ausência seria defeito de leitura, não estado legítimo da faixa.
+    /// </summary>
+    public required int DurationMs { get; init; }
+
+    /// <summary>Se a faixa é marcada como explícita. Também coluna própria e sempre presente.</summary>
+    public required bool Explicit { get; init; }
+
     public double? Danceability { get; init; }
     public double? Energy { get; init; }
     public double? Valence { get; init; }

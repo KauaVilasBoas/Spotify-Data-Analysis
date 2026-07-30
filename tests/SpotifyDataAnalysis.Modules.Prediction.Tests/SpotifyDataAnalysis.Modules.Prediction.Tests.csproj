@@ -17,6 +17,8 @@
          Domain. O SQL da leitura Dapper é validado pelo smoke test contra Postgres real (não por teste de
          contrato de texto, que não pega erro de dialeto/materialização). -->
     <ProjectReference Include="..\..\src\Modules\Prediction\SpotifyDataAnalysis.Modules.Prediction.Domain\SpotifyDataAnalysis.Modules.Prediction.Domain.csproj" />
+    <!-- E3.2: o gate de qualidade treina o pipeline real do ML.NET sobre fixture deterministica, sem banco. -->
+    <ProjectReference Include="..\..\src\Modules\Prediction\SpotifyDataAnalysis.Modules.Prediction.Infrastructure\SpotifyDataAnalysis.Modules.Prediction.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

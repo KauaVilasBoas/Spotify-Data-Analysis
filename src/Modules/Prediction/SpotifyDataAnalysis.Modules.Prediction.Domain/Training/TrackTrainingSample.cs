@@ -24,6 +24,12 @@ public sealed record TrackTrainingSample
     /// <summary>Alvo da regressão (0–100).</summary>
     public required int Popularity { get; init; }
 
+    /// <summary>Duração em milissegundos. Feature do modelo desde o E3.2.</summary>
+    public required int DurationMs { get; init; }
+
+    /// <summary>Se a faixa é explícita. Feature booleana do modelo desde o E3.2.</summary>
+    public required bool Explicit { get; init; }
+
     public required double Danceability { get; init; }
     public required double Energy { get; init; }
     public required double Valence { get; init; }
@@ -66,6 +72,8 @@ public sealed record TrackTrainingSample
         {
             TrackId = candidate.TrackId,
             Popularity = popularity,
+            DurationMs = candidate.DurationMs,
+            Explicit = candidate.Explicit,
             Danceability = candidate.Danceability!.Value,
             Energy = candidate.Energy!.Value,
             Valence = candidate.Valence!.Value,

@@ -39,6 +39,8 @@ internal sealed class CatalogTrackTrainingCandidateSource : BaseDataAccess, ITra
         SELECT
             t.id                                                            AS "TrackId",
             t.popularity                                                    AS "Popularity",
+            t.duration_ms                                                   AS "DurationMs",
+            t.explicit                                                      AS "Explicit",
             (t.audio_features IS NOT NULL)                                  AS "HasAudioFeatures",
             COALESCE((t.audio_features ->> 'IsImputed')::boolean, false)    AS "IsImputed",
             (t.audio_features ->> 'Danceability')::double precision         AS "Danceability",
@@ -105,6 +107,8 @@ internal sealed class CatalogTrackTrainingCandidateSource : BaseDataAccess, ITra
     private sealed record CandidateRow(
         string TrackId,
         int? Popularity,
+        int DurationMs,
+        bool Explicit,
         bool HasAudioFeatures,
         bool IsImputed,
         double? Danceability,
@@ -125,6 +129,8 @@ internal sealed class CatalogTrackTrainingCandidateSource : BaseDataAccess, ITra
         {
             TrackId = TrackId,
             Popularity = Popularity,
+            DurationMs = DurationMs,
+            Explicit = Explicit,
             HasAudioFeatures = HasAudioFeatures,
             IsImputed = IsImputed,
             Danceability = Danceability,

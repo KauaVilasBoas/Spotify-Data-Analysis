@@ -25,6 +25,13 @@ internal sealed class PopularityTrainingRow
     [ColumnName("Label")]
     public float Popularity { get; set; }
 
+    /// <summary>Duração em milissegundos. Escala completamente diferente das features 0–1, por isso a
+    /// normalização no pipeline não é opcional.</summary>
+    public float DurationMs { get; set; }
+
+    /// <summary>Explícita como 0/1 — o ML.NET consome o vetor de features em <see cref="float"/>.</summary>
+    public float Explicit { get; set; }
+
     public float Danceability { get; set; }
     public float Energy { get; set; }
     public float Valence { get; set; }
@@ -46,6 +53,8 @@ internal sealed class PopularityTrainingRow
     {
         TrackId = sample.TrackId,
         Popularity = sample.Popularity,
+        DurationMs = sample.DurationMs,
+        Explicit = sample.Explicit ? 1f : 0f,
         Danceability = (float)sample.Danceability,
         Energy = (float)sample.Energy,
         Valence = (float)sample.Valence,

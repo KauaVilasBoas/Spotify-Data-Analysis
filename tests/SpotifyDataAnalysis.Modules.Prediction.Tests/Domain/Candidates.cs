@@ -15,6 +15,8 @@ internal static class Candidates
         {
             TrackId = trackId,
             Popularity = popularity,
+            DurationMs = 200_000,
+            Explicit = false,
             HasAudioFeatures = true,
             IsImputed = isImputed,
             Danceability = 0.5,
