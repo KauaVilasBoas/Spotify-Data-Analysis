@@ -60,4 +60,34 @@ public sealed class InsightsController : SpotifyControllerBase
         return Ok(new ApiResult<PagedResult<PopularityRankingItem>>(
             true, "Ranking de popularidade.", result));
     }
+
+    /// <summary>
+    /// Distribuição (histograma) de uma audio-feature. Os buckets têm largura fixa entre o mínimo e o máximo
+    /// observados, então o intervalo se adapta ao domínio da feature; <c>minValue</c>/<c>maxValue</c> dizem
+    /// sobre qual intervalo o histograma foi desenhado e <c>buckets</c> é limitado a 200. Faixas com features
+    /// imputadas ficam fora por padrão — use <c>includeImputed=true</c> para incluí-las; em qualquer caso
+    /// <c>measuredCount</c>, <c>imputedCount</c> e <c>includedImputed</c> explicitam o recorte. Feature
+    /// inválida responde 400 em ProblemDetails.
+    /// </summary>
+    [HttpGet("distributions/{feature}")]
+    [ProducesResponseType(typeof(ApiResult<AudioFeatureDistributionResult>), 200)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), 400)]
+    public async Task<ActionResult<ApiResult<AudioFeatureDistributionResult>>> GetAudioFeatureDistribution(
+        AudioFeatureKind feature,
+        [FromQuery] int buckets = GetAudioFeatureDistributionQuery.DefaultBuckets,
+        [FromQuery] bool includeImputed = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetAudioFeatureDistributionQuery
+        {
+            Feature = feature,
+            Buckets = buckets,
+            IncludeImputed = includeImputed
+        };
+
+        AudioFeatureDistributionResult result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<AudioFeatureDistributionResult>(
+            true, $"Distribuição de {feature}.", result));
+    }
 }
