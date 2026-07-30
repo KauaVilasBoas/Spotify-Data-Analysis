@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Application: casos de uso do módulo Prediction + controllers co-locados. Depende para DENTRO: Domain,
+    Contracts e a Infrastructure COMPARTILHADA — que traz o read-side (BaseDataAccess, DbConnectionFactory,
+    Dapper) e a base de controller. NÃO referencia ML.NET: o framework de ML é um detalhe externo, fica atrás
+    da porta ITrainingDatasetProvider e vive só na Infrastructure do módulo. Não referencia NENHUM projeto do
+    Catalog: o acoplamento com o catálogo é só o schema "catalog" lido por SQL.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Prediction.Domain\SpotifyDataAnalysis.Modules.Prediction.Domain.csproj" />
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Prediction.Contracts\SpotifyDataAnalysis.Modules.Prediction.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Expõe tipos internos (queries/handlers/leitores) aos testes do módulo. -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Prediction.Tests" />
+    <!--
+      A Infrastructure é o COMPOSITION ROOT do módulo: precisa enxergar os colaboradores internos da
+      Application (handlers, leitores Dapper) para registrá-los na DI, sem que eles virem API pública.
+    -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Prediction.Infrastructure" />
+  </ItemGroup>
+
+</Project>

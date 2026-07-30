@@ -1,0 +1,61 @@
+using Microsoft.AspNetCore.Mvc;
+using SpotifyDataAnalysis.Infrastructure.AspNetCore;
+using SpotifyDataAnalysis.Modules.Prediction.Application.Dataset;
+using SpotifyDataAnalysis.SharedKernel.Http;
+using SpotifyDataAnalysis.SharedKernel.Messaging;
+
+namespace SpotifyDataAnalysis.Modules.Prediction.Application.Controllers;
+
+/// <summary>
+/// Endpoints do módulo Prediction (E3). Controller fino: só despacha a query via <see cref="IMediator"/> e
+/// envelopa o resultado em <see cref="ApiResult{T}"/> — nenhuma regra de negócio aqui, nenhum acesso direto a
+/// Dapper ou ao ML.NET. Erros sobem para o middleware de exceções do Host (RFC 7807).
+/// </summary>
+[Route("api/predictions")]
+public sealed class PredictionsController : SpotifyControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public PredictionsController(IMediator mediator) => _mediator = mediator;
+
+    /// <summary>
+    /// Diagnóstico do dataset de treino: com quantas faixas dá para treinar e quantas ficaram de fora, por
+    /// motivo. Responde o total do catálogo, as exclusões (sem popularidade, sem audio-features,
+    /// audio-features incompletas), os elegíveis com features medidas e com features imputadas, quantos foram
+    /// descartados pela política de imputação, e os tamanhos de treino e de teste após o split.
+    /// </summary>
+    /// <remarks>
+    /// Faixas com features IMPUTADAS ficam fora do dataset por padrão: a imputação pela mediana estratificada
+    /// por gênero comprime a variância e cria uma correlação artificial feature → gênero → popularidade, e o
+    /// modelo tende a aprender a mediana do gênero em vez da música. <c>includeImputed=true</c> monta o
+    /// conjunto ampliado para comparação; em qualquer caso, medidas e imputadas vêm contadas separadamente.
+    ///
+    /// O split é determinístico por hash da faixa combinado com a semente: a mesma faixa cai sempre do mesmo
+    /// lado, independentemente da ordem de leitura e do tamanho do catálogo, então duas execuções com a mesma
+    /// <c>seed</c> produzem exatamente os mesmos conjuntos. Sem <c>seed</c>/<c>testFraction</c>, valem os
+    /// valores de configuração — que são os usados no treino. <c>testFraction</c> é presa a [0,05; 0,50].
+    ///
+    /// <c>measurement</c> traz o custo real da montagem (tempo e memória), porque é ele que responde se o
+    /// dataset cabe no host da demo.
+    /// </remarks>
+    [HttpGet("dataset/stats")]
+    [ProducesResponseType(typeof(ApiResult<TrainingDatasetStatsResult>), 200)]
+    public async Task<ActionResult<ApiResult<TrainingDatasetStatsResult>>> GetTrainingDatasetStats(
+        [FromQuery] int? seed = null,
+        [FromQuery] double? testFraction = null,
+        [FromQuery] bool includeImputed = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetTrainingDatasetStatsQuery
+        {
+            Seed = seed,
+            TestFraction = testFraction,
+            IncludeImputed = includeImputed
+        };
+
+        TrainingDatasetStatsResult result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<TrainingDatasetStatsResult>(
+            true, "Estatísticas do dataset de treino.", result));
+    }
+}

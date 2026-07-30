@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Domain do Prediction: PURO (só SharedKernel). Sem ML.NET, sem EF/ASP/Dapper, sem outros módulos.
+    É aqui que vivem as regras que decidem QUEM entra no treino (elegibilidade + política de imputação) e
+    COMO o dataset é particionado (estratégia de split determinística) — regras de negócio do épico E3, não
+    detalhes de framework. A pureza é guardada pelos ArchitectureTests.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.SharedKernel\SpotifyDataAnalysis.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Prediction.Tests" />
+  </ItemGroup>
+
+</Project>

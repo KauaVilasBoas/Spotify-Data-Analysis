@@ -29,6 +29,12 @@ docs/
 ## Claude Code (tooling local — agentes e settings da máquina)
 .claude/
 
+## Dataset / modelos de ML (dados locais e artefatos — nunca versionar)
+# O CSV do Kaggle (~20 MB) e os modelos treinados (.zip/.mlnet) ficam no disco, fora do git.
+/dataset.csv
+*.mlnet
+models/
+
 ## Frontend (quando existir)
 node_modules/
 frontend/dist/

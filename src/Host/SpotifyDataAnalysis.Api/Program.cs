@@ -9,6 +9,7 @@ using SpotifyDataAnalysis.Infrastructure.Modules;
 using SpotifyDataAnalysis.Jobs.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Analytics.Infrastructure;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure;
 using SpotifyDataAnalysis.SharedKernel.Observability;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -44,6 +45,7 @@ Assembly[] moduleAssemblies =
 [
     typeof(CatalogModule).Assembly,
     typeof(AnalyticsModule).Assembly,
+    typeof(PredictionModule).Assembly,
 ];
 
 ModuleLoader.RegisterModules(builder.Services, builder.Configuration, moduleAssemblies);

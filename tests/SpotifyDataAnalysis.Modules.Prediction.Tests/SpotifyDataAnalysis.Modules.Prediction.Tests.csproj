@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- E3.1 cobre a regra de negócio do dataset (elegibilidade, split determinístico, censo) — que vive no
+         Domain. O SQL da leitura Dapper é validado pelo smoke test contra Postgres real (não por teste de
+         contrato de texto, que não pega erro de dialeto/materialização). -->
+    <ProjectReference Include="..\..\src\Modules\Prediction\SpotifyDataAnalysis.Modules.Prediction.Domain\SpotifyDataAnalysis.Modules.Prediction.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
