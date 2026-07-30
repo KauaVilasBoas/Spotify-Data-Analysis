@@ -34,4 +34,30 @@ public sealed class InsightsController : SpotifyControllerBase
 
         return Ok(new ApiResult<CatalogSummaryResult>(true, "Resumo do catálogo.", result));
     }
+
+    /// <summary>Ranking das faixas mais populares do catálogo, ordenado por popularidade decrescente e paginado.</summary>
+    /// <remarks>
+    /// Ordenação estável: <c>popularity DESC</c> com desempate determinístico por <c>id</c>, de modo que a
+    /// mesma faixa nunca apareça em duas páginas. <c>pageSize</c> é limitado a 200 (clamp do <c>PagedQuery</c>).
+    ///
+    /// Filtro <c>genre</c> (opcional): quando ausente, o ranking cobre o catálogo INTEIRO — inclusive as faixas
+    /// sem audio-features (que não têm gênero), pois popularidade não depende de features. Quando informado,
+    /// restringe às faixas cujo gênero das audio-features bate com o valor, o que EXCLUI silenciosamente as
+    /// faixas sem features. Cada item traz id, nome, artista principal, popularidade e o gênero (quando houver).
+    /// </remarks>
+    [HttpGet("popularity/top")]
+    [ProducesResponseType(typeof(ApiResult<PagedResult<PopularityRankingItem>>), 200)]
+    public async Task<ActionResult<ApiResult<PagedResult<PopularityRankingItem>>>> GetPopularityRanking(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? genre = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetPopularityRankingQuery { Page = page, PageSize = pageSize, Genre = genre };
+
+        PagedResult<PopularityRankingItem> result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<PagedResult<PopularityRankingItem>>(
+            true, "Ranking de popularidade.", result));
+    }
 }
