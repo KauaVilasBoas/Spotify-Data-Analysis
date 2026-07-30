@@ -90,4 +90,26 @@ public sealed class InsightsController : SpotifyControllerBase
         return Ok(new ApiResult<AudioFeatureDistributionResult>(
             true, $"Distribuição de {feature}.", result));
     }
+
+    /// <summary>
+    /// Correlação de Pearson entre cada audio-feature contínua e a popularidade, calculada no banco. Cobre as 9
+    /// features contínuas; <c>Key</c>, <c>Mode</c> e <c>TimeSignature</c> ficam fora porque Pearson pressupõe
+    /// grandezas contínuas. Faixas com features imputadas ficam fora por padrão, porque a imputação pela mediana
+    /// comprime a variância e distorce o coeficiente — <c>includeImputed=true</c> permite comparar.
+    /// <c>coefficient</c> é nulo quando a amostra não permite calcular (menos de dois pares ou variância zero) e
+    /// o <c>n</c> vem por feature, porque coeficiente com N pequeno é ruído.
+    /// </summary>
+    [HttpGet("correlations")]
+    [ProducesResponseType(typeof(ApiResult<FeaturePopularityCorrelationsResult>), 200)]
+    public async Task<ActionResult<ApiResult<FeaturePopularityCorrelationsResult>>> GetCorrelations(
+        [FromQuery] bool includeImputed = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetFeaturePopularityCorrelationsQuery { IncludeImputed = includeImputed };
+
+        FeaturePopularityCorrelationsResult result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<FeaturePopularityCorrelationsResult>(
+            true, "Correlações entre audio-features e popularidade.", result));
+    }
 }
