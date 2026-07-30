@@ -27,6 +27,11 @@
     <ProjectReference Include="..\..\src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Contracts\SpotifyDataAnalysis.Modules.Catalog.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Application\SpotifyDataAnalysis.Modules.Catalog.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj" />
+    <!-- Analytics (E2): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais. -->
+    <ProjectReference Include="..\..\src\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Domain\SpotifyDataAnalysis.Modules.Analytics.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Contracts\SpotifyDataAnalysis.Modules.Analytics.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Application\SpotifyDataAnalysis.Modules.Analytics.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Infrastructure\SpotifyDataAnalysis.Modules.Analytics.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
