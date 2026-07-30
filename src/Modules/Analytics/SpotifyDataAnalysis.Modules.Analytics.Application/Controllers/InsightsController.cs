@@ -112,4 +112,97 @@ public sealed class InsightsController : SpotifyControllerBase
         return Ok(new ApiResult<FeaturePopularityCorrelationsResult>(
             true, "Correlações entre audio-features e popularidade.", result));
     }
+
+    /// <summary>
+    /// Popularidade média e mediana por gênero, com contagem de faixas, paginado. Faixas sem gênero declarado
+    /// não desaparecem: entram no bucket <c>(sem gênero)</c>, de modo que a soma das contagens feche com o total
+    /// do catálogo. Cada linha traz <c>imputedTrackCount</c> para o consumidor saber quanto do recorte vem de
+    /// faixas com features imputadas. <c>pageSize</c> é limitado a 200.
+    /// </summary>
+    [HttpGet("genres")]
+    [ProducesResponseType(typeof(ApiResult<PagedResult<GenreInsightItem>>), 200)]
+    public async Task<ActionResult<ApiResult<PagedResult<GenreInsightItem>>>> GetGenreInsights(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] GenreInsightSort sort = GenreInsightSort.AveragePopularityDesc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetGenreInsightsQuery { Page = page, PageSize = pageSize, Sort = sort };
+
+        PagedResult<GenreInsightItem> result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<PagedResult<GenreInsightItem>>(
+            true, "Recorte por gênero.", result));
+    }
+
+    /// <summary>
+    /// Ranking de artistas pela popularidade e seguidores do próprio artista, paginado. Artistas ainda não
+    /// enriquecidos têm esses valores zerados e ficam fora por padrão para não formar uma cauda de zeros;
+    /// <c>includeUnenriched=true</c> os traz e cada item carrega <c>isEnriched</c>. <c>pageSize</c> é limitado
+    /// a 200.
+    /// </summary>
+    [HttpGet("artists")]
+    [ProducesResponseType(typeof(ApiResult<PagedResult<ArtistInsightItem>>), 200)]
+    public async Task<ActionResult<ApiResult<PagedResult<ArtistInsightItem>>>> GetArtistInsights(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] ArtistInsightSort sort = ArtistInsightSort.PopularityDesc,
+        [FromQuery] bool includeUnenriched = false,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetArtistInsightsQuery
+        {
+            Page = page,
+            PageSize = pageSize,
+            Sort = sort,
+            IncludeUnenriched = includeUnenriched
+        };
+
+        PagedResult<ArtistInsightItem> result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<PagedResult<ArtistInsightItem>>(
+            true, "Ranking de artistas.", result));
+    }
+
+    /// <summary>
+    /// Ranking de álbuns pela popularidade média das faixas que o catálogo tem de cada álbum, paginado.
+    /// <c>trackCount</c> vem junto porque com playlist-semente o número de faixas por álbum é baixo e a média
+    /// isolada engana. Faixas sem álbum ficam fora — a linha aqui É um álbum. <c>pageSize</c> é limitado a 200.
+    /// </summary>
+    [HttpGet("albums")]
+    [ProducesResponseType(typeof(ApiResult<PagedResult<AlbumInsightItem>>), 200)]
+    public async Task<ActionResult<ApiResult<PagedResult<AlbumInsightItem>>>> GetAlbumInsights(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] AlbumInsightSort sort = AlbumInsightSort.AveragePopularityDesc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetAlbumInsightsQuery { Page = page, PageSize = pageSize, Sort = sort };
+
+        PagedResult<AlbumInsightItem> result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<PagedResult<AlbumInsightItem>>(
+            true, "Ranking de álbuns.", result));
+    }
+
+    /// <summary>
+    /// Popularidade média por ano de lançamento — a tendência temporal do catálogo, agrupada pela coluna
+    /// indexada <c>release_year</c>. Faixas cujo álbum não tem ano conhecido entram numa linha de <c>year</c>
+    /// nulo, para a soma das contagens fechar com o total do catálogo. <c>pageSize</c> é limitado a 200.
+    /// </summary>
+    [HttpGet("albums/by-year")]
+    [ProducesResponseType(typeof(ApiResult<PagedResult<AlbumYearInsightItem>>), 200)]
+    public async Task<ActionResult<ApiResult<PagedResult<AlbumYearInsightItem>>>> GetAlbumYearInsights(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] AlbumYearInsightSort sort = AlbumYearInsightSort.YearDesc,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new GetAlbumYearInsightsQuery { Page = page, PageSize = pageSize, Sort = sort };
+
+        PagedResult<AlbumYearInsightItem> result = await _mediator.SendAsync(query, cancellationToken);
+
+        return Ok(new ApiResult<PagedResult<AlbumYearInsightItem>>(
+            true, "Popularidade por ano de lançamento.", result));
+    }
 }
