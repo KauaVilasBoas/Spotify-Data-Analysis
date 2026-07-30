@@ -34,6 +34,18 @@ internal sealed class AlbumConfiguration : IEntityTypeConfiguration<Album>
         builder.Property(album => album.TotalTracks).IsRequired();
         builder.Property(album => album.IsEnriched).IsRequired();
 
+        builder.Property(album => album.EnrichmentAttempts)
+            .HasColumnName("enrichment_attempts")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(album => album.LastEnrichmentAttemptUtc)
+            .HasColumnName("last_enrichment_attempt_utc");
+
+        // Índice da fila de pendentes do enriquecimento (mesmo padrão de ArtistConfiguration).
+        builder.HasIndex(album => new { album.IsEnriched, album.EnrichmentAttempts })
+            .HasDatabaseName("ix_albums_enrichment_pending");
+
         builder.OwnsOne(album => album.ReleaseDate, releaseDate =>
         {
             releaseDate.Property(date => date.Raw)

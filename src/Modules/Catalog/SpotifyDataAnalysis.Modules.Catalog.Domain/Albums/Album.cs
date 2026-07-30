@@ -12,6 +12,13 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
 /// </summary>
 public sealed class Album : AggregateRoot<SpotifyAlbumId>
 {
+    /// <summary>
+    /// Quantas vezes o enriquecimento pode falhar em resolver este álbum antes de ele sair da fila de
+    /// pendentes. Mesma motivação (e mesmo teto) do <see cref="Artists.Artist.MaxEnrichmentAttempts"/>: um id
+    /// irresolúvel não pode travar a fila re-queimando quota de rate limit.
+    /// </summary>
+    public const int MaxEnrichmentAttempts = 5;
+
     private Album(SpotifyAlbumId id, string name, ReleaseDate? releaseDate, int totalTracks, bool isEnriched)
         : base(id)
     {
@@ -34,6 +41,15 @@ public sealed class Album : AggregateRoot<SpotifyAlbumId>
 
     /// <summary><see langword="true"/> quando o detalhe completo já foi carregado do endpoint de álbuns.</summary>
     public bool IsEnriched { get; private set; }
+
+    /// <summary>
+    /// Quantas vezes o enriquecimento já tentou detalhar este álbum sem sucesso. Ao atingir
+    /// <see cref="MaxEnrichmentAttempts"/> o álbum deixa de ser candidato — o dead-letter do enriquecimento.
+    /// </summary>
+    public int EnrichmentAttempts { get; private set; }
+
+    /// <summary>Instante (UTC) da última tentativa de enriquecimento; nulo enquanto nunca foi tentado.</summary>
+    public DateTime? LastEnrichmentAttemptUtc { get; private set; }
 
     /// <summary>Registra um álbum a partir da referência (id + nome) embutida numa faixa.</summary>
     public static Album RegisterFromReference(SpotifyAlbumId id, string name)
@@ -58,6 +74,17 @@ public sealed class Album : AggregateRoot<SpotifyAlbumId>
         ReleaseDate = ReleaseDate.TryParse(rawReleaseDate);
         TotalTracks = totalTracks;
         IsEnriched = true;
+    }
+
+    /// <summary>
+    /// Registra uma tentativa de enriquecimento que não completou o detalhe (id ausente do retorno da API ou
+    /// dado inválido). Incrementa <see cref="EnrichmentAttempts"/> e marca o instante, para que álbuns
+    /// irresolúveis saiam da fila após <see cref="MaxEnrichmentAttempts"/> falhas em vez de bloqueá-la.
+    /// </summary>
+    public void RecordEnrichmentMiss(DateTime attemptedAtUtc)
+    {
+        EnrichmentAttempts++;
+        LastEnrichmentAttemptUtc = attemptedAtUtc;
     }
 
     /// <summary>Corrige o nome quando a API o renomeia, sem tocar no restante do detalhe.</summary>

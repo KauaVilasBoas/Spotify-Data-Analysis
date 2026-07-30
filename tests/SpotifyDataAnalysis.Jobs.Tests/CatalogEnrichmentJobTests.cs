@@ -34,7 +34,8 @@ public sealed class CatalogEnrichmentJobTests
                 throw new InvalidOperationException("Falha simulada da API do Spotify.");
 
             object result = new EnrichCatalogReferencesResult(
-                ArtistsEnriched: 1, ArtistsFailed: 0, AlbumsEnriched: 1, AlbumsFailed: 0);
+                ArtistsEnriched: 1, ArtistsNotFound: 0, ArtistsFailed: 0,
+                AlbumsEnriched: 1, AlbumsNotFound: 0, AlbumsFailed: 0);
 
             return Task.FromResult((TResult)result);
         }

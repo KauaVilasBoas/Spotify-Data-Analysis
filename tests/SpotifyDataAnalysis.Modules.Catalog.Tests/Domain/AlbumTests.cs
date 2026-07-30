@@ -42,6 +42,29 @@ public sealed class AlbumTests
         Assert.Throws<DomainException>(() => album.EnrichDetails("X", "1975", totalTracks: -1));
     }
 
+    [Fact]
+    public void RegisterFromReference_StartsWithNoEnrichmentAttempts()
+    {
+        Album album = Album.RegisterFromReference(SpotifyAlbumId.Of("al1"), "A Night at the Opera");
+
+        Assert.Equal(0, album.EnrichmentAttempts);
+        Assert.Null(album.LastEnrichmentAttemptUtc);
+    }
+
+    [Fact]
+    public void RecordEnrichmentMiss_IncrementsTheCounter_AndStampsTheAttempt_WithoutTouchingTheDetails()
+    {
+        Album album = Album.RegisterFromReference(SpotifyAlbumId.Of("al1"), "A Night at the Opera");
+        var when = new DateTime(2026, 07, 29, 12, 0, 0, DateTimeKind.Utc);
+
+        album.RecordEnrichmentMiss(when);
+
+        Assert.Equal(1, album.EnrichmentAttempts);
+        Assert.Equal(when, album.LastEnrichmentAttemptUtc);
+        Assert.False(album.IsEnriched);
+        Assert.Null(album.ReleaseDate);
+    }
+
     [Theory]
     [InlineData("1975", 1975, ReleasePrecision.Year)]
     [InlineData("1975-11", 1975, ReleasePrecision.Month)]

@@ -75,4 +75,40 @@ public sealed class ArtistTests
         Assert.True(artist.IsEnriched);
         Assert.Equal(80, artist.Popularity.Value);
     }
+
+    [Fact]
+    public void RegisterFromReference_StartsWithNoEnrichmentAttempts()
+    {
+        Artist artist = Artist.RegisterFromReference(SpotifyArtistId.Of("a1"), "Queen");
+
+        Assert.Equal(0, artist.EnrichmentAttempts);
+        Assert.Null(artist.LastEnrichmentAttemptUtc);
+    }
+
+    [Fact]
+    public void RecordEnrichmentMiss_IncrementsTheCounter_AndStampsTheAttempt_WithoutTouchingTheProfile()
+    {
+        Artist artist = Artist.RegisterFromReference(SpotifyArtistId.Of("a1"), "Queen");
+        var when = new DateTime(2026, 07, 29, 12, 0, 0, DateTimeKind.Utc);
+
+        artist.RecordEnrichmentMiss(when);
+
+        Assert.Equal(1, artist.EnrichmentAttempts);
+        Assert.Equal(when, artist.LastEnrichmentAttemptUtc);
+        // Registrar uma tentativa falha não enriquece o artista — ele segue como referência.
+        Assert.False(artist.IsEnriched);
+        Assert.Equal(Popularity.Unknown, artist.Popularity);
+    }
+
+    [Fact]
+    public void RecordEnrichmentMiss_Accumulates_AcrossAttempts()
+    {
+        Artist artist = Artist.RegisterFromReference(SpotifyArtistId.Of("a1"), "Queen");
+
+        artist.RecordEnrichmentMiss(new DateTime(2026, 07, 29, 0, 0, 0, DateTimeKind.Utc));
+        artist.RecordEnrichmentMiss(new DateTime(2026, 07, 30, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(2, artist.EnrichmentAttempts);
+        Assert.Equal(new DateTime(2026, 07, 30, 0, 0, 0, DateTimeKind.Utc), artist.LastEnrichmentAttemptUtc);
+    }
 }

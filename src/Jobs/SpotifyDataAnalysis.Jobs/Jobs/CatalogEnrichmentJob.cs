@@ -53,8 +53,11 @@ public sealed class CatalogEnrichmentJob : TimedBackgroundService
         EnrichCatalogReferencesResult result = await mediator.SendAsync(command, cancellationToken);
 
         Logger.LogInformation(
-            "Enriquecimento do catálogo: {ArtistsEnriched} artistas e {AlbumsEnriched} álbuns enriquecidos; " +
-            "{ArtistsFailed} artistas e {AlbumsFailed} álbuns seguem pendentes.",
-            result.ArtistsEnriched, result.AlbumsEnriched, result.ArtistsFailed, result.AlbumsFailed);
+            "Enriquecimento do catálogo: {TotalEnriched} enriquecidos ({ArtistsEnriched} artistas, " +
+            "{AlbumsEnriched} álbuns); {TotalNotFound} não retornados pela API ({ArtistsNotFound} artistas, " +
+            "{AlbumsNotFound} álbuns); {TotalFailed} falhas reais ({ArtistsFailed} artistas, {AlbumsFailed} álbuns).",
+            result.TotalEnriched, result.ArtistsEnriched, result.AlbumsEnriched,
+            result.TotalNotFound, result.ArtistsNotFound, result.AlbumsNotFound,
+            result.TotalFailed, result.ArtistsFailed, result.AlbumsFailed);
     }
 }

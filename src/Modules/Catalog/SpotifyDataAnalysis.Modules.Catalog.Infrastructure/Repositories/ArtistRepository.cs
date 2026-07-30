@@ -21,11 +21,14 @@ internal sealed class ArtistRepository : IArtistRepository
     /// <inheritdoc />
     public async Task<IReadOnlyList<Artist>> ListPendingEnrichmentAsync(
         int limit, CancellationToken cancellationToken = default)
-        // Ordena por id para que lotes sucessivos consumam a fila de pendentes de forma determinística, em vez
-        // de depender da ordem física das linhas no PostgreSQL.
+        // Exclui os já enriquecidos e os que esgotaram as tentativas (dead-letter): um id irresolúvel sai da
+        // fila em vez de bloquear a cabeça dela. Ordena por tentativas ASC (os menos tentados primeiro) e
+        // desempata por id — assim, mesmo com um prefixo de ids irresolúveis, a fila faz progresso a cada tick:
+        // os que já falharam avançam a contagem e cedem a vez aos pendentes reais.
         => await _dbContext.Artists
-            .Where(artist => !artist.IsEnriched)
-            .OrderBy(artist => artist.Id)
+            .Where(artist => !artist.IsEnriched && artist.EnrichmentAttempts < Artist.MaxEnrichmentAttempts)
+            .OrderBy(artist => artist.EnrichmentAttempts)
+            .ThenBy(artist => artist.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
 

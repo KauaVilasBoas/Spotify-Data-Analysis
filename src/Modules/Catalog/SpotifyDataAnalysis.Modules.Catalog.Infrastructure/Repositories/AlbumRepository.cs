@@ -17,9 +17,13 @@ internal sealed class AlbumRepository : IAlbumRepository
     /// <inheritdoc />
     public async Task<IReadOnlyList<Album>> ListPendingEnrichmentAsync(
         int limit, CancellationToken cancellationToken = default)
+        // Mesma semântica anti-starvation de ArtistRepository: exclui enriquecidos e os que esgotaram as
+        // tentativas, ordena por tentativas ASC e desempata por id, para a fila progredir mesmo com um prefixo
+        // de ids irresolúveis.
         => await _dbContext.Albums
-            .Where(album => !album.IsEnriched)
-            .OrderBy(album => album.Id)
+            .Where(album => !album.IsEnriched && album.EnrichmentAttempts < Album.MaxEnrichmentAttempts)
+            .OrderBy(album => album.EnrichmentAttempts)
+            .ThenBy(album => album.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
 

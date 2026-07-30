@@ -56,11 +56,14 @@ internal sealed class InMemoryArtistRepository : IArtistRepository
     public Task<Artist?> GetByIdAsync(SpotifyArtistId id, CancellationToken cancellationToken = default)
         => Task.FromResult(_store.GetValueOrDefault(id.Value));
 
+    // Espelha a semântica real de ArtistRepository: exclui enriquecidos e os que esgotaram as tentativas
+    // (anti-starvation), ordena por tentativas ASC e desempata por id.
     public Task<IReadOnlyList<Artist>> ListPendingEnrichmentAsync(
         int limit, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<Artist>>(_store.Values
-            .Where(artist => !artist.IsEnriched)
-            .OrderBy(artist => artist.Id.Value, StringComparer.Ordinal)
+            .Where(artist => !artist.IsEnriched && artist.EnrichmentAttempts < Artist.MaxEnrichmentAttempts)
+            .OrderBy(artist => artist.EnrichmentAttempts)
+            .ThenBy(artist => artist.Id.Value, StringComparer.Ordinal)
             .Take(limit)
             .ToList());
 
@@ -80,11 +83,13 @@ internal sealed class InMemoryAlbumRepository : IAlbumRepository
     public Task<Album?> GetByIdAsync(SpotifyAlbumId id, CancellationToken cancellationToken = default)
         => Task.FromResult(_store.GetValueOrDefault(id.Value));
 
+    // Mesma semântica anti-starvation de AlbumRepository.
     public Task<IReadOnlyList<Album>> ListPendingEnrichmentAsync(
         int limit, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<Album>>(_store.Values
-            .Where(album => !album.IsEnriched)
-            .OrderBy(album => album.Id.Value, StringComparer.Ordinal)
+            .Where(album => !album.IsEnriched && album.EnrichmentAttempts < Album.MaxEnrichmentAttempts)
+            .OrderBy(album => album.EnrichmentAttempts)
+            .ThenBy(album => album.Id.Value, StringComparer.Ordinal)
             .Take(limit)
             .ToList());
 

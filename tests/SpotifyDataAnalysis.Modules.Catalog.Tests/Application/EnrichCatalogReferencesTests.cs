@@ -6,6 +6,7 @@ using SpotifyDataAnalysis.Modules.Catalog.Domain.Albums;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Artists;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Common;
 using SpotifyDataAnalysis.Modules.Catalog.Tests.Fakes;
+using SpotifyDataAnalysis.SharedKernel.Time;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Tests.Application;
 
@@ -80,9 +81,11 @@ public sealed class EnrichCatalogReferencesTests
             => throw new NotSupportedException();
     }
 
+    private static readonly IClock Clock = new FixedClock(new DateTime(2026, 07, 29, 0, 0, 0, DateTimeKind.Utc));
+
     private static EnrichCatalogReferencesCommandHandler Build(
         InMemoryArtistRepository artists, InMemoryAlbumRepository albums, ISpotifyClient client)
-        => new(artists, albums, client, NullLogger<EnrichCatalogReferencesCommandHandler>.Instance);
+        => new(artists, albums, client, Clock, NullLogger<EnrichCatalogReferencesCommandHandler>.Instance);
 
     private static void SeedArtist(InMemoryArtistRepository artists, string id, string name = "Queen")
         => artists.AddAsync(Artist.RegisterFromReference(SpotifyArtistId.Of(id), name)).GetAwaiter().GetResult();
@@ -104,6 +107,7 @@ public sealed class EnrichCatalogReferencesTests
             await Build(artists, albums, client).HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(1, result.ArtistsEnriched);
+        Assert.Equal(0, result.ArtistsNotFound);
         Assert.Equal(0, result.ArtistsFailed);
 
         Artist enriched = artists.Store["a1"];
@@ -128,6 +132,7 @@ public sealed class EnrichCatalogReferencesTests
             await Build(artists, albums, client).HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(1, result.AlbumsEnriched);
+        Assert.Equal(0, result.AlbumsNotFound);
         Assert.Equal(0, result.AlbumsFailed);
 
         Album enriched = albums.Store["al1"];
@@ -187,13 +192,14 @@ public sealed class EnrichCatalogReferencesTests
         EnrichCatalogReferencesResult second = await handler.HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(0, second.ArtistsEnriched);
+        Assert.Equal(0, second.ArtistsNotFound);
         Assert.Equal(0, second.ArtistsFailed);
         Assert.Single(artists.Store); // não duplicou o agregado
         Assert.True(artists.Store["a1"].IsEnriched);
     }
 
     [Fact]
-    public async Task PartialFailure_DoesNotAbortTheBatch_WhenTheApiOmitsAnId()
+    public async Task ApiOmitsAnId_CountsAsNotFound_NotFailed_AndDoesNotAbortTheBatch()
     {
         var artists = new InMemoryArtistRepository();
         var albums = new InMemoryAlbumRepository();
@@ -208,10 +214,14 @@ public sealed class EnrichCatalogReferencesTests
             await Build(artists, albums, client).HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(1, result.ArtistsEnriched);
-        Assert.Equal(1, result.ArtistsFailed);
+        // Id não retornado é NotFound (buraco), não Failed (erro) — a métrica não conflaciona os dois.
+        Assert.Equal(1, result.ArtistsNotFound);
+        Assert.Equal(0, result.ArtistsFailed);
         Assert.True(artists.Store["a1"].IsEnriched);
-        // O que a API não retornou segue pendente para a próxima passada — não corrompido.
+        // O que a API não retornou segue pendente para a próxima passada — não corrompido —,
+        // mas com uma tentativa registrada (anti-starvation).
         Assert.False(artists.Store["a2-desconhecido"].IsEnriched);
+        Assert.Equal(1, artists.Store["a2-desconhecido"].EnrichmentAttempts);
     }
 
     [Fact]
@@ -234,9 +244,13 @@ public sealed class EnrichCatalogReferencesTests
             await Build(artists, albums, client).HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(1, result.ArtistsEnriched);
+        // Perfil malformado é falha REAL (Failed), não NotFound: o id veio, mas o domínio rejeitou o dado.
+        Assert.Equal(0, result.ArtistsNotFound);
         Assert.Equal(1, result.ArtistsFailed);
         Assert.True(artists.Store["a1"].IsEnriched);
         Assert.False(artists.Store["a2"].IsEnriched);
+        // Uma falha real também registra tentativa: dado cronicamente inválido não fica preso na fila.
+        Assert.Equal(1, artists.Store["a2"].EnrichmentAttempts);
     }
 
     [Fact]
@@ -251,9 +265,57 @@ public sealed class EnrichCatalogReferencesTests
             await Build(artists, albums, client).HandleAsync(new EnrichCatalogReferencesCommand());
 
         Assert.Equal(0, result.TotalEnriched);
+        Assert.Equal(0, result.TotalNotFound);
         Assert.Equal(0, result.TotalFailed);
         // Sem pendentes, nem chega a bater na API.
         Assert.Equal(0, client.ArtistBatchCalls);
         Assert.Equal(0, client.AlbumBatchCalls);
+    }
+
+    [Fact]
+    public async Task Queue_MakesProgress_WhenAPrefixOfIdsIsPermanentlyUnresolvable()
+    {
+        var artists = new InMemoryArtistRepository();
+        var albums = new InMemoryAlbumRepository();
+
+        // Três ids que a API NUNCA retorna, na cabeça da fila (id "a…" ordena antes de "z…"), e um resolvível
+        // atrás deles. Sem anti-starvation, com um lote menor que a fila, os irresolúveis ocupariam a cabeça
+        // para sempre e "z1" nunca seria alcançado.
+        SeedArtist(artists, "a-dead-1");
+        SeedArtist(artists, "a-dead-2");
+        SeedArtist(artists, "a-dead-3");
+        SeedArtist(artists, "z1-resolvivel", "Queen");
+
+        var client = new FakeEnrichmentClient(
+            artists: [new SpotifyArtist("z1-resolvivel", "Queen", 84, 100, ["rock"])]);
+
+        EnrichCatalogReferencesCommandHandler handler = Build(artists, albums, client);
+
+        // Lote 2 < 4 pendentes: força a competição pela cabeça da fila. Rodamos ticks suficientes para os três
+        // irresolúveis esgotarem MaxEnrichmentAttempts e a fila drenar (teto de segurança generoso; a fila
+        // vazia torna os ticks extras no-op).
+        const int batchSize = 2;
+
+        // O resolvível é alcançado em POUCOS ticks, não só depois que os dead esgotam — é o progresso que a
+        // ordenação por tentativas garante. Sem anti-starvation ele nunca seria alcançado com este lote.
+        await handler.HandleAsync(new EnrichCatalogReferencesCommand(batchSize)); // tick 0
+        await handler.HandleAsync(new EnrichCatalogReferencesCommand(batchSize)); // tick 1
+        Assert.True(artists.Store["z1-resolvivel"].IsEnriched,
+            "o artista resolvível deveria ter sido enriquecido em poucos ticks, apesar do prefixo irresolúvel");
+
+        // Deixamos a fila drenar por completo.
+        for (int tick = 0; tick < Artist.MaxEnrichmentAttempts * 4; tick++)
+            await handler.HandleAsync(new EnrichCatalogReferencesCommand(batchSize));
+
+        // Os irresolúveis saíram da fila (dead-letter), em vez de re-queimar quota indefinidamente.
+        foreach (string deadId in new[] { "a-dead-1", "a-dead-2", "a-dead-3" })
+        {
+            Assert.False(artists.Store[deadId].IsEnriched);
+            Assert.Equal(Artist.MaxEnrichmentAttempts, artists.Store[deadId].EnrichmentAttempts);
+        }
+
+        // Prova final de que a fila drenou: nada mais pendente e elegível.
+        IReadOnlyList<Artist> stillPending = await artists.ListPendingEnrichmentAsync(batchSize);
+        Assert.Empty(stillPending);
     }
 }

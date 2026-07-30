@@ -41,6 +41,20 @@ internal sealed class ArtistConfiguration : IEntityTypeConfiguration<Artist>
         builder.Property(artist => artist.Followers).IsRequired();
         builder.Property(artist => artist.IsEnriched).IsRequired();
 
+        builder.Property(artist => artist.EnrichmentAttempts)
+            .HasColumnName("enrichment_attempts")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(artist => artist.LastEnrichmentAttemptUtc)
+            .HasColumnName("last_enrichment_attempt_utc");
+
+        // Fila de pendentes do enriquecimento (E1.8): !is_enriched + tentativas abaixo do teto, ordenada por
+        // tentativas e id. O índice cobre exatamente esse acesso e mantém a varredura barata conforme o
+        // catálogo cresce.
+        builder.HasIndex(artist => new { artist.IsEnriched, artist.EnrichmentAttempts })
+            .HasDatabaseName("ix_artists_enrichment_pending");
+
         // Genres: mapeado pelo campo de apoio como jsonb; a propriedade read-only é ignorada.
         builder.Ignore(artist => artist.Genres);
         builder.Property<List<string>>("_genres")
