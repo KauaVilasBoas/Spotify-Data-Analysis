@@ -109,7 +109,7 @@ internal sealed class GetPopularityRankingQueryHandler
 
         IReadOnlyList<RankingRow> rows = (await connection.QueryAsync<RankingRow>(command)).AsList();
 
-        int totalCount = rows.Count > 0 ? rows[0].TotalCount : 0;
+        int totalCount = rows.Count > 0 ? (int)rows[0].TotalCount : 0;
 
         IReadOnlyList<PopularityRankingItem> items = rows
             .Select(row => new PopularityRankingItem(
@@ -121,11 +121,16 @@ internal sealed class GetPopularityRankingQueryHandler
 
     // Linha crua do Dapper: o item de ranking + o TotalCount do COUNT(*) OVER() (repetido em cada linha da
     // página). Materializado no handler para o PagedResult carregar o total num só round-trip.
+    //
+    // TotalCount é `long` (não `int`) DE PROPÓSITO: no PostgreSQL, COUNT(*) OVER() devolve `bigint` (Int64), e
+    // o Dapper casa o construtor do record pelo tipo CLR da coluna retornada — um `int` aqui faz a
+    // materialização falhar em runtime ("no matching constructor", só visível contra um banco real). O total
+    // é reduzido a `int` para o PagedResult no handler. Toda query paginada nova (E2.5+) deve seguir isto.
     private sealed record RankingRow(
         string TrackId,
         string Name,
         string? PrimaryArtist,
         int Popularity,
         string? Genre,
-        int TotalCount);
+        long TotalCount);
 }
