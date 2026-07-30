@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -5,6 +6,8 @@ using Microsoft.ML;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Prediction.Application;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Training;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Models;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.DependencyInjection;
@@ -46,6 +49,26 @@ public static class PredictionModuleServiceExtensions
             serviceProvider.GetRequiredService<MlNetTrainingDatasetProvider>());
 
         services.AddScoped<IPopularityModelTrainer, FastTreePopularityModelTrainer>();
+
+        // --- Write-side (E3.4): versões do modelo no schema "prediction" ---
+        string? connectionString = configuration.GetConnectionString("SpotifyDb");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException(
+                "Connection string 'SpotifyDb' não configurada. Defina em User Secrets ou na variável de " +
+                "ambiente ConnectionStrings__SpotifyDb.");
+
+        services.AddDbContext<PredictionDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql =>
+            {
+                npgsql.MigrationsHistoryTable("__ef_migrations_history", schema: "prediction");
+                npgsql.MigrationsAssembly(typeof(PredictionDbContext).Assembly.GetName().Name);
+            }));
+
+        services.AddScoped<IModelVersionRepository, ModelVersionRepository>();
+
+        // Cache do modelo corrente é SINGLETON: desserializar o .zip a cada request inviabilizaria a
+        // inferência do E3.5. A invalidação na promoção é o que dispensa reiniciar a aplicação.
+        services.AddSingleton<CurrentModelCache>();
 
         services.AddHandlersFromAssembly(typeof(PredictionApplicationAssemblyReference).Assembly);
 

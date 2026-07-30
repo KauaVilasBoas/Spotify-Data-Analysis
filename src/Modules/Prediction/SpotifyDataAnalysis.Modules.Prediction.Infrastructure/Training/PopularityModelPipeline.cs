@@ -126,6 +126,19 @@ internal sealed class PopularityModelPipeline
     /// <summary>Quantas linhas a visão contém — o N que acompanha cada avaliação.</summary>
     public long CountRows(IDataView view) => ReadLabels(view).Count;
 
+    /// <summary>
+    /// Serializa o modelo no formato <c>.zip</c> do ML.NET, junto do schema de entrada. O schema viaja no
+    /// artefato porque é ele que permite ao carregamento recusar um modelo incompatível em vez de predizer
+    /// errado calado.
+    /// </summary>
+    public byte[] Serialize(ITransformer model, DataViewSchema inputSchema)
+    {
+        using var stream = new MemoryStream();
+        _mlContext.Model.Save(model, inputSchema, stream);
+
+        return stream.ToArray();
+    }
+
     private IEstimator<ITransformer> BuildEstimator(IEstimator<ITransformer> trainer) =>
         _mlContext.Transforms.Concatenate(FeaturesColumn, FeatureColumns)
             .Append(_mlContext.Transforms.NormalizeMinMax(FeaturesColumn))

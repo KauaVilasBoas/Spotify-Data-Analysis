@@ -69,6 +69,7 @@ public sealed record CrossValidationReport(
 /// </param>
 /// <param name="CrossValidation">Estabilidade entre folds, sobre o conjunto de treino.</param>
 /// <param name="ElapsedMilliseconds">Custo de parede do treino completo.</param>
+/// <param name="Publication">O que aconteceu com a versão treinada: registrada, e promovida ou não.</param>
 public sealed record ModelTrainingReport(
     string Trainer,
     IReadOnlyList<string> Features,
@@ -79,4 +80,21 @@ public sealed record ModelTrainingReport(
     ModelEvaluationReport Primary,
     ModelEvaluationReport? ImputedComparison,
     CrossValidationReport CrossValidation,
-    long ElapsedMilliseconds);
+    long ElapsedMilliseconds,
+    ModelPublicationReport Publication);
+
+/// <summary>
+/// O destino da versão treinada (E3.4). Toda versão é registrada — inclusive a reprovada, porque perder o
+/// registro de um treino ruim é perder a evidência de que ele aconteceu. Só a promoção é condicional.
+/// </summary>
+/// <param name="Version">Número sequencial da versão gravada.</param>
+/// <param name="Promoted">Se a versão virou a corrente.</param>
+/// <param name="Reason">Por que foi ou não promovida — o resultado explica a si mesmo.</param>
+/// <param name="ArtifactHash">Hash do artefato gravado.</param>
+/// <param name="ArtifactSizeBytes">Tamanho do <c>.zip</c> serializado.</param>
+public sealed record ModelPublicationReport(
+    int Version,
+    bool Promoted,
+    string Reason,
+    string ArtifactHash,
+    long ArtifactSizeBytes);

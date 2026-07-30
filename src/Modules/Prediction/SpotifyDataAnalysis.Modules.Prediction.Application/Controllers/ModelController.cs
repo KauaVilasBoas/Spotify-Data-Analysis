@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using SpotifyDataAnalysis.Infrastructure.AspNetCore;
+using SpotifyDataAnalysis.Modules.Prediction.Application.Models;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Training;
 using SpotifyDataAnalysis.SharedKernel.Http;
 using SpotifyDataAnalysis.SharedKernel.Messaging;
@@ -59,5 +60,29 @@ public sealed class ModelController : SpotifyControllerBase
         ModelTrainingReport report = await _mediator.SendAsync(command, cancellationToken);
 
         return Ok(new ApiResult<ModelTrainingReport>(true, "Treino concluído.", report));
+    }
+
+    /// <summary>
+    /// A ficha da versão do modelo que está respondendo as predições: número, data de treino, algoritmo,
+    /// feature set, semente, tamanhos de treino/teste e as métricas do modelo <b>e</b> do baseline.
+    /// </summary>
+    /// <remarks>
+    /// O feature set e a semente vêm no contrato porque são o que torna a versão auditável: sem eles não há
+    /// como reproduzir o treino nem justificar uma predição. As métricas do baseline vêm junto pelo mesmo
+    /// motivo do endpoint de treino — número de modelo sozinho não permite julgar nada.
+    ///
+    /// Enquanto nenhuma versão tiver sido publicada, responde **404 em ProblemDetails**, nunca 200 com corpo
+    /// vazio: "ainda não treinamos" e "o modelo não sabe responder" são coisas diferentes.
+    /// </remarks>
+    [HttpGet("current")]
+    [ProducesResponseType(typeof(ApiResult<CurrentModelResult>), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), 404)]
+    public async Task<ActionResult<ApiResult<CurrentModelResult>>> GetCurrent(
+        CancellationToken cancellationToken)
+    {
+        CurrentModelResult result =
+            await _mediator.SendAsync(new GetCurrentModelQuery(), cancellationToken);
+
+        return Ok(new ApiResult<CurrentModelResult>(true, "Modelo corrente.", result));
     }
 }

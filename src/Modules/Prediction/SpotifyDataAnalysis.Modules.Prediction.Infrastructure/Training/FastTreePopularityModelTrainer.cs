@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Training;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Models;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Training;
+using SpotifyDataAnalysis.SharedKernel.Time;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 
@@ -22,6 +25,9 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
 
     private readonly MlNetTrainingDatasetProvider _datasetProvider;
     private readonly MLContext _mlContext;
+    private readonly IModelVersionRepository _versionRepository;
+    private readonly CurrentModelCache _modelCache;
+    private readonly IClock _clock;
     private readonly ILogger<FastTreePopularityModelTrainer> _logger;
 
     /// <summary>
@@ -32,10 +38,16 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
     public FastTreePopularityModelTrainer(
         MlNetTrainingDatasetProvider datasetProvider,
         MLContext mlContext,
+        IModelVersionRepository versionRepository,
+        CurrentModelCache modelCache,
+        IClock clock,
         ILogger<FastTreePopularityModelTrainer> logger)
     {
         _datasetProvider = datasetProvider;
         _mlContext = mlContext;
+        _versionRepository = versionRepository;
+        _modelCache = modelCache;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -72,6 +84,9 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
 
         CrossValidationReport crossValidation = pipeline.CrossValidate(dataset.TrainingView);
 
+        ModelPublicationReport publication = await PublishAsync(
+            pipeline, model, dataset, options, trainedOnImputed, primary, cancellationToken);
+
         var report = new ModelTrainingReport(
             PopularityModelPipeline.TrainerName,
             PopularityModelPipeline.FeatureColumns,
@@ -82,11 +97,62 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
             primary,
             imputedComparison,
             crossValidation,
-            (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+            (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            publication);
 
         LogOutcome(report);
 
         return report;
+    }
+
+    /// <summary>
+    /// Serializa e registra a versão treinada, e aplica a política de promoção (DP-2). A versão é gravada
+    /// SEMPRE — inclusive quando reprovada —, porque perder o registro de um treino ruim é perder a evidência
+    /// de que ele aconteceu. Só a promoção é condicional.
+    /// </summary>
+    private async Task<ModelPublicationReport> PublishAsync(
+        PopularityModelPipeline pipeline,
+        ITransformer model,
+        MlNetTrainingDataset dataset,
+        TrainingDatasetSplitOptions options,
+        bool trainedOnImputed,
+        ModelEvaluationReport primary,
+        CancellationToken cancellationToken)
+    {
+        byte[] artifact = pipeline.Serialize(model, dataset.TrainingView.Schema);
+        string hash = Convert.ToHexString(SHA256.HashData(artifact)).ToLowerInvariant();
+
+        ModelVersion version = ModelVersion.Register(
+            _clock.UtcNow,
+            PopularityModelPipeline.TrainerName,
+            PopularityModelPipeline.FeatureColumns,
+            options.Seed,
+            options.TestFraction,
+            dataset.Statistics.TrainingSampleCount,
+            dataset.Statistics.TestSampleCount,
+            trainedOnImputed,
+            primary.Model,
+            primary.MeanBaseline,
+            artifact,
+            hash);
+
+        await _versionRepository.AddAsync(version, cancellationToken);
+
+        ModelVersion? current = await _versionRepository.GetCurrentAsync(cancellationToken);
+
+        ModelPromotionDecision decision = ModelPromotionPolicy.Decide(
+            primary.Model, primary.MeanBaseline, current?.ModelMetrics);
+
+        if (decision.ShouldPromote)
+        {
+            await _versionRepository.PromoteAsync(version, cancellationToken);
+
+            // O cache aponta para a versão antiga; invalidar aqui é o que faz a promoção valer sem reiniciar.
+            _modelCache.Invalidate();
+        }
+
+        return new ModelPublicationReport(
+            version.Id, decision.ShouldPromote, decision.Reason, hash, artifact.LongLength);
     }
 
     /// <summary>

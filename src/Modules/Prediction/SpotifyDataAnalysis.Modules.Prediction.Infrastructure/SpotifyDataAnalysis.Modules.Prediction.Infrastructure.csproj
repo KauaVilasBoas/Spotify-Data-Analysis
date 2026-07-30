@@ -24,6 +24,10 @@
     <!-- FastTree e gradient boosting 100% gerenciado: roda igual em dev, CI e free tier. LightGbm renderia
          um pouco mais, mas arrasta binario nativo por plataforma (DP-1 do E3.2). -->
     <PackageReference Include="Microsoft.ML.FastTree" Version="3.0.1" />
+    <!-- E3.4: write-side proprio no schema "prediction" (versoes do modelo em bytea). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.15">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
