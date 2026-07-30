@@ -17,7 +17,8 @@
     <!--
       Módulos: o Host referencia o COMPOSITION ROOT de cada módulo (o projeto Infrastructure, que hospeda
       o IModule), descobrindo-o por varredura de assembly. Nunca usa tipos do Domain interno de um módulo —
-      isso é garantido pelos ArchitectureTests (Host !-> Domain), não pela ausência da referência de projeto.
+      isso é garantido pelos ArchitectureTests (HostBoundaryTests: Api !-> Domain de qualquer módulo), não
+      pela ausência da referência de projeto.
     -->
     <ProjectReference Include="..\..\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj" />
   </ItemGroup>

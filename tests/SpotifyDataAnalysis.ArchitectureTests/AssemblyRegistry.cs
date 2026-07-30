@@ -1,3 +1,4 @@
+using ClrAssembly = System.Reflection.Assembly;
 using ArchUnitNET.Domain;
 using ArchUnitNET.Loader;
 
@@ -13,19 +14,46 @@ namespace SpotifyDataAnalysis.ArchitectureTests;
 /// </summary>
 internal static class AssemblyRegistry
 {
+    /// <summary>
+    /// Sufixo do assembly que carrega o <b>Domain</b> de um bounded context. É por ele que
+    /// <see cref="ModuleDomainAssemblies"/> descobre os alvos das regras genéricas de fronteira, sem
+    /// hardcodar módulo por módulo.
+    /// </summary>
+    private const string ModuleAssemblyPrefix = "SpotifyDataAnalysis.Modules.";
+    private const string DomainAssemblySuffix = ".Domain";
+
+    private static readonly ClrAssembly[] _analyzedAssemblies =
+    [
+        typeof(SharedKernel.Domain.Entity<Guid>).Assembly,                     // SpotifyDataAnalysis.SharedKernel
+        typeof(Infrastructure.Persistence.SpotifyDbContextBase).Assembly,      // SpotifyDataAnalysis.Infrastructure
+        typeof(Jobs.Scheduling.TimedBackgroundService).Assembly,               // SpotifyDataAnalysis.Jobs
+        // Host: âncora num tipo público do Api (o Program é gerado por top-level statements e é interno).
+        typeof(Api.Middleware.CorrelationIdMiddleware).Assembly,               // SpotifyDataAnalysis.Api
+        // Catalog (E0): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais.
+        typeof(Modules.Catalog.Domain.CatalogDomainAssemblyReference).Assembly,          // Catalog.Domain
+        typeof(Modules.Catalog.Contracts.CatalogContractsAssemblyReference).Assembly,    // Catalog.Contracts
+        typeof(Modules.Catalog.Application.CatalogApplicationAssemblyReference).Assembly, // Catalog.Application
+        typeof(Modules.Catalog.Infrastructure.CatalogModule).Assembly                    // Catalog.Infrastructure
+    ];
+
     private static readonly Architecture _architecture = new ArchLoader()
-        .LoadAssemblies(
-            typeof(SharedKernel.Domain.Entity<Guid>).Assembly,                     // SpotifyDataAnalysis.SharedKernel
-            typeof(Infrastructure.Persistence.SpotifyDbContextBase).Assembly,      // SpotifyDataAnalysis.Infrastructure
-            typeof(Jobs.Scheduling.TimedBackgroundService).Assembly,               // SpotifyDataAnalysis.Jobs
-            // Catalog (E0): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais.
-            typeof(Modules.Catalog.Domain.CatalogDomainAssemblyReference).Assembly,          // Catalog.Domain
-            typeof(Modules.Catalog.Contracts.CatalogContractsAssemblyReference).Assembly,    // Catalog.Contracts
-            typeof(Modules.Catalog.Application.CatalogApplicationAssemblyReference).Assembly, // Catalog.Application
-            typeof(Modules.Catalog.Infrastructure.CatalogModule).Assembly                    // Catalog.Infrastructure
-        )
+        .LoadAssemblies(_analyzedAssemblies)
         .Build();
 
     /// <summary>Arquitetura completa da solução, usada por todos os testes.</summary>
     public static Architecture Architecture => _architecture;
+
+    /// <summary>Assembly do Host (<c>SpotifyDataAnalysis.Api</c>).</summary>
+    public static ClrAssembly HostAssembly { get; } = typeof(Api.Middleware.CorrelationIdMiddleware).Assembly;
+
+    /// <summary>
+    /// Assemblies de <b>Domain</b> de todos os módulos analisados, derivados por convenção de nome. Um
+    /// bounded context novo entra automaticamente nas regras genéricas de fronteira assim que é adicionado
+    /// a <see cref="_analyzedAssemblies"/> — sem editar as regras.
+    /// </summary>
+    public static IReadOnlyList<ClrAssembly> ModuleDomainAssemblies { get; } = _analyzedAssemblies
+        .Where(assembly => assembly.GetName().Name is { } name
+                           && name.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal)
+                           && name.EndsWith(DomainAssemblySuffix, StringComparison.Ordinal))
+        .ToArray();
 }

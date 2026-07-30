@@ -19,6 +19,13 @@
   <ItemGroup>
     <!-- Shared infrastructure: OutboxDispatcher, InMemoryEventBus, IClock. -->
     <ProjectReference Include="..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+
+    <!--
+      Domain jobs (E1.6) dispatch module COMMANDS, so this project references the module's Application —
+      its public application entry point — exactly like the Host references a module. It never touches a
+      module's Domain; the ArchitectureTests enforce that boundary rather than the absence of this reference.
+    -->
+    <ProjectReference Include="..\..\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Application\SpotifyDataAnalysis.Modules.Catalog.Application.csproj" />
   </ItemGroup>
 
 </Project>

@@ -20,6 +20,11 @@
   <ItemGroup>
     <!-- Expõe tipos internos (portas/DTOs) aos testes do módulo. -->
     <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Catalog.Tests" />
+    <!--
+      A Infrastructure é o COMPOSITION ROOT do módulo: precisa enxergar os colaboradores internos da
+      Application (handlers, registradores) para registrá-los na DI, sem que eles virem API pública do módulo.
+    -->
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Catalog.Infrastructure" />
   </ItemGroup>
 
 </Project>

@@ -15,6 +15,9 @@
   <ItemGroup>
     <PackageReference Include="FluentValidation" Version="11.9.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.15" />
+    <!-- Fixa o Relational em 8.0.15 (alinha o transitivo do Npgsql 8.0.11 com o EF Core/Design 8.0.15 e
+         elimina o aviso MSB3277 de unificação de versão). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.15" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="Dapper" Version="2.1.35" />

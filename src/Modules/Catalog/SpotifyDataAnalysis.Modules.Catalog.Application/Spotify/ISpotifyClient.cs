@@ -10,6 +10,11 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Application.Spotify;
 /// </summary>
 public interface ISpotifyClient
 {
+    /// <summary>
+    /// Metadados de uma playlist (nome, dono, total de faixas); <see langword="null"/> quando não existe (404).
+    /// </summary>
+    Task<SpotifyPlaylist?> GetPlaylistAsync(string playlistId, CancellationToken cancellationToken = default);
+
     /// <summary>Faixas de uma playlist, paginadas (offset/limit da Spotify Web API).</summary>
     Task<SpotifyPlaylistTracksPage> GetPlaylistTracksAsync(
         string playlistId, int offset, int limit, CancellationToken cancellationToken = default);
@@ -29,4 +34,21 @@ public interface ISpotifyClient
 
     /// <summary>Um álbum por id; <see langword="null"/> quando não existe (404).</summary>
     Task<SpotifyAlbum?> GetAlbumAsync(string albumId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Vários artistas de uma vez (endpoint <c>GET /artists?ids=</c>). É o caminho do enriquecimento em massa
+    /// (E1.8): uma requisição HTTP por lote em vez de uma por artista, para não estourar o rate limit ao
+    /// percorrer milhares de agregados. O adapter respeita o teto de <b>50 ids por chamada</b> da API,
+    /// fatiando <paramref name="artistIds"/> internamente. Ids desconhecidos são simplesmente omitidos do
+    /// retorno (a API devolve <c>null</c> naquela posição), então o caller casa por id, não por ordem.
+    /// </summary>
+    Task<IReadOnlyList<SpotifyArtist>> GetArtistsAsync(
+        IReadOnlyCollection<string> artistIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Vários álbuns de uma vez (endpoint <c>GET /albums?ids=</c>), com o mesmo contrato de
+    /// <see cref="GetArtistsAsync"/>. O teto da API para álbuns é <b>20 ids por chamada</b>.
+    /// </summary>
+    Task<IReadOnlyList<SpotifyAlbum>> GetAlbumsAsync(
+        IReadOnlyCollection<string> albumIds, CancellationToken cancellationToken = default);
 }

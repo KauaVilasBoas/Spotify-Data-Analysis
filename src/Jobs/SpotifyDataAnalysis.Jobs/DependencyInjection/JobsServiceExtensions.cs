@@ -47,6 +47,27 @@ public static class JobsServiceExtensions
         //    starts/stops them.
         services.AddHostedService<OutboxDispatcherJob>();
 
+        // 5. Scheduled playlist collection (E1.6). Registered ONLY when explicitly enabled: it calls the
+        //    Spotify Web API, so it must not start just because the host booted — an environment without
+        //    credentials or seeds would burn ticks failing. The flag is read here (not inside the job)
+        //    so a disabled job is never even instantiated.
+        bool playlistIngestionEnabled = configuration
+            .GetSection($"{JobsOptions.SectionName}:{nameof(JobsOptions.PlaylistIngestion)}:{nameof(PlaylistIngestionOptions.Enabled)}")
+            .Get<bool>();
+
+        if (playlistIngestionEnabled)
+            services.AddHostedService<PlaylistIngestionJob>();
+
+        // 6. Scheduled catalog enrichment (E1.8). Registered ONLY when explicitly enabled, for the same
+        //    reason as the playlist collection: it calls the Spotify Web API (heavily), so it must not start
+        //    just because the host booted. Read here so a disabled job is never even instantiated.
+        bool catalogEnrichmentEnabled = configuration
+            .GetSection($"{JobsOptions.SectionName}:{nameof(JobsOptions.CatalogEnrichment)}:{nameof(CatalogEnrichmentOptions.Enabled)}")
+            .Get<bool>();
+
+        if (catalogEnrichmentEnabled)
+            services.AddHostedService<CatalogEnrichmentJob>();
+
         return services;
     }
 }
