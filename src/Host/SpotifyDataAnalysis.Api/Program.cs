@@ -166,6 +166,26 @@ if (args.Length >= 1 && args[0] == "seed-catalog")
 }
 
 // ---------------------------------------------------------------------------
+// Dev CLI (E1.11): `dotnet run -- seed-references [csvPath]` deriva artistas/álbuns dos NOMES do CSV e liga
+// as faixas já semeadas pelo `seed-catalog` (créditos + album_id). Roda DEPOIS do seed-catalog e encerra.
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "seed-references")
+{
+    string csvPath = args.Length >= 2 ? args[1] : "dataset.csv";
+    using IServiceScope referenceScope = app.Services.CreateScope();
+    KaggleReferenceSeeder referenceSeeder =
+        referenceScope.ServiceProvider.GetRequiredService<KaggleReferenceSeeder>();
+
+    CatalogReferenceSeedResult references = await referenceSeeder.SeedAsync(csvPath);
+
+    Console.WriteLine(
+        $"[seed-references] {references.ArtistsCreated} artistas e {references.AlbumsCreated} álbuns criados, " +
+        $"{references.TracksLinked} faixas ligadas ({references.TracksNotFound} não encontradas) de " +
+        $"{references.TotalRows} linhas em {references.ElapsedMilliseconds} ms.");
+    return;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP pipeline
 // ---------------------------------------------------------------------------
 
