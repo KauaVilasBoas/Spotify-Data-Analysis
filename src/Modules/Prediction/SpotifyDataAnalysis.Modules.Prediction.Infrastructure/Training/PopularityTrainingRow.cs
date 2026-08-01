@@ -48,25 +48,69 @@ internal sealed class PopularityTrainingRow
 
     public string Genre { get; set; } = string.Empty;
 
-    /// <summary>Traduz uma amostra do domínio para a linha do ML.NET.</summary>
-    public static PopularityTrainingRow FromSample(TrackTrainingSample sample) => new()
+    /// <summary>
+    /// Traduz uma amostra do domínio (treino) para a linha do ML.NET. Delega a montagem das FEATURES a
+    /// <see cref="FromAudioFeatures"/> — a mesma rotina que a inferência (E3.5) usa —, e só acrescenta o alvo
+    /// <c>Popularity</c> e os metadados de rastro. Compartilhar a montagem é o que fecha, por construção, o
+    /// buraco do skew treino/inferência: não há duas traduções que possam divergir.
+    /// </summary>
+    public static PopularityTrainingRow FromSample(TrackTrainingSample sample)
     {
-        TrackId = sample.TrackId,
-        Popularity = sample.Popularity,
-        DurationMs = sample.DurationMs,
-        Explicit = sample.Explicit ? 1f : 0f,
-        Danceability = (float)sample.Danceability,
-        Energy = (float)sample.Energy,
-        Valence = (float)sample.Valence,
-        Tempo = (float)sample.Tempo,
-        Acousticness = (float)sample.Acousticness,
-        Instrumentalness = (float)sample.Instrumentalness,
-        Liveness = (float)sample.Liveness,
-        Speechiness = (float)sample.Speechiness,
-        Loudness = (float)sample.Loudness,
-        Key = sample.Key,
-        Mode = sample.Mode,
-        TimeSignature = sample.TimeSignature,
-        Genre = sample.Genre ?? string.Empty
+        PopularityTrainingRow row = FromAudioFeatures(
+            sample.Danceability,
+            sample.Energy,
+            sample.Valence,
+            sample.Tempo,
+            sample.Acousticness,
+            sample.Instrumentalness,
+            sample.Liveness,
+            sample.Speechiness,
+            sample.Loudness,
+            sample.DurationMs,
+            sample.Explicit);
+
+        row.TrackId = sample.TrackId;
+        row.Popularity = sample.Popularity;
+
+        // Key/Mode/TimeSignature/Genre viajam para futura codificação (E3.3) mas não entram no vetor de
+        // features do pipeline atual — por isso não fazem parte de FromAudioFeatures, que é o insumo da predição.
+        row.Key = sample.Key;
+        row.Mode = sample.Mode;
+        row.TimeSignature = sample.TimeSignature;
+        row.Genre = sample.Genre ?? string.Empty;
+
+        return row;
+    }
+
+    /// <summary>
+    /// Monta a linha do ML.NET a partir <b>apenas</b> das features que o pipeline campeão consome (as 9
+    /// grandezas contínuas de áudio mais duração e explícito). É o único caminho de tradução das features, usado
+    /// tanto pelo treino quanto pela inferência: a conversão <see cref="double"/> → <see cref="float"/> e a
+    /// codificação de <c>explicit</c> como 0/1 acontecem aqui, e em lugar nenhum além daqui.
+    /// </summary>
+    public static PopularityTrainingRow FromAudioFeatures(
+        double danceability,
+        double energy,
+        double valence,
+        double tempo,
+        double acousticness,
+        double instrumentalness,
+        double liveness,
+        double speechiness,
+        double loudness,
+        int durationMs,
+        bool @explicit) => new()
+    {
+        DurationMs = durationMs,
+        Explicit = @explicit ? 1f : 0f,
+        Danceability = (float)danceability,
+        Energy = (float)energy,
+        Valence = (float)valence,
+        Tempo = (float)tempo,
+        Acousticness = (float)acousticness,
+        Instrumentalness = (float)instrumentalness,
+        Liveness = (float)liveness,
+        Speechiness = (float)speechiness,
+        Loudness = (float)loudness
     };
 }

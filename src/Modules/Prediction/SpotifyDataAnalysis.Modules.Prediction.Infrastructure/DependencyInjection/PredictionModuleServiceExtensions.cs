@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,8 +6,10 @@ using Microsoft.Extensions.Options;
 using Microsoft.ML;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Prediction.Application;
+using SpotifyDataAnalysis.Modules.Prediction.Application.Inference;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Training;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Models;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Inference;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 
@@ -69,6 +72,25 @@ public static class PredictionModuleServiceExtensions
         // Cache do modelo corrente é SINGLETON: desserializar o .zip a cada request inviabilizaria a
         // inferência do E3.5. A invalidação na promoção é o que dispensa reiniciar a aplicação.
         services.AddSingleton<CurrentModelCache>();
+
+        // --- Inferência (E3.5): serve o modelo corrente ---
+
+        // Leitura pontual das features de uma faixa do schema "catalog" (modo trackId). Mesma fronteira do E3.1.
+        services.AddScoped<ITrackFeatureSource, CatalogTrackFeatureSource>();
+
+        // Pool próprio de PredictionEngine (decisão A do fork): SINGLETON, porque só faz sentido reaproveitar
+        // engines entre requisições. Consome o ITransformer cacheado, invalidado por versão na promoção.
+        services.AddSingleton<PopularityPredictionEnginePool>();
+
+        // O predictor é SCOPED: depende do repositório EF (per-request) para resolver a versão corrente. O
+        // estado durável (modelo desserializado, engines) vive no cache e no pool, ambos singletons.
+        services.AddScoped<IPopularityPredictor, MlNetPopularityPredictor>();
+
+        // Validador FluentValidation do endpoint de predição — consumido pelo ValidationBehavior do mediator
+        // para que um request malformado vire 400 (ProblemDetails) em vez de 500 ou de uma predição sem sentido.
+        // Registro explícito (e não AddValidatorsFromAssembly) para não arrastar o pacote
+        // FluentValidation.DependencyInjectionExtensions por causa de um único validador.
+        services.AddScoped<IValidator<PredictPopularityCommand>, PredictPopularityCommandValidator>();
 
         services.AddHandlersFromAssembly(typeof(PredictionApplicationAssemblyReference).Assembly);
 
