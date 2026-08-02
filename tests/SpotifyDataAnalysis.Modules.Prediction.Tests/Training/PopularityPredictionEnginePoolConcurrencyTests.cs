@@ -24,7 +24,7 @@ public sealed class PopularityPredictionEnginePoolConcurrencyTests
         IDataView training = mlContext.Data.LoadFromEnumerable(
             LearnableFixture.Create().Select(PopularityTrainingRow.FromSample));
 
-        return (mlContext, pipeline.Train(training));
+        return (mlContext, pipeline.Train(training, PopularityFeatureSet.Baseline));
     }
 
     private static PopularityTrainingRow SampleRow(int index) =>
@@ -39,7 +39,11 @@ public sealed class PopularityPredictionEnginePoolConcurrencyTests
             speechiness: 0.05,
             loudness: -6.0,
             durationMs: 200_000,
-            @explicit: false);
+            @explicit: false,
+            key: index % 12,
+            mode: index % 2,
+            timeSignature: 4,
+            genre: "fixture");
 
     [Fact]
     public async Task Rent_UnderParallelLoad_NeverThrows_AndIsDeterministicPerInput()
@@ -97,7 +101,7 @@ public sealed class PopularityPredictionEnginePoolConcurrencyTests
         var pipeline = new PopularityModelPipeline(mlContext);
         IDataView halfTraining = mlContext.Data.LoadFromEnumerable(
             LearnableFixture.Create(count: 300).Select(PopularityTrainingRow.FromSample));
-        ITransformer secondModel = pipeline.Train(halfTraining);
+        ITransformer secondModel = pipeline.Train(halfTraining, PopularityFeatureSet.Baseline);
 
         using var pool = new PopularityPredictionEnginePool(mlContext);
 

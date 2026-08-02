@@ -62,7 +62,11 @@ internal sealed class MlNetPopularityPredictor : IPopularityPredictor
             features.Speechiness,
             features.Loudness,
             features.DurationMs,
-            features.Explicit);
+            features.Explicit,
+            features.Key,
+            features.Mode,
+            features.TimeSignature,
+            features.Genre);
 
         float score = Predict(current.Id, model, row);
 

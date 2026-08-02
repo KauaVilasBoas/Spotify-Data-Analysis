@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.ML.Data;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Training;
 
@@ -8,17 +9,21 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 /// <c>IDataView</c> entende (<see cref="float"/> em vez de <see cref="double"/>, alvo nomeado
 /// <c>Label</c>). Fica na Infrastructure porque é forma imposta pelo framework, não conceito de domínio.
 ///
-/// <para><b>Não existe coluna de imputação aqui, e isso é proposital</b> (DP-2): expor <c>IsImputed</c> ao
-/// modelo lhe daria a chave para isolar o artefato da imputação e acertar pelo motivo errado. A flag existe
-/// no domínio para RELATAR a composição dos conjuntos, não para o modelo consumir.</para>
+/// <para><b>Não existe coluna de imputação aqui, e isso é proposital</b>: expor <c>IsImputed</c> ao modelo lhe
+/// daria a chave para isolar o artefato da imputação e acertar pelo motivo errado. A flag existe no domínio
+/// para RELATAR a composição dos conjuntos, não para o modelo consumir.</para>
 ///
-/// <para><see cref="Key"/>, <see cref="Mode"/> e <see cref="TimeSignature"/> viajam junto embora não sejam
-/// contínuas: elas não são descartadas, apenas ganham codificação própria no E3.3. <see cref="TrackId"/>
-/// viaja como rastro para inspecionar predições, e não como feature — quem escolhe as colunas do vetor de
-/// features é o pipeline de treino do E3.2.</para>
+/// <para><b>E3.3 — codificação por tipo.</b> <see cref="Key"/> e <see cref="TimeSignature"/> são CATEGÓRICAS
+/// (não ordinais): além do valor numérico bruto — mantido para rastro — viajam como texto em
+/// <see cref="KeyCategory"/>/<see cref="TimeSignatureCategory"/>, que é o que o pipeline transforma em one-hot.
+/// <see cref="Mode"/> é binário e entra direto como 0/1. <see cref="GenreCategory"/> normaliza gênero
+/// ausente/vazio para um bucket sentinela conhecido, para a inferência com gênero desconhecido nunca quebrar.</para>
 /// </summary>
 internal sealed class PopularityTrainingRow
 {
+    /// <summary>Bucket sentinela para gênero ausente/desconhecido — one-hot próprio, nunca confundido com um gênero real.</summary>
+    internal const string UnknownGenre = "<unknown>";
+
     public string TrackId { get; set; } = string.Empty;
 
     /// <summary>Alvo da regressão. Nomeado <c>Label</c> por convenção do ML.NET.</summary>
@@ -42,11 +47,26 @@ internal sealed class PopularityTrainingRow
     public float Speechiness { get; set; }
     public float Loudness { get; set; }
 
+    /// <summary>Tonalidade (0–11), mantida como número para rastro; a feature é <see cref="KeyCategory"/>.</summary>
     public float Key { get; set; }
+
+    /// <summary>Modo (0 = menor, 1 = maior). Binário, entra direto como 0/1 no vetor — sem one-hot.</summary>
     public float Mode { get; set; }
+
+    /// <summary>Compasso, mantido como número para rastro; a feature é <see cref="TimeSignatureCategory"/>.</summary>
     public float TimeSignature { get; set; }
 
+    /// <summary><c>Key</c> como texto — insumo do one-hot do Bloco A.</summary>
+    public string KeyCategory { get; set; } = string.Empty;
+
+    /// <summary><c>TimeSignature</c> como texto — insumo do one-hot do Bloco A.</summary>
+    public string TimeSignatureCategory { get; set; } = string.Empty;
+
+    /// <summary>Gênero cru, mantido para rastro. A feature codificada é <see cref="GenreCategory"/>.</summary>
     public string Genre { get; set; } = string.Empty;
+
+    /// <summary>Gênero normalizado (bucket sentinela quando ausente) — insumo do one-hot do Bloco B.</summary>
+    public string GenreCategory { get; set; } = string.Empty;
 
     /// <summary>
     /// Traduz uma amostra do domínio (treino) para a linha do ML.NET. Delega a montagem das FEATURES a
@@ -67,26 +87,28 @@ internal sealed class PopularityTrainingRow
             sample.Speechiness,
             sample.Loudness,
             sample.DurationMs,
-            sample.Explicit);
+            sample.Explicit,
+            sample.Key,
+            sample.Mode,
+            sample.TimeSignature,
+            sample.Genre);
 
         row.TrackId = sample.TrackId;
         row.Popularity = sample.Popularity;
-
-        // Key/Mode/TimeSignature/Genre viajam para futura codificação (E3.3) mas não entram no vetor de
-        // features do pipeline atual — por isso não fazem parte de FromAudioFeatures, que é o insumo da predição.
-        row.Key = sample.Key;
-        row.Mode = sample.Mode;
-        row.TimeSignature = sample.TimeSignature;
-        row.Genre = sample.Genre ?? string.Empty;
 
         return row;
     }
 
     /// <summary>
-    /// Monta a linha do ML.NET a partir <b>apenas</b> das features que o pipeline campeão consome (as 9
-    /// grandezas contínuas de áudio mais duração e explícito). É o único caminho de tradução das features, usado
-    /// tanto pelo treino quanto pela inferência: a conversão <see cref="double"/> → <see cref="float"/> e a
-    /// codificação de <c>explicit</c> como 0/1 acontecem aqui, e em lugar nenhum além daqui.
+    /// Monta a linha do ML.NET a partir das features que o pipeline pode consumir. É o ÚNICO caminho de
+    /// tradução das features, usado tanto pelo treino quanto pela inferência: a conversão <see cref="double"/> →
+    /// <see cref="float"/>, a codificação de <c>explicit</c> como 0/1 e a normalização de gênero ausente para o
+    /// bucket sentinela acontecem aqui, e em lugar nenhum além daqui — é isso que impede skew treino/inferência.
+    ///
+    /// <para><see cref="Key"/>, <see cref="Mode"/>, <see cref="TimeSignature"/> e <c>genre</c> do Bloco A/B
+    /// (E3.3) entram sempre na linha; se o feature set campeão não os usar, as colunas one-hot simplesmente não
+    /// são concatenadas pelo pipeline. Manter a assinatura estável impede que um caminho de inferência esqueça
+    /// de preenchê-los.</para>
     /// </summary>
     public static PopularityTrainingRow FromAudioFeatures(
         double danceability,
@@ -99,7 +121,11 @@ internal sealed class PopularityTrainingRow
         double speechiness,
         double loudness,
         int durationMs,
-        bool @explicit) => new()
+        bool @explicit,
+        int key,
+        int mode,
+        int timeSignature,
+        string? genre) => new()
     {
         DurationMs = durationMs,
         Explicit = @explicit ? 1f : 0f,
@@ -111,6 +137,21 @@ internal sealed class PopularityTrainingRow
         Instrumentalness = (float)instrumentalness,
         Liveness = (float)liveness,
         Speechiness = (float)speechiness,
-        Loudness = (float)loudness
+        Loudness = (float)loudness,
+        Key = key,
+        Mode = mode,
+        TimeSignature = timeSignature,
+        KeyCategory = key.ToString(CultureInfo.InvariantCulture),
+        TimeSignatureCategory = timeSignature.ToString(CultureInfo.InvariantCulture),
+        Genre = genre ?? string.Empty,
+        GenreCategory = NormalizeGenre(genre)
     };
+
+    /// <summary>
+    /// Gênero ausente/vazio vira o bucket <see cref="UnknownGenre"/>: assim o one-hot lhe dá uma coluna própria
+    /// e conhecida, em vez de um vetor todo-zero que o modelo interpretaria como "nenhuma categoria" — dois
+    /// estados diferentes que não devem colapsar.
+    /// </summary>
+    private static string NormalizeGenre(string? genre) =>
+        string.IsNullOrWhiteSpace(genre) ? UnknownGenre : genre;
 }

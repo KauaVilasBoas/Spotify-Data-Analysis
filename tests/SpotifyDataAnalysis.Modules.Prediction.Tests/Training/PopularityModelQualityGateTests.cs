@@ -38,7 +38,7 @@ public sealed class PopularityModelQualityGateTests
         (PopularityModelPipeline pipeline, IDataView training, IDataView test) =
             Arrange(LearnableFixture.Create());
 
-        ITransformer model = pipeline.Train(training);
+        ITransformer model = pipeline.Train(training, PopularityFeatureSet.Baseline);
 
         RegressionMetrics modelMetrics = pipeline.Evaluate(model, test);
         RegressionMetrics baseline = pipeline.EvaluateMeanBaseline(training, test);
@@ -59,7 +59,7 @@ public sealed class PopularityModelQualityGateTests
         (PopularityModelPipeline pipeline, IDataView training, IDataView test) =
             Arrange(LearnableFixture.CreateWithoutSignal());
 
-        ITransformer model = pipeline.Train(training);
+        ITransformer model = pipeline.Train(training, PopularityFeatureSet.Baseline);
 
         ModelQualityVerdict verdict = ModelQualityGate.Evaluate(
             pipeline.Evaluate(model, test),
@@ -84,7 +84,7 @@ public sealed class PopularityModelQualityGateTests
             (PopularityModelPipeline pipeline, IDataView training, IDataView test) =
                 Arrange(LearnableFixture.Create());
 
-            return pipeline.Evaluate(pipeline.Train(training), test);
+            return pipeline.Evaluate(pipeline.Train(training, PopularityFeatureSet.Baseline), test);
         }
     }
 
@@ -107,7 +107,7 @@ public sealed class PopularityModelQualityGateTests
     {
         (PopularityModelPipeline pipeline, IDataView training, _) = Arrange(LearnableFixture.Create());
 
-        var report = pipeline.CrossValidate(training);
+        var report = pipeline.CrossValidate(training, PopularityFeatureSet.Baseline);
 
         Assert.Equal(PopularityModelPipeline.CrossValidationFolds, report.Folds);
         Assert.True(report.StandardDeviationMeanAbsoluteError >= 0);
@@ -115,17 +115,36 @@ public sealed class PopularityModelQualityGateTests
     }
 
     [Fact]
-    public void FeatureSet_IsTheAudioSliceOnly_WithoutGenreOrTheDiscreteFeatures()
+    public void BaselineFeatureSet_IsTheAudioSliceOnly_TheFixedE32Anchor()
     {
-        // Gênero e Key/Mode/TimeSignature são o E3.3. Se entrarem aqui, o ganho daquele card deixa de ser
-        // mensurável contra este ponto de partida.
-        Assert.Equal(11, PopularityModelPipeline.FeatureColumns.Length);
-        Assert.Contains(nameof(PopularityTrainingRow.DurationMs), PopularityModelPipeline.FeatureColumns);
-        Assert.Contains(nameof(PopularityTrainingRow.Explicit), PopularityModelPipeline.FeatureColumns);
-        Assert.DoesNotContain(nameof(PopularityTrainingRow.Genre), PopularityModelPipeline.FeatureColumns);
-        Assert.DoesNotContain(nameof(PopularityTrainingRow.Key), PopularityModelPipeline.FeatureColumns);
-        Assert.DoesNotContain(nameof(PopularityTrainingRow.Mode), PopularityModelPipeline.FeatureColumns);
+        // A base do E3.3 é, por construção, o feature set do E3.2: 11 colunas, sem gênero nem
+        // Key/Mode/TimeSignature. É o ponto de partida contra o qual o ganho de cada bloco é medido — se ele
+        // mudar, a comparação incremental deixa de ser honesta.
+        Assert.Equal(11, PopularityModelPipeline.BaselineFeatureColumns.Length);
+        Assert.Contains(nameof(PopularityTrainingRow.DurationMs), PopularityModelPipeline.BaselineFeatureColumns);
+        Assert.Contains(nameof(PopularityTrainingRow.Explicit), PopularityModelPipeline.BaselineFeatureColumns);
+        Assert.DoesNotContain(nameof(PopularityTrainingRow.Genre), PopularityModelPipeline.BaselineFeatureColumns);
+        Assert.DoesNotContain(nameof(PopularityTrainingRow.Key), PopularityModelPipeline.BaselineFeatureColumns);
+        Assert.DoesNotContain(nameof(PopularityTrainingRow.Mode), PopularityModelPipeline.BaselineFeatureColumns);
         Assert.DoesNotContain(
-            nameof(PopularityTrainingRow.TimeSignature), PopularityModelPipeline.FeatureColumns);
+            nameof(PopularityTrainingRow.TimeSignature), PopularityModelPipeline.BaselineFeatureColumns);
+    }
+
+    [Fact]
+    public void LogicalFeatureNames_OfFullSet_PublishBlocksAAndBOverTheBaseline()
+    {
+        // O feature set publicado (ModelVersion.Features / GET /api/model/current) usa nomes LÓGICOS: o cliente
+        // vê "Genre", não as 113 colunas one-hot. A+B acrescenta Key/Mode/TimeSignature e Genre à base.
+        IReadOnlyList<string> names = PopularityFeatureSetDescriptor.LogicalFeatureNames(
+            PopularityFeatureSet.NonContinuousAudio | PopularityFeatureSet.Genre);
+
+        Assert.Equal(15, names.Count);
+        foreach (string baselineColumn in PopularityModelPipeline.BaselineFeatureColumns)
+            Assert.Contains(baselineColumn, names);
+
+        Assert.Contains(nameof(PopularityTrainingRow.Key), names);
+        Assert.Contains(nameof(PopularityTrainingRow.Mode), names);
+        Assert.Contains(nameof(PopularityTrainingRow.TimeSignature), names);
+        Assert.Contains(nameof(PopularityTrainingRow.Genre), names);
     }
 }

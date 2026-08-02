@@ -77,7 +77,13 @@ internal sealed class PredictPopularityCommandHandler
             row.Speechiness!.Value,
             row.Loudness!.Value,
             row.DurationMs,
-            row.Explicit);
+            row.Explicit,
+            // Bloco A/B (E3.3): vêm do catálogo. Um jsonb sem essas chaves cai no default neutro do value
+            // object — a faixa continua prevísivel mesmo se o campeão não usar esses blocos.
+            row.Key ?? AudioFeatureInput.MinimumKey,
+            row.Mode ?? AudioFeatureInput.MinimumMode,
+            row.TimeSignature ?? AudioFeatureInput.DefaultTimeSignature,
+            row.Genre);
 
         return await PredictByFeaturesAsync(
             features, row.IsImputed, PopularityPredictionMode.ByTrackId, cancellationToken);
@@ -134,7 +140,11 @@ internal sealed class PredictPopularityCommandHandler
                 request.Features.Speechiness,
                 request.Features.Loudness,
                 request.Features.DurationMs,
-                request.Features.Explicit);
+                request.Features.Explicit,
+                request.Features.Key,
+                request.Features.Mode,
+                request.Features.TimeSignature,
+                request.Features.Genre);
 
         return PopularityPredictionInput.FromRequest(request.TrackId, features);
     }

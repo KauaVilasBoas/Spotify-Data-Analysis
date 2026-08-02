@@ -54,20 +54,51 @@ public sealed record CrossValidationReport(
     double StandardDeviationMeanAbsoluteError);
 
 /// <summary>
+/// Uma linha da tabela comparativa do E3.3: as métricas de um feature set candidato, avaliado no MESMO conjunto
+/// de teste que todos os outros. É o registro que sustenta a eleição do campeão por medição — cada bloco só
+/// permanece se pagar o próprio custo.
+/// </summary>
+/// <param name="Label">Rótulo do conjunto na tabela (<c>baseline</c>, <c>+A</c>, <c>+B</c>, <c>A+B</c>).</param>
+/// <param name="Features">Nomes lógicos das features do conjunto, na ordem em que entraram.</param>
+/// <param name="Metrics">R²/MAE/RMSE do modelo treinado com este feature set, no conjunto de teste.</param>
+public sealed record FeatureSetEvaluationRow(
+    string Label,
+    IReadOnlyList<string> Features,
+    RegressionMetrics Metrics);
+
+/// <summary>
+/// A medição comparativa incremental do E3.3 e a decisão que ela sustenta: qual feature set foi eleito campeão
+/// e por quê. O baseline (E3.2) é a âncora fixa; cada bloco é medido isolado sobre ele e a combinação fecha a
+/// tabela. Um bloco só entra no campeão se seu ganho isolado de MAE bater <see cref="RequiredBlockMaeGain"/>.
+/// </summary>
+/// <param name="Baseline">O feature set do E3.2 — a linha de base contra a qual tudo é comparado.</param>
+/// <param name="Candidates">Os demais conjuntos avaliados (+A, +B, A+B), com suas métricas.</param>
+/// <param name="ChampionLabel">Rótulo do feature set eleito campeão.</param>
+/// <param name="ChampionRationale">Justificativa da eleição, bloco a bloco — inclui os que não pagaram.</param>
+/// <param name="RequiredBlockMaeGain">Ganho mínimo de MAE (fração) para um bloco permanecer no campeão.</param>
+public sealed record FeatureSetComparisonReport(
+    FeatureSetEvaluationRow Baseline,
+    IReadOnlyList<FeatureSetEvaluationRow> Candidates,
+    string ChampionLabel,
+    string ChampionRationale,
+    double RequiredBlockMaeGain);
+
+/// <summary>
 /// O relatório completo de um treino: o que foi treinado, com o quê, e o que saiu medido.
 /// </summary>
 /// <param name="Trainer">Nome do algoritmo campeão.</param>
-/// <param name="Features">Features que compuseram o vetor, na ordem em que entraram.</param>
+/// <param name="Features">Features que compuseram o vetor do CAMPEÃO, na ordem em que entraram.</param>
 /// <param name="Seed">Semente usada no split e no <c>MLContext</c> — a chave da reprodutibilidade.</param>
 /// <param name="TestFraction">Fração reservada para teste.</param>
 /// <param name="TrainedOnImputed">Se faixas com features imputadas entraram no TREINO.</param>
 /// <param name="TrainingSampleCount">Tamanho do conjunto de treino.</param>
-/// <param name="Primary">Avaliação no conjunto em que o modelo foi treinado.</param>
+/// <param name="Primary">Avaliação do CAMPEÃO no conjunto em que o modelo foi treinado.</param>
 /// <param name="ImputedComparison">
-/// Avaliação do MESMO modelo no conjunto ampliado com imputadas. Presente só quando o treino as excluiu — é a
-/// leitura que mostra o efeito da imputação em vez de escondê-lo.
+/// Avaliação do MESMO modelo campeão no conjunto ampliado com imputadas. Presente só quando o treino as excluiu
+/// — é a leitura que mostra o efeito da imputação em vez de escondê-lo.
 /// </param>
-/// <param name="CrossValidation">Estabilidade entre folds, sobre o conjunto de treino.</param>
+/// <param name="CrossValidation">Estabilidade entre folds do campeão, sobre o conjunto de treino.</param>
+/// <param name="FeatureSetComparison">A tabela comparativa do E3.3 e a eleição do campeão por medição.</param>
 /// <param name="ElapsedMilliseconds">Custo de parede do treino completo.</param>
 /// <param name="Publication">O que aconteceu com a versão treinada: registrada, e promovida ou não.</param>
 public sealed record ModelTrainingReport(
@@ -80,6 +111,7 @@ public sealed record ModelTrainingReport(
     ModelEvaluationReport Primary,
     ModelEvaluationReport? ImputedComparison,
     CrossValidationReport CrossValidation,
+    FeatureSetComparisonReport FeatureSetComparison,
     long ElapsedMilliseconds,
     ModelPublicationReport Publication);
 

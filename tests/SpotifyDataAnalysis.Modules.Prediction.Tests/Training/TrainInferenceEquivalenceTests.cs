@@ -36,7 +36,12 @@ public sealed class TrainInferenceEquivalenceTests
         IDataView trainingView = mlContext.Data.LoadFromEnumerable(
             trainingSamples.Select(PopularityTrainingRow.FromSample));
 
-        ITransformer model = pipeline.Train(trainingView);
+        // Feature set completo (A+B): exercita o anti-skew justamente sobre os blocos novos do E3.3 — se a
+        // montagem de Key/Mode/TimeSignature/Genre divergisse entre treino e inferência, este teste pegaria.
+        const PopularityFeatureSet featureSet =
+            PopularityFeatureSet.NonContinuousAudio | PopularityFeatureSet.Genre;
+
+        ITransformer model = pipeline.Train(trainingView, featureSet);
 
         // Lado do TREINO/AVALIAÇÃO: os scores como o pipeline de avaliação os produz, sobre FromSample.
         float[] pipelineScores = mlContext.Data
@@ -59,7 +64,8 @@ public sealed class TrainInferenceEquivalenceTests
                 PopularityTrainingRow row = PopularityTrainingRow.FromAudioFeatures(
                     sample.Danceability, sample.Energy, sample.Valence, sample.Tempo, sample.Acousticness,
                     sample.Instrumentalness, sample.Liveness, sample.Speechiness, sample.Loudness,
-                    sample.DurationMs, sample.Explicit);
+                    sample.DurationMs, sample.Explicit,
+                    sample.Key, sample.Mode, sample.TimeSignature, sample.Genre);
 
                 return lease.Engine.Predict(row).Score;
             })

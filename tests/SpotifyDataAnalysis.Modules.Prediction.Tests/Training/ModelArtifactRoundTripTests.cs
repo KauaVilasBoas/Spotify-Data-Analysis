@@ -35,7 +35,7 @@ public sealed class ModelArtifactRoundTripTests
         IDataView test = mlContext.Data.LoadFromEnumerable(
             samples.Skip(480).Select(PopularityTrainingRow.FromSample));
 
-        ITransformer trained = pipeline.Train(training);
+        ITransformer trained = pipeline.Train(training, PopularityFeatureSet.Baseline);
 
         byte[] artifact = pipeline.Serialize(trained, training.Schema);
 
@@ -72,7 +72,7 @@ public sealed class ModelArtifactRoundTripTests
             IDataView training = mlContext.Data.LoadFromEnumerable(
                 LearnableFixture.Create().Select(PopularityTrainingRow.FromSample));
 
-            return pipeline.Serialize(pipeline.Train(training), training.Schema);
+            return pipeline.Serialize(pipeline.Train(training, PopularityFeatureSet.Baseline), training.Schema);
         }
     }
 
@@ -86,12 +86,12 @@ public sealed class ModelArtifactRoundTripTests
         IDataView training = mlContext.Data.LoadFromEnumerable(
             LearnableFixture.Create().Select(PopularityTrainingRow.FromSample));
 
-        byte[] artifact = pipeline.Serialize(pipeline.Train(training), training.Schema);
+        byte[] artifact = pipeline.Serialize(pipeline.Train(training, PopularityFeatureSet.Baseline), training.Schema);
 
         ModelVersion version = ModelVersion.Register(
             DateTime.UtcNow,
             PopularityModelPipeline.TrainerName,
-            PopularityModelPipeline.FeatureColumns,
+            PopularityModelPipeline.BaselineFeatureColumns,
             Seed,
             0.2,
             480,
@@ -102,7 +102,7 @@ public sealed class ModelArtifactRoundTripTests
             artifact,
             "hash");
 
-        Assert.True(version.IsCompatibleWith(PopularityModelPipeline.FeatureColumns));
+        Assert.True(version.IsCompatibleWith(PopularityModelPipeline.BaselineFeatureColumns));
         Assert.NotEmpty(version.Artifact);
     }
 

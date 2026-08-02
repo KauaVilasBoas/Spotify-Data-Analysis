@@ -35,7 +35,11 @@ public sealed record TrackFeatureRow(
     double? Instrumentalness,
     double? Liveness,
     double? Speechiness,
-    double? Loudness)
+    double? Loudness,
+    int? Key,
+    int? Mode,
+    int? TimeSignature,
+    string? Genre)
 {
     /// <summary>
     /// Se as nove grandezas contínuas exigidas pelo feature set corrente estão presentes. Uma faixa com jsonb

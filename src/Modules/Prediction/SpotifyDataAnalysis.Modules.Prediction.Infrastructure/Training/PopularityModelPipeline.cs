@@ -16,6 +16,11 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 /// <para>Recebe <c>IDataView</c> pronto e devolve métricas, o que permite ao teste de gate treinar sobre uma
 /// fixture determinística sem tocar no banco — teste de qualidade que depende do estado do catálogo é flaky
 /// por construção.</para>
+///
+/// <para><b>E3.3:</b> o pipeline passou a ser parametrizado por <see cref="PopularityFeatureSet"/>. A mesma
+/// máquina treina a base do E3.2, cada bloco isolado e a combinação, sobre o MESMO split/seed — é isso que
+/// torna a medição comparativa honesta. O <see cref="PopularityFeatureSet.Baseline"/> reproduz bit a bit o
+/// pipeline do E3.2; os blocos acrescentam transforms de codificação (one-hot / booleano), nunca substituem.</para>
 /// </summary>
 internal sealed class PopularityModelPipeline
 {
@@ -28,16 +33,21 @@ internal sealed class PopularityModelPipeline
     private const string FeaturesColumn = "Features";
     private const string LabelColumn = "Label";
 
+    // Colunas intermediárias das codificações do E3.3. Nomes próprios (não sobrescrevem as colunas de origem)
+    // para que a origem — Key/TimeSignature/Genre em texto — continue disponível e o schema fique auditável.
+    private const string KeyEncodedColumn = "KeyEncoded";
+    private const string TimeSignatureEncodedColumn = "TimeSignatureEncoded";
+    private const string GenreEncodedColumn = "GenreEncoded";
+
     private readonly MLContext _mlContext;
 
     public PopularityModelPipeline(MLContext mlContext) => _mlContext = mlContext;
 
     /// <summary>
-    /// Colunas que compõem o vetor de features nesta fatia: as 9 grandezas contínuas de áudio mais duração e
-    /// explícito. Gênero, artista e <c>Key</c>/<c>Mode</c>/<c>TimeSignature</c> ficam de fora de propósito —
-    /// são o E3.3, e o ganho deles precisa ser medido contra este ponto de partida.
+    /// As 11 features da linha de base (E3.2): as 9 grandezas contínuas de áudio mais duração e explícito. É o
+    /// ponto de partida fixo da medição do E3.3 — o ganho de cada bloco é medido contra ele.
     /// </summary>
-    internal static readonly string[] FeatureColumns =
+    internal static readonly string[] BaselineFeatureColumns =
     [
         nameof(PopularityTrainingRow.Danceability),
         nameof(PopularityTrainingRow.Energy),
@@ -53,22 +63,23 @@ internal sealed class PopularityModelPipeline
     ];
 
     /// <summary>
-    /// Treina o campeão sobre a visão de treino. A normalização não é enfeite: <c>Tempo</c> (BPM),
-    /// <c>Loudness</c> (dB negativo) e <c>DurationMs</c> (centenas de milhares) conviveriam com features 0–1 e
-    /// dominariam por escala.
+    /// Treina o campeão sobre a visão de treino, com o feature set pedido. A normalização não é enfeite:
+    /// <c>Tempo</c> (BPM), <c>Loudness</c> (dB negativo) e <c>DurationMs</c> (centenas de milhares) conviveriam
+    /// com features 0–1 e dominariam por escala.
     /// </summary>
-    public ITransformer Train(IDataView trainingView)
+    public ITransformer Train(IDataView trainingView, PopularityFeatureSet featureSet)
     {
-        return BuildEstimator(_mlContext.Regression.Trainers.FastTree(labelColumnName: LabelColumn))
+        return BuildEstimator(
+                _mlContext.Regression.Trainers.FastTree(labelColumnName: LabelColumn), featureSet)
             .Fit(trainingView);
     }
 
-    /// <summary>Treina a regressão linear usada como segundo baseline.</summary>
-    public ITransformer TrainLinearBaseline(IDataView trainingView)
+    /// <summary>Treina a regressão linear usada como segundo baseline, com o mesmo feature set.</summary>
+    public ITransformer TrainLinearBaseline(IDataView trainingView, PopularityFeatureSet featureSet)
     {
         // Sdca e não Ols: o Ols do ML.NET vem em Microsoft.ML.Mkl.Components, que arrasta binário nativo — a
         // mesma razão pela qual o LightGbm foi descartado como campeão (DP-1).
-        return BuildEstimator(_mlContext.Regression.Trainers.Sdca(labelColumnName: LabelColumn))
+        return BuildEstimator(_mlContext.Regression.Trainers.Sdca(labelColumnName: LabelColumn), featureSet)
             .Fit(trainingView);
     }
 
@@ -101,14 +112,15 @@ internal sealed class PopularityModelPipeline
     /// Validação cruzada sobre o conjunto de TREINO, como leitura de estabilidade. O holdout dá um número; a
     /// dispersão entre folds diz se aquele número significa alguma coisa.
     /// </summary>
-    public CrossValidationReport CrossValidate(IDataView trainingView)
+    public CrossValidationReport CrossValidate(IDataView trainingView, PopularityFeatureSet featureSet)
     {
         // Tipo do resultado é um genérico aninhado do framework (TrainCatalogBase.CrossValidationResult<>);
         // nomeá-lo aqui só acrescentaria ruído.
         var results =
             _mlContext.Regression.CrossValidate(
                 trainingView,
-                BuildEstimator(_mlContext.Regression.Trainers.FastTree(labelColumnName: LabelColumn)),
+                BuildEstimator(
+                    _mlContext.Regression.Trainers.FastTree(labelColumnName: LabelColumn), featureSet),
                 numberOfFolds: CrossValidationFolds,
                 labelColumnName: LabelColumn);
 
@@ -139,10 +151,53 @@ internal sealed class PopularityModelPipeline
         return stream.ToArray();
     }
 
-    private IEstimator<ITransformer> BuildEstimator(IEstimator<ITransformer> trainer) =>
-        _mlContext.Transforms.Concatenate(FeaturesColumn, FeatureColumns)
-            .Append(_mlContext.Transforms.NormalizeMinMax(FeaturesColumn))
-            .Append(trainer);
+    /// <summary>
+    /// Monta o estimator para o feature set pedido. A estrutura é sempre a mesma — codificar categóricas,
+    /// concatenar o vetor, normalizar, treinar —, e o feature set só decide QUAIS colunas entram na concatenação
+    /// e quais codificações precedem. Blocos ausentes não deixam nenhum transform pendurado.
+    /// </summary>
+    private IEstimator<ITransformer> BuildEstimator(
+        IEstimator<ITransformer> trainer, PopularityFeatureSet featureSet)
+    {
+        var featureColumns = new List<string>(BaselineFeatureColumns);
+
+        // Encadeia as codificações num pipeline que pode começar vazio (baseline puro) e ganhar etapas por bloco.
+        // O tipo é IEstimator<ITransformer> desde o início para que os Append condicionais componham sem cast.
+        IEstimator<ITransformer>? encoding = null;
+
+        if (featureSet.HasFlag(PopularityFeatureSet.NonContinuousAudio))
+        {
+            // Key e TimeSignature são CATEGÓRICAS, não ordinais: viajam como texto e viram one-hot. Mode é
+            // binário e entra direto como 0/1 — one-hot de duas categorias só duplicaria a informação.
+            encoding = Append(encoding, _mlContext.Transforms.Categorical.OneHotEncoding(
+                KeyEncodedColumn, nameof(PopularityTrainingRow.KeyCategory)));
+            encoding = Append(encoding, _mlContext.Transforms.Categorical.OneHotEncoding(
+                TimeSignatureEncodedColumn, nameof(PopularityTrainingRow.TimeSignatureCategory)));
+
+            featureColumns.Add(KeyEncodedColumn);
+            featureColumns.Add(TimeSignatureEncodedColumn);
+            featureColumns.Add(nameof(PopularityTrainingRow.Mode));
+        }
+
+        if (featureSet.HasFlag(PopularityFeatureSet.Genre))
+        {
+            encoding = Append(encoding, _mlContext.Transforms.Categorical.OneHotEncoding(
+                GenreEncodedColumn, nameof(PopularityTrainingRow.GenreCategory)));
+
+            featureColumns.Add(GenreEncodedColumn);
+        }
+
+        IEstimator<ITransformer> assembly =
+            _mlContext.Transforms.Concatenate(FeaturesColumn, [.. featureColumns])
+                .Append(_mlContext.Transforms.NormalizeMinMax(FeaturesColumn))
+                .Append(trainer);
+
+        return encoding is null ? assembly : encoding.Append(assembly);
+    }
+
+    private static IEstimator<ITransformer> Append(
+        IEstimator<ITransformer>? head, IEstimator<ITransformer> next) =>
+        head is null ? next : head.Append(next);
 
     private IReadOnlyList<double> ReadLabels(IDataView view) =>
         _mlContext.Data

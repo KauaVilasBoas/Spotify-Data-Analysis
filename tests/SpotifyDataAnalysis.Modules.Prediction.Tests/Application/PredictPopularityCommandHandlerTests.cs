@@ -53,7 +53,11 @@ public sealed class PredictPopularityCommandHandlerTests
         Instrumentalness: 0.0,
         Liveness: 0.2,
         Speechiness: 0.05,
-        Loudness: -6.0);
+        Loudness: -6.0,
+        Key: 7,
+        Mode: 1,
+        TimeSignature: 4,
+        Genre: "pop");
 
     private static AudioFeaturesPayload ValidPayload() => new()
     {

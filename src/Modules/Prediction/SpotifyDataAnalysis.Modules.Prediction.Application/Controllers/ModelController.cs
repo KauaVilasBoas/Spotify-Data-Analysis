@@ -24,11 +24,12 @@ public sealed class ModelController : SpotifyControllerBase
     /// exclusivamente no conjunto de teste.
     /// </summary>
     /// <remarks>
-    /// O feature set desta fatia são as 9 audio-features contínuas mais duração e explícito. Gênero, artista e
-    /// <c>Key</c>/<c>Mode</c>/<c>TimeSignature</c> ficam de fora por decisão de escopo — entram no E3.3, e o
-    /// ganho deles é medido contra os números deste endpoint.
+    /// O treino avalia, sobre o MESMO split/seed, quatro feature sets (E3.3): a base do E3.2 (9 audio-features
+    /// contínuas + duração + explícito), cada bloco isolado — Bloco A (Key/Mode/TimeSignature) e Bloco B
+    /// (gênero, one-hot) — e a combinação. A <c>featureSetComparison</c> traz a tabela e elege o CAMPEÃO por
+    /// medição: um bloco só permanece se seu ganho isolado de MAE for ≥ 2%. Só o campeão é versionado e promovido.
     ///
-    /// <c>gate</c> diz se o modelo reduziu o MAE em pelo menos 5% sobre o baseline da média. É a régua de
+    /// <c>gate</c> diz se o campeão reduziu o MAE em pelo menos 5% sobre o baseline da média. É a régua de
     /// "aprendeu alguma coisa". R² é reportado mas não entra no gate: popularidade é alvo ruidoso, então R²
     /// baixo é resultado esperado, não defeito.
     ///
@@ -39,8 +40,9 @@ public sealed class ModelController : SpotifyControllerBase
     /// <c>crossValidation</c> traz média e desvio-padrão entre 5 folds sobre o conjunto de treino: desvio
     /// grande significa que a métrica única do holdout é sorte, não medida.
     ///
-    /// Duas execuções com a mesma <c>seed</c> produzem exatamente as mesmas métricas. O artefato treinado
-    /// **não** é persistido aqui — versionamento é o E3.4.
+    /// Duas execuções com a mesma <c>seed</c> produzem exatamente as mesmas métricas. O campeão é serializado,
+    /// registrado como nova versão e — se passar no gate e não piorar o MAE corrente — promovido (E3.4);
+    /// <c>publication</c> descreve o que aconteceu com a versão.
     /// </remarks>
     [HttpPost("train")]
     [ProducesResponseType(typeof(ApiResult<ModelTrainingReport>), 200)]

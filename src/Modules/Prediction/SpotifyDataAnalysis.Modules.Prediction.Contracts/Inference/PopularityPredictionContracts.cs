@@ -18,10 +18,14 @@ public sealed class PopularityPredictionRequest
 }
 
 /// <summary>
-/// O bloco de features do modo "features à mão". Reflete <b>exatamente</b> o feature set do modelo corrente
-/// (E3.2): as nove grandezas contínuas de áudio mais duração e explícito. Sem gênero/artista/Key — o pipeline
-/// campeão ainda não os consome (o E3.3 não foi para produção). Quando o feature set mudar, este payload
-/// acompanha, e o <c>GET /api/model/current</c> continua publicando a lista exata que o cliente deve enviar.
+/// O bloco de features do modo "features à mão". Cobre o feature set completo que o modelo pode consumir: as
+/// nove grandezas contínuas de áudio mais duração e explícito (E3.2) e, a partir do E3.3, as não-contínuas
+/// (<see cref="Key"/>, <see cref="Mode"/>, <see cref="TimeSignature"/>) e o <see cref="Genre"/>.
+///
+/// <para>Os campos do E3.3 são <b>opcionais</b> (defaults neutros: <c>Key</c>=0, <c>Mode</c>=0,
+/// <c>TimeSignature</c>=4, <c>Genre</c> ausente), então um cliente do E3.2 que só envia áudio contínuo continua
+/// válido. Quando o feature set do campeão os inclui, informá-los passa a importar — e o
+/// <c>GET /api/model/current</c> publica a lista exata que o cliente deve enviar para a versão vigente.</para>
 /// </summary>
 public sealed class AudioFeaturesPayload
 {
@@ -36,6 +40,18 @@ public sealed class AudioFeaturesPayload
     public double Loudness { get; init; }
     public int DurationMs { get; init; }
     public bool Explicit { get; init; }
+
+    /// <summary>Tonalidade (0–11). Feature do Bloco A (E3.3). Default 0 quando não informada.</summary>
+    public int Key { get; init; }
+
+    /// <summary>Modo (0 = menor, 1 = maior). Feature do Bloco A (E3.3). Default 0 quando não informada.</summary>
+    public int Mode { get; init; }
+
+    /// <summary>Compasso (0–7). Feature do Bloco A (E3.3). Default 4 (4/4) quando não informado.</summary>
+    public int TimeSignature { get; init; } = 4;
+
+    /// <summary>Gênero da faixa. Feature do Bloco B (E3.3). Ausente é tratado como bucket "desconhecido".</summary>
+    public string? Genre { get; init; }
 }
 
 /// <summary>

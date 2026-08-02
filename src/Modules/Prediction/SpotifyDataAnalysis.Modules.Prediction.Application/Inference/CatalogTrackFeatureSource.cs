@@ -38,7 +38,11 @@ internal sealed class CatalogTrackFeatureSource : BaseDataAccess, ITrackFeatureS
             (t.audio_features ->> 'Instrumentalness')::double precision     AS "Instrumentalness",
             (t.audio_features ->> 'Liveness')::double precision             AS "Liveness",
             (t.audio_features ->> 'Speechiness')::double precision          AS "Speechiness",
-            (t.audio_features ->> 'Loudness')::double precision             AS "Loudness"
+            (t.audio_features ->> 'Loudness')::double precision             AS "Loudness",
+            (t.audio_features ->> 'Key')::integer                           AS "Key",
+            (t.audio_features ->> 'Mode')::integer                          AS "Mode",
+            (t.audio_features ->> 'TimeSignature')::integer                 AS "TimeSignature",
+            (t.audio_features ->> 'Genre')                                  AS "Genre"
         FROM catalog.tracks AS t
         WHERE t.id = @TrackId;
         """;

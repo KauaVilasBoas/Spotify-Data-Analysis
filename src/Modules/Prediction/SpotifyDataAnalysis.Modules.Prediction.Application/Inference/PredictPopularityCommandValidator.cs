@@ -62,6 +62,18 @@ public sealed class PredictPopularityCommandValidator : AbstractValidator<Predic
             RuleFor(command => command.Request!.Features!.DurationMs)
                 .InclusiveBetween(AudioFeatureInput.MinimumDurationMs, AudioFeatureInput.MaximumDurationMs)
                 .OverridePropertyName("features.durationMs");
+
+            // Bloco A/B (E3.3): mesma fonte de constantes do value object. Genre não tem regra de faixa —
+            // qualquer string (ou ausência) é válida e o pipeline resolve a codificação / o bucket sentinela.
+            RuleFor(command => command.Request!.Features!.Key)
+                .InclusiveBetween(AudioFeatureInput.MinimumKey, AudioFeatureInput.MaximumKey)
+                .OverridePropertyName("features.key");
+            RuleFor(command => command.Request!.Features!.Mode)
+                .InclusiveBetween(AudioFeatureInput.MinimumMode, AudioFeatureInput.MaximumMode)
+                .OverridePropertyName("features.mode");
+            RuleFor(command => command.Request!.Features!.TimeSignature)
+                .InclusiveBetween(AudioFeatureInput.MinimumTimeSignature, AudioFeatureInput.MaximumTimeSignature)
+                .OverridePropertyName("features.timeSignature");
         });
     }
 
