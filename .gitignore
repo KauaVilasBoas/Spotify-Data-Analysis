@@ -31,9 +31,11 @@ docs/
 
 ## Dataset / modelos de ML (dados locais e artefatos — nunca versionar)
 # O CSV do Kaggle (~20 MB) e os modelos treinados (.zip/.mlnet) ficam no disco, fora do git.
+# O padrao de artefatos e ANCORADO na raiz: sem a barra inicial, "models/" casa com QUALQUER pasta
+# Models/ da solucao e engole codigo-fonte — foi o que aconteceu com o agregado do E3.4.
 /dataset.csv
 *.mlnet
-models/
+/models/
 
 ## Frontend (quando existir)
 node_modules/
