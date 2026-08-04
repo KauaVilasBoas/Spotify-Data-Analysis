@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Infrastructure: composition root do módulo Prediction. Hospeda o PredictionModule (IModule) e os
+    adaptadores de tecnologia. Depende para DENTRO: Application (casos de uso) e a Infrastructure
+    compartilhada (IModule, DI, DbConnectionFactory).
+
+    É o ÚNICO projeto do módulo que conhece o ML.NET: o framework de ML é um serviço externo, fica atrás da
+    porta ITrainingDatasetProvider e nunca alcança Application ou Domain.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SpotifyDataAnalysis.Modules.Prediction.Application\SpotifyDataAnalysis.Modules.Prediction.Application.csproj" />
+    <ProjectReference Include="..\..\..\Shared\SpotifyDataAnalysis.Infrastructure\SpotifyDataAnalysis.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML" Version="3.0.1" />
+    <!-- FastTree e gradient boosting 100% gerenciado: roda igual em dev, CI e free tier. LightGbm renderia
+         um pouco mais, mas arrasta binario nativo por plataforma (DP-1 do E3.2). -->
+    <PackageReference Include="Microsoft.ML.FastTree" Version="3.0.1" />
+    <!-- E3.4: write-side proprio no schema "prediction" (versoes do modelo em bytea). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.15">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SpotifyDataAnalysis.Modules.Prediction.Tests" />
+  </ItemGroup>
+
+</Project>

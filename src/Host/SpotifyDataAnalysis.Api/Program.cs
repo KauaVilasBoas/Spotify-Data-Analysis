@@ -9,6 +9,8 @@ using SpotifyDataAnalysis.Infrastructure.Modules;
 using SpotifyDataAnalysis.Jobs.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Analytics.Infrastructure;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure;
 using SpotifyDataAnalysis.SharedKernel.Observability;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -44,6 +46,7 @@ Assembly[] moduleAssemblies =
 [
     typeof(CatalogModule).Assembly,
     typeof(AnalyticsModule).Assembly,
+    typeof(PredictionModule).Assembly,
 ];
 
 ModuleLoader.RegisterModules(builder.Services, builder.Configuration, moduleAssemblies);
@@ -142,6 +145,45 @@ builder.Services.AddProblemDetails();
 // Build
 // ---------------------------------------------------------------------------
 WebApplication app = builder.Build();
+
+// ---------------------------------------------------------------------------
+// Dev CLI (E1.10): `dotnet run -- seed-catalog [csvPath]` popula catalog.tracks a partir do dataset Kaggle
+// (faixas + audio-features medidas + gênero) e ENCERRA — não sobe o servidor web nem os jobs. É carga de
+// dados local (o catálogo não vem da API do Spotify neste projeto sem credenciais).
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "seed-catalog")
+{
+    string csvPath = args.Length >= 2 ? args[1] : "dataset.csv";
+    using IServiceScope seedScope = app.Services.CreateScope();
+    KaggleCatalogSeeder seeder = seedScope.ServiceProvider.GetRequiredService<KaggleCatalogSeeder>();
+
+    CatalogSeedResult seed = await seeder.SeedAsync(csvPath);
+
+    Console.WriteLine(
+        $"[seed-catalog] {seed.Created} faixas criadas, {seed.DuplicatesSkipped} duplicadas, " +
+        $"{seed.IncompleteSkipped} incompletas de {seed.TotalRows} linhas em {seed.ElapsedMilliseconds} ms.");
+    return;
+}
+
+// ---------------------------------------------------------------------------
+// Dev CLI (E1.11): `dotnet run -- seed-references [csvPath]` deriva artistas/álbuns dos NOMES do CSV e liga
+// as faixas já semeadas pelo `seed-catalog` (créditos + album_id). Roda DEPOIS do seed-catalog e encerra.
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "seed-references")
+{
+    string csvPath = args.Length >= 2 ? args[1] : "dataset.csv";
+    using IServiceScope referenceScope = app.Services.CreateScope();
+    KaggleReferenceSeeder referenceSeeder =
+        referenceScope.ServiceProvider.GetRequiredService<KaggleReferenceSeeder>();
+
+    CatalogReferenceSeedResult references = await referenceSeeder.SeedAsync(csvPath);
+
+    Console.WriteLine(
+        $"[seed-references] {references.ArtistsCreated} artistas e {references.AlbumsCreated} álbuns criados, " +
+        $"{references.TracksLinked} faixas ligadas ({references.TracksNotFound} não encontradas) de " +
+        $"{references.TotalRows} linhas em {references.ElapsedMilliseconds} ms.");
+    return;
+}
 
 // ---------------------------------------------------------------------------
 // HTTP pipeline

@@ -38,7 +38,12 @@ internal static class AssemblyRegistry
         typeof(Modules.Analytics.Domain.AnalyticsDomainAssemblyReference).Assembly,          // Analytics.Domain
         typeof(Modules.Analytics.Contracts.AnalyticsContractsAssemblyReference).Assembly,    // Analytics.Contracts
         typeof(Modules.Analytics.Application.AnalyticsApplicationAssemblyReference).Assembly, // Analytics.Application
-        typeof(Modules.Analytics.Infrastructure.AnalyticsModule).Assembly                    // Analytics.Infrastructure
+        typeof(Modules.Analytics.Infrastructure.AnalyticsModule).Assembly,                   // Analytics.Infrastructure
+        // Prediction (E3): os 4 projetos do módulo, para as regras de isolamento avaliarem tipos reais.
+        typeof(Modules.Prediction.Domain.PredictionDomainAssemblyReference).Assembly,          // Prediction.Domain
+        typeof(Modules.Prediction.Contracts.PredictionContractsAssemblyReference).Assembly,    // Prediction.Contracts
+        typeof(Modules.Prediction.Application.PredictionApplicationAssemblyReference).Assembly, // Prediction.Application
+        typeof(Modules.Prediction.Infrastructure.PredictionModule).Assembly                    // Prediction.Infrastructure
     ];
 
     private static readonly Architecture _architecture = new ArchLoader()

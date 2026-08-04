@@ -305,6 +305,52 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence.Migrati
                             b1.Property<string>("TrackId")
                                 .HasColumnType("character varying(64)");
 
+                            b1.Property<double>("Acousticness")
+                                .HasColumnType("double precision");
+
+                            b1.Property<double>("Danceability")
+                                .HasColumnType("double precision");
+
+                            b1.Property<double>("Energy")
+                                .HasColumnType("double precision");
+
+                            b1.Property<string>("Genre")
+                                .HasColumnType("text");
+
+                            b1.Property<double>("Instrumentalness")
+                                .HasColumnType("double precision");
+
+                            b1.Property<bool>("IsImputed")
+                                .HasColumnType("boolean");
+
+                            b1.Property<int>("Key")
+                                .HasColumnType("integer");
+
+                            b1.Property<double>("Liveness")
+                                .HasColumnType("double precision");
+
+                            b1.Property<double>("Loudness")
+                                .HasColumnType("double precision");
+
+                            b1.Property<int>("Mode")
+                                .HasColumnType("integer");
+
+                            b1.Property<string>("Source")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<double>("Speechiness")
+                                .HasColumnType("double precision");
+
+                            b1.Property<double>("Tempo")
+                                .HasColumnType("double precision");
+
+                            b1.Property<int>("TimeSignature")
+                                .HasColumnType("integer");
+
+                            b1.Property<double>("Valence")
+                                .HasColumnType("double precision");
+
                             b1.HasKey("TrackId");
 
                             b1.ToTable("tracks", "catalog");

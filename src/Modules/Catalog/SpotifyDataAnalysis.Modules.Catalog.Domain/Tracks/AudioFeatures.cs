@@ -13,30 +13,34 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
 /// </summary>
 public sealed class AudioFeatures : ValueObject
 {
-    public double Danceability { get; }
-    public double Energy { get; }
-    public double Valence { get; }
-    public double Tempo { get; }
-    public double Acousticness { get; }
-    public double Instrumentalness { get; }
-    public double Liveness { get; }
-    public double Speechiness { get; }
-    public double Loudness { get; }
-    public int Key { get; }
-    public int Mode { get; }
-    public int TimeSignature { get; }
+    // Os setters são PRIVADOS (não ausentes) de propósito: o EF Core, ao serializar este owned type como JSON
+    // (ToJson), só mapeia por convenção propriedades com setter — uma propriedade só-leitura sai como {} no
+    // jsonb (bug silencioso: as features somem no banco). O value object segue imutável de fora — só o ctor
+    // (materialização do EF ou a factory Create) escreve.
+    public double Danceability { get; private set; }
+    public double Energy { get; private set; }
+    public double Valence { get; private set; }
+    public double Tempo { get; private set; }
+    public double Acousticness { get; private set; }
+    public double Instrumentalness { get; private set; }
+    public double Liveness { get; private set; }
+    public double Speechiness { get; private set; }
+    public double Loudness { get; private set; }
+    public int Key { get; private set; }
+    public int Mode { get; private set; }
+    public int TimeSignature { get; private set; }
 
     /// <summary>
     /// Gênero declarado pelo dataset para a faixa. É o recorte que a EDA (E2) agrupa, a feature categórica
     /// do modelo (E3) e — já no E1.5 — o estrato usado para imputar valores faltantes pela mediana.
     /// </summary>
-    public string? Genre { get; }
+    public string? Genre { get; private set; }
 
     /// <summary>De onde vieram as features (ex.: nome do dataset Kaggle).</summary>
-    public string Source { get; }
+    public string Source { get; private set; }
 
     /// <summary>True quando algum valor foi preenchido por imputação (não medido).</summary>
-    public bool IsImputed { get; }
+    public bool IsImputed { get; private set; }
 
     // Construtor sem parâmetros para a materialização do EF Core (owned/JSON): a hidratação preenche os
     // campos; Source recebe um placeholder só para satisfazer o não-nulo.

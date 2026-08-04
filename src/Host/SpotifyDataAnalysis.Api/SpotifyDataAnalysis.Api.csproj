@@ -22,6 +22,7 @@
     -->
     <ProjectReference Include="..\..\Modules\Catalog\SpotifyDataAnalysis.Modules.Catalog.Infrastructure\SpotifyDataAnalysis.Modules.Catalog.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Analytics\SpotifyDataAnalysis.Modules.Analytics.Infrastructure\SpotifyDataAnalysis.Modules.Analytics.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Prediction\SpotifyDataAnalysis.Modules.Prediction.Infrastructure\SpotifyDataAnalysis.Modules.Prediction.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

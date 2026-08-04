@@ -22,6 +22,7 @@ using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks.Events;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Repositories;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Spotify;
 using SpotifyDataAnalysis.SharedKernel.Messaging;
 
@@ -90,6 +91,14 @@ public static class CatalogModuleServiceExtensions
 
         // Leitor do CSV do Kaggle (E1.4): importa audio-features e casa por track_id.
         services.AddScoped<IKaggleAudioFeaturesReader, KaggleAudioFeaturesCsvReader>();
+
+        // Seed do catálogo a partir do CSV do Kaggle (E1.10): cria faixas direto do dataset, em lotes, pelo
+        // DbContext cru (sem Outbox). Disparado pela CLI dev do Host (`seed-catalog`), não por endpoint.
+        services.AddScoped<KaggleCatalogSeeder>();
+
+        // Seed de referências (E1.11): deriva artistas/álbuns dos NOMES do CSV e liga as faixas já semeadas.
+        // Também pela CLI dev do Host (`seed-references`), rodado depois do `seed-catalog`.
+        services.AddScoped<KaggleReferenceSeeder>();
 
         // Estratégias de casamento CSV → catálogo (E1.4/E1.9). A ORDEM DE REGISTRO É a ordem da chain no
         // TrackMatcher — da mais confiável para a menos confiável — e é aqui, na composição, que essa
