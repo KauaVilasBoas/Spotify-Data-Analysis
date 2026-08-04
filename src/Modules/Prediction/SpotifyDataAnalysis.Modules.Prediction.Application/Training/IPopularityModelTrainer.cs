@@ -1,3 +1,4 @@
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Models;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Training;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Application.Training;
@@ -84,6 +85,24 @@ public sealed record FeatureSetComparisonReport(
     double RequiredBlockMaeGain);
 
 /// <summary>
+/// O ranking de importância de features do CAMPEÃO (E3.6), medido por permutação sobre o conjunto de teste, e
+/// o custo dessa medição.
+///
+/// <para>O <see cref="ElapsedMilliseconds"/> não é enfeite de log: a permutação reexecuta a avaliação uma vez
+/// por slot do vetor, então é ele que responde se a medição cabe em todo treino ou só na promoção. Sem o
+/// número, a decisão vira palpite.</para>
+/// </summary>
+/// <param name="PermutationCount">Quantas permutações por slot sustentam a média e a dispersão publicadas.</param>
+/// <param name="SlotCount">Quantas colunas do vetor foram permutadas — o custo real da medição.</param>
+/// <param name="Features">O ranking agregado por feature lógica, da mais para a menos importante.</param>
+/// <param name="ElapsedMilliseconds">Tempo que a medição acrescentou ao treino.</param>
+public sealed record FeatureImportanceReport(
+    int PermutationCount,
+    int SlotCount,
+    IReadOnlyList<FeatureImportance> Features,
+    long ElapsedMilliseconds);
+
+/// <summary>
 /// O relatório completo de um treino: o que foi treinado, com o quê, e o que saiu medido.
 /// </summary>
 /// <param name="Trainer">Nome do algoritmo campeão.</param>
@@ -99,7 +118,11 @@ public sealed record FeatureSetComparisonReport(
 /// </param>
 /// <param name="CrossValidation">Estabilidade entre folds do campeão, sobre o conjunto de treino.</param>
 /// <param name="FeatureSetComparison">A tabela comparativa do E3.3 e a eleição do campeão por medição.</param>
-/// <param name="ElapsedMilliseconds">Custo de parede do treino completo.</param>
+/// <param name="FeatureImportance">
+/// O ranking de importância do campeão (E3.6), medido por permutação sobre o conjunto de teste e gravado junto
+/// da versão — o <c>GET /api/model/current</c> lê daí, nunca recalcula.
+/// </param>
+/// <param name="ElapsedMilliseconds">Custo de parede do treino completo, JÁ INCLUINDO a medição de importância.</param>
 /// <param name="Publication">O que aconteceu com a versão treinada: registrada, e promovida ou não.</param>
 public sealed record ModelTrainingReport(
     string Trainer,
@@ -112,6 +135,7 @@ public sealed record ModelTrainingReport(
     ModelEvaluationReport? ImputedComparison,
     CrossValidationReport CrossValidation,
     FeatureSetComparisonReport FeatureSetComparison,
+    FeatureImportanceReport FeatureImportance,
     long ElapsedMilliseconds,
     ModelPublicationReport Publication);
 

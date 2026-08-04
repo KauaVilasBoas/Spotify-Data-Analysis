@@ -92,6 +92,7 @@ public sealed class ModelArtifactRoundTripTests
             DateTime.UtcNow,
             PopularityModelPipeline.TrainerName,
             PopularityModelPipeline.BaselineFeatureColumns,
+            featureImportance: null,
             Seed,
             0.2,
             480,

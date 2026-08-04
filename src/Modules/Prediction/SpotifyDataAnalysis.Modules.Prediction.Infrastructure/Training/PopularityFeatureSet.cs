@@ -37,6 +37,18 @@ internal enum PopularityFeatureSet
 internal static class PopularityFeatureSetDescriptor
 {
     /// <summary>
+    /// De qual coluna CODIFICADA do pipeline cada nome lógico veio. É o mapa que devolve o slot one-hot ao
+    /// nome do bloco: <c>GenreEncoded.rock</c> pertence à feature lógica <c>Genre</c>.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> LogicalNamesByEncodedColumn =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [PopularityModelPipeline.KeyEncodedColumn] = nameof(PopularityTrainingRow.Key),
+            [PopularityModelPipeline.TimeSignatureEncodedColumn] = nameof(PopularityTrainingRow.TimeSignature),
+            [PopularityModelPipeline.GenreEncodedColumn] = nameof(PopularityTrainingRow.Genre)
+        };
+
+    /// <summary>
     /// Os nomes lógicos das features do conjunto, na ordem em que entram no vetor: primeiro as 11 do E3.2,
     /// depois o Bloco A, depois o Bloco B. É a lista publicada como feature set da versão.
     /// </summary>
@@ -55,6 +67,26 @@ internal static class PopularityFeatureSetDescriptor
             names.Add(nameof(PopularityTrainingRow.Genre));
 
         return names;
+    }
+
+    /// <summary>
+    /// Devolve o nome LÓGICO da feature a que um slot do vetor pertence (E3.6).
+    ///
+    /// <para>A concatenação do ML.NET nomeia cada slot como <c>{colunaDeOrigem}.{categoria}</c> quando a
+    /// origem é um vetor one-hot, e simplesmente <c>{coluna}</c> quando é escalar. Basta então olhar o prefixo
+    /// até o primeiro ponto — a categoria em si não interessa, e é justamente ela que transformaria a saída
+    /// nas 113 colunas anônimas que o card proíbe.</para>
+    /// </summary>
+    public static string ResolveLogicalFeatureName(string slotName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(slotName);
+
+        int separator = slotName.IndexOf('.', StringComparison.Ordinal);
+        string sourceColumn = separator < 0 ? slotName : slotName[..separator];
+
+        return LogicalNamesByEncodedColumn.TryGetValue(sourceColumn, out string? logicalName)
+            ? logicalName
+            : sourceColumn;
     }
 
     /// <summary>Rótulo curto do conjunto para a tabela comparativa (ex.: <c>baseline</c>, <c>+A</c>, <c>A+B</c>).</summary>

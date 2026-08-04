@@ -30,14 +30,16 @@ internal sealed class PopularityModelPipeline
     /// <summary>Folds da validação cruzada.</summary>
     internal const int CrossValidationFolds = 5;
 
-    private const string FeaturesColumn = "Features";
-    private const string LabelColumn = "Label";
+    /// <summary>Nome da coluna-vetor de features — o alvo da permutação do E3.6.</summary>
+    internal const string FeaturesColumn = "Features";
+
+    internal const string LabelColumn = "Label";
 
     // Colunas intermediárias das codificações do E3.3. Nomes próprios (não sobrescrevem as colunas de origem)
     // para que a origem — Key/TimeSignature/Genre em texto — continue disponível e o schema fique auditável.
-    private const string KeyEncodedColumn = "KeyEncoded";
-    private const string TimeSignatureEncodedColumn = "TimeSignatureEncoded";
-    private const string GenreEncodedColumn = "GenreEncoded";
+    internal const string KeyEncodedColumn = "KeyEncoded";
+    internal const string TimeSignatureEncodedColumn = "TimeSignatureEncoded";
+    internal const string GenreEncodedColumn = "GenreEncoded";
 
     private readonly MLContext _mlContext;
 

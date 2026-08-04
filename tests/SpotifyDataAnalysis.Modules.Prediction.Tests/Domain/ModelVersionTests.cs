@@ -12,11 +12,14 @@ public sealed class ModelVersionTests
     private static readonly string[] Features = ["Danceability", "Energy"];
 
     private static ModelVersion Register(
-        IEnumerable<string>? features = null, byte[]? artifact = null) =>
+        IEnumerable<string>? features = null,
+        byte[]? artifact = null,
+        IEnumerable<FeatureImportance>? featureImportance = null) =>
         ModelVersion.Register(
             DateTime.UtcNow,
             "FastTree",
             features ?? Features,
+            featureImportance,
             seed: 42,
             testFraction: 0.2,
             trainingSampleCount: 800,

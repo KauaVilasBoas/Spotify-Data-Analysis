@@ -11,6 +11,10 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Persistence;
 ///
 /// <para>O <c>Id</c> é identity: a numeração sequencial das versões é responsabilidade do banco, e não de uma
 /// contagem em memória que corre risco de colidir sob concorrência.</para>
+///
+/// <para>O ranking de importância do E3.6 vai para jsonb pelo mesmo motivo do feature set: é lido por inteiro
+/// junto da ficha da versão, nunca filtrado por elemento. O default <c>'[]'</c> da migration cobre as versões
+/// registradas antes do E3.6 — nelas a lista vem vazia, que significa "não foi medido".</para>
 /// </summary>
 internal sealed class ModelVersionConfiguration : IEntityTypeConfiguration<ModelVersion>
 {
@@ -50,6 +54,20 @@ internal sealed class ModelVersionConfiguration : IEntityTypeConfiguration<Model
                     (left, right) => left!.SequenceEqual(right!),
                     features => features.Aggregate(0, (hash, feature) => HashCode.Combine(hash, feature.GetHashCode())),
                     features => features.ToList()))
+            .IsRequired();
+
+        builder.Ignore(version => version.FeatureImportance);
+        builder.Property<List<FeatureImportance>>("_featureImportance")
+            .HasColumnName("feature_importance")
+            .HasColumnType("jsonb")
+            .HasConversion(
+                importance => JsonSerializer.Serialize(importance, (JsonSerializerOptions?)null),
+                json => JsonSerializer.Deserialize<List<FeatureImportance>>(json, (JsonSerializerOptions?)null)
+                        ?? new List<FeatureImportance>(),
+                new ValueComparer<List<FeatureImportance>>(
+                    (left, right) => left!.SequenceEqual(right!),
+                    importance => importance.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+                    importance => importance.ToList()))
             .IsRequired();
 
         builder.Property(version => version.Seed).IsRequired();

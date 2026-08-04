@@ -106,8 +106,12 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
         CrossValidationReport crossValidation =
             pipeline.CrossValidate(dataset.TrainingView, champion.FeatureSet);
 
+        FeatureImportanceReport featureImportance =
+            new PermutationFeatureImportanceCalculator(_mlContext).Measure(champion.Model, dataset.TestView);
+
         ModelPublicationReport publication = await PublishAsync(
-            pipeline, champion, dataset, options, trainedOnImputed, primary, cancellationToken);
+            pipeline, champion, dataset, options, trainedOnImputed, primary, featureImportance,
+            cancellationToken);
 
         var report = new ModelTrainingReport(
             PopularityModelPipeline.TrainerName,
@@ -120,6 +124,7 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
             imputedComparison,
             crossValidation,
             comparison,
+            featureImportance,
             (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
             publication);
 
@@ -201,6 +206,7 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
         TrainingDatasetSplitOptions options,
         bool trainedOnImputed,
         ModelEvaluationReport primary,
+        FeatureImportanceReport featureImportance,
         CancellationToken cancellationToken)
     {
         byte[] artifact = pipeline.Serialize(champion.Model, dataset.TrainingView.Schema);
@@ -210,6 +216,7 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
             _clock.UtcNow,
             PopularityModelPipeline.TrainerName,
             PopularityFeatureSetDescriptor.LogicalFeatureNames(champion.FeatureSet),
+            featureImportance.Features,
             options.Seed,
             options.TestFraction,
             dataset.Statistics.TrainingSampleCount,
@@ -302,7 +309,9 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
     private void LogOutcome(ModelTrainingReport report) =>
         _logger.LogInformation(
             "Treino {Trainer} (semente {Seed}): campeão {Champion}, R² {RSquared:F4}, MAE {Mae:F3} contra MAE " +
-            "{BaselineMae:F3} do baseline — melhora de {Improvement:P2}, gate {GateOutcome}. {Elapsed} ms.",
+            "{BaselineMae:F3} do baseline — melhora de {Improvement:P2}, gate {GateOutcome}. Feature mais " +
+            "importante: {TopFeature}. {Elapsed} ms no total, dos quais {ImportanceElapsed} ms de importância " +
+            "sobre {SlotCount} slots.",
             report.Trainer,
             report.Seed,
             report.FeatureSetComparison.ChampionLabel,
@@ -311,7 +320,10 @@ internal sealed class FastTreePopularityModelTrainer : IPopularityModelTrainer
             report.Primary.MeanBaseline.MeanAbsoluteError,
             report.Primary.Gate.MaeImprovement,
             report.Primary.Gate.Passed ? "APROVADO" : "REPROVADO",
-            report.ElapsedMilliseconds);
+            report.FeatureImportance.Features.FirstOrDefault()?.Feature ?? "n/d",
+            report.ElapsedMilliseconds,
+            report.FeatureImportance.ElapsedMilliseconds,
+            report.FeatureImportance.SlotCount);
 
     /// <summary>Um feature set treinado e medido: o modelo e suas métricas de teste, guardados juntos.</summary>
     private sealed record FeatureSetEvaluation(

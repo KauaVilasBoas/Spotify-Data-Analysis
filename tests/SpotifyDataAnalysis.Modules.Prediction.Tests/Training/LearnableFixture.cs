@@ -71,8 +71,49 @@ internal static class LearnableFixture
         return samples;
     }
 
+    /// <summary>
+    /// Os gêneros da fixture com sinal categórico. Vários de propósito: um bloco one-hot de UMA categoria não
+    /// prova nada sobre agregação de slots.
+    /// </summary>
+    private static readonly string[] SignalGenres = ["rock", "pop", "jazz", "samba", "metal", "bolero"];
+
+    /// <summary>
+    /// Gera amostras onde o GÊNERO carrega o sinal dominante: <c>popularity ≈ 10 + 14·índiceDoGênero +
+    /// 10·danceability + ruído</c>. Serve ao E3.6 — é a fixture em que o bloco categórico precisa aparecer
+    /// no topo do ranking de importância, com seus slots one-hot somados numa linha só.
+    /// </summary>
+    public static IReadOnlyList<TrackTrainingSample> CreateWithGenreSignal(int count = 600)
+    {
+        var random = new Random(Seed);
+        var samples = new List<TrackTrainingSample>(count);
+
+        for (int index = 0; index < count; index++)
+        {
+            int genreIndex = random.Next(0, SignalGenres.Length);
+            double danceability = random.NextDouble();
+            double noise = (random.NextDouble() - 0.5) * 2 * NoiseAmplitude;
+
+            double popularity = 10 + (14 * genreIndex) + (10 * danceability) + noise;
+
+            samples.Add(SampleOf(
+                $"genre-{index:D4}",
+                Math.Clamp((int)Math.Round(popularity), 0, 100),
+                danceability,
+                random.NextDouble(),
+                random,
+                SignalGenres[genreIndex]));
+        }
+
+        return samples;
+    }
+
     private static TrackTrainingSample SampleOf(
-        string trackId, int popularity, double danceability, double energy, Random random) =>
+        string trackId,
+        int popularity,
+        double danceability,
+        double energy,
+        Random random,
+        string genre = "fixture") =>
         TrackTrainingSample.FromEligibleCandidate(new TrackTrainingCandidate
         {
             TrackId = trackId,
@@ -93,6 +134,6 @@ internal static class LearnableFixture
             Key = random.Next(0, 12),
             Mode = random.Next(0, 2),
             TimeSignature = 3 + random.Next(0, 3),
-            Genre = "fixture"
+            Genre = genre
         });
 }
