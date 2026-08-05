@@ -105,6 +105,16 @@ public static class PredictionModuleServiceExtensions
         // source scoped abrindo um scope próprio via IServiceScopeFactory.
         services.AddSingleton<ITrackSimilarityIndexProvider, CachedTrackSimilarityIndexProvider>();
 
+        // --- Recomendação pública com explicabilidade (E4.2): metadados de exibição da semente e das top-N ---
+
+        // Leitura dos rótulos de UI (nome/artista/álbum/gênero) do schema "catalog", por id, a cada request.
+        // Mesma fronteira do E3.1 (Dapper via BaseDataAccess), scoped porque depende do DbConnectionFactory.
+        services.AddScoped<ITrackMetadataSource, CatalogTrackMetadataSource>();
+
+        // Validador de fronteira do endpoint público: limit ∈ [1, 50] e explainTopK ∈ [1, 9] viram 400
+        // (ProblemDetails) via ValidationBehavior, não 500. Registro explícito (mesma razão do validador do E3.5).
+        services.AddScoped<IValidator<GetTrackRecommendationsQuery>, GetTrackRecommendationsQueryValidator>();
+
         services.AddHandlersFromAssembly(typeof(PredictionApplicationAssemblyReference).Assembly);
 
         return services;

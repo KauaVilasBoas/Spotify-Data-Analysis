@@ -40,4 +40,39 @@ public static class CosineSimilarity
 
         return dotProduct / (left.Magnitude * right.Magnitude);
     }
+
+    /// <summary>
+    /// Decompõe o cosseno em UMA parcela por dimensão: o valor de <see cref="Between"/> é a SOMA das parcelas
+    /// devolvidas aqui. Cada parcela é <c>(leftᵢ · rightᵢ) / (‖left‖·‖right‖)</c> — a contribuição da i-ésima
+    /// coordenada ao score. É a base da explicabilidade do E4.2: "as features que mais aproximaram" são as de
+    /// maior parcela, e como a soma reconstrói o próprio score, a explicação nunca diverge do ranking.
+    ///
+    /// <para>Devolve as parcelas na ORDEM canônica das coordenadas (índice = posição). Vetor de norma zero (a
+    /// origem, sem direção) tem cosseno definido como 0 por <see cref="Between"/> — coerentemente, todas as
+    /// parcelas são 0 aqui, para a decomposição continuar somando o mesmo score.</para>
+    /// </summary>
+    /// <exception cref="DomainException">Quando as dimensões dos dois vetores divergem.</exception>
+    public static IReadOnlyList<double> ContributionsBetween(
+        SimilarityFeatureVector left, SimilarityFeatureVector right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        if (left.Coordinates.Count != right.Coordinates.Count)
+            throw new DomainException(
+                "Cosine similarity exige vetores de mesma dimensão: " +
+                $"{left.Coordinates.Count} contra {right.Coordinates.Count}.");
+
+        var contributions = new double[left.Coordinates.Count];
+
+        if (left.Magnitude == 0 || right.Magnitude == 0)
+            return contributions;
+
+        double normProduct = left.Magnitude * right.Magnitude;
+
+        for (int index = 0; index < left.Coordinates.Count; index++)
+            contributions[index] = (left.Coordinates[index] * right.Coordinates[index]) / normProduct;
+
+        return contributions;
+    }
 }

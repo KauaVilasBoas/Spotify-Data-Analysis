@@ -68,7 +68,8 @@ public sealed class SimilarityIndex
         foreach (RawTrackFeatures track in rawTracks)
         {
             SimilarityFeatureVector normalized = parameters.Normalize(track.RawVector);
-            TrackFeatureVector entry = TrackFeatureVector.Create(track.TrackId, normalized, track.IsImputed);
+            TrackFeatureVector entry = TrackFeatureVector.Create(
+                track.TrackId, normalized, track.RawVector, track.IsImputed);
 
             entries.Add(entry);
 
@@ -95,6 +96,64 @@ public sealed class SimilarityIndex
             return null;
 
         return RankNeighbors(seed.Vector, topN, seedTrackId);
+    }
+
+    /// <summary>
+    /// As N faixas mais parecidas com a semente do índice, cada uma com o "porquê rico" do E4.2: além do score, a
+    /// DECOMPOSIÇÃO do cosseno por dimensão (quanto cada feature aproximou a candidata da semente). Reusa o MESMO
+    /// ranking de <see cref="FindNearestTo(string,int)"/> e apenas o enriquece — o ranking não muda por ser
+    /// explicado. Devolve <c>null</c> quando a semente não está no índice (mesma semântica de
+    /// <see cref="FindNearestTo(string,int)"/>: o chamador distingue 404 de "sem vizinhos").
+    ///
+    /// <para>As contribuições saem de <see cref="CosineSimilarity.ContributionsBetween"/> sobre os vetores
+    /// NORMALIZADOS já guardados (nada de recomputar normalização), e os valores originais de cada feature vêm dos
+    /// vetores CRUS que a entrada carrega — a explicação é a decomposição exata do próprio score que ordena.</para>
+    /// </summary>
+    public IReadOnlyList<ExplainedTrackSimilarity>? ExplainNearestTo(string seedTrackId, int topN)
+    {
+        if (!_entriesById.TryGetValue(seedTrackId, out TrackFeatureVector? seed))
+            return null;
+
+        IReadOnlyList<TrackSimilarity> ranked = RankNeighbors(seed.Vector, topN, seedTrackId);
+
+        var explained = new List<ExplainedTrackSimilarity>(ranked.Count);
+        foreach (TrackSimilarity neighbor in ranked)
+        {
+            TrackFeatureVector candidate = _entriesById[neighbor.TrackId];
+            explained.Add(new ExplainedTrackSimilarity(
+                neighbor.TrackId,
+                neighbor.Similarity,
+                neighbor.IsImputed,
+                DescribeContributions(seed, candidate)));
+        }
+
+        return explained;
+    }
+
+    /// <summary>
+    /// Monta a contribuição de cada feature ao score entre <paramref name="seed"/> e <paramref name="candidate"/>:
+    /// a parcela normalizada (de <see cref="CosineSimilarity.ContributionsBetween"/>) casada com os valores
+    /// ORIGINAIS de ambos os lados, na ordem canônica das features. Uma feature por posição — o chamador escolhe
+    /// as top-K a exibir.
+    /// </summary>
+    private static IReadOnlyList<FeatureContribution> DescribeContributions(
+        TrackFeatureVector seed, TrackFeatureVector candidate)
+    {
+        IReadOnlyList<double> contributions =
+            CosineSimilarity.ContributionsBetween(seed.Vector, candidate.Vector);
+
+        var described = new List<FeatureContribution>(contributions.Count);
+        foreach (SimilarityFeature feature in SimilarityFeatures.Ordered)
+        {
+            int index = (int)feature;
+            described.Add(new FeatureContribution(
+                feature,
+                seed.RawVector[feature],
+                candidate.RawVector[feature],
+                contributions[index]));
+        }
+
+        return described;
     }
 
     /// <summary>

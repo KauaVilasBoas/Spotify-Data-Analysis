@@ -14,10 +14,12 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 /// </summary>
 public sealed class TrackFeatureVector
 {
-    private TrackFeatureVector(string trackId, SimilarityFeatureVector vector, bool isImputed)
+    private TrackFeatureVector(
+        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector, bool isImputed)
     {
         TrackId = trackId;
         Vector = vector;
+        RawVector = rawVector;
         IsImputed = isImputed;
     }
 
@@ -27,6 +29,14 @@ public sealed class TrackFeatureVector
     /// <summary>O vetor NORMALIZADO (z-score) da faixa — o ponto efetivamente comparado por cosine.</summary>
     public SimilarityFeatureVector Vector { get; }
 
+    /// <summary>
+    /// O vetor CRU (unidades originais do catálogo) da faixa. Guardado junto do normalizado porque a
+    /// explicabilidade do E4.2 reporta os valores ORIGINAIS das features destacadas ("energy 0,82", não o
+    /// z-score) — e reconstruir o cru a partir do normalizado exigiria reaplicar μ/σ ao contrário, um caminho a
+    /// mais que poderia divergir. Barato de guardar (mais 9 doubles por faixa) e elimina a divergência.
+    /// </summary>
+    public SimilarityFeatureVector RawVector { get; }
+
     /// <summary>Se as features desta faixa foram imputadas (DP-F). Candidata sim, mas marcada para o consumidor.</summary>
     public bool IsImputed { get; }
 
@@ -35,13 +45,15 @@ public sealed class TrackFeatureVector
     /// autoexcluída (a autoexclusão compara ids), então entrar no índice sem id seria um defeito à espera.
     /// </summary>
     /// <exception cref="DomainException">Quando o id da faixa é nulo ou em branco.</exception>
-    public static TrackFeatureVector Create(string trackId, SimilarityFeatureVector vector, bool isImputed)
+    public static TrackFeatureVector Create(
+        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector, bool isImputed)
     {
         ArgumentNullException.ThrowIfNull(vector);
+        ArgumentNullException.ThrowIfNull(rawVector);
 
         if (string.IsNullOrWhiteSpace(trackId))
             throw new DomainException("Uma entrada do índice de similaridade precisa de um trackId não vazio.");
 
-        return new TrackFeatureVector(trackId, vector, isImputed);
+        return new TrackFeatureVector(trackId, vector, rawVector, isImputed);
     }
 }
