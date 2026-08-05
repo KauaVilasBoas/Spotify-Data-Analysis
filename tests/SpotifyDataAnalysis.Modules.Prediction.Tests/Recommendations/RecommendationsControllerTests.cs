@@ -46,7 +46,7 @@ public sealed class RecommendationsControllerTests
 
         ActionResult<ApiResult<TrackRecommendationsResponse>> action =
             await controller.GetTrackRecommendations("0e7ipj03S05BNilyu5bRzt", limit: 5, explainTopK: 2,
-                CancellationToken.None);
+                genreMode: GenreRankingModeContract.SameGenreOnly, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(action.Result);
         var payload = Assert.IsType<ApiResult<TrackRecommendationsResponse>>(ok.Value);
@@ -57,6 +57,7 @@ public sealed class RecommendationsControllerTests
         Assert.Equal("0e7ipj03S05BNilyu5bRzt", query.SeedTrackId);
         Assert.Equal(5, query.Limit);
         Assert.Equal(2, query.ExplainTopK);
+        Assert.Equal(GenreRankingModeContract.SameGenreOnly, query.GenreMode);
     }
 
     [Fact]
@@ -70,5 +71,7 @@ public sealed class RecommendationsControllerTests
         var query = Assert.IsType<GetTrackRecommendationsQuery>(mediator.LastRequest);
         Assert.Equal(GetTrackRecommendationsQuery.DefaultLimit, query.Limit);
         Assert.Equal(GetTrackRecommendationsQuery.DefaultExplainTopK, query.ExplainTopK);
+        Assert.Equal(GetTrackRecommendationsQuery.DefaultGenreMode, query.GenreMode);
+        Assert.Equal(GenreRankingModeContract.Boost, query.GenreMode);
     }
 }

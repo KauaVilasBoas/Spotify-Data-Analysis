@@ -20,9 +20,9 @@ public sealed class GetSimilarTracksQueryHandlerTests
     public async Task Handle_KnownSeed_ReturnsNeighborsWithoutTheSeed()
     {
         ITrackSimilarityIndexProvider provider = ProviderWith(
-            new RawTrackFeatures("seed", Raw(0.0), false),
-            new RawTrackFeatures("a", Raw(0.1), false),
-            new RawTrackFeatures("b", Raw(5.0), false));
+            new RawTrackFeatures("seed", Raw(0.0), null, false),
+            new RawTrackFeatures("a", Raw(0.1), null, false),
+            new RawTrackFeatures("b", Raw(5.0), null, false));
         var handler = new GetSimilarTracksQueryHandler(provider);
 
         SimilarTracksResult result = await handler.HandleAsync(new GetSimilarTracksQuery("seed", 10));
@@ -37,8 +37,8 @@ public sealed class GetSimilarTracksQueryHandlerTests
     public async Task Handle_UnknownSeed_ReportsSeedNotFoundWithEmptyNeighbors()
     {
         ITrackSimilarityIndexProvider provider = ProviderWith(
-            new RawTrackFeatures("a", Raw(0.1), false),
-            new RawTrackFeatures("b", Raw(5.0), false));
+            new RawTrackFeatures("a", Raw(0.1), null, false),
+            new RawTrackFeatures("b", Raw(5.0), null, false));
         var handler = new GetSimilarTracksQueryHandler(provider);
 
         SimilarTracksResult result = await handler.HandleAsync(new GetSimilarTracksQuery("ghost", 10));
@@ -51,7 +51,7 @@ public sealed class GetSimilarTracksQueryHandlerTests
     public async Task Handle_TopNAboveMaximum_IsClamped()
     {
         var tracks = Enumerable.Range(0, 10)
-            .Select(i => new RawTrackFeatures($"t{i}", Raw(i), false))
+            .Select(i => new RawTrackFeatures($"t{i}", Raw(i), null, false))
             .ToArray();
         var handler = new GetSimilarTracksQueryHandler(ProviderWith(tracks));
 

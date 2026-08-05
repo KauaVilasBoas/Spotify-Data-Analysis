@@ -15,11 +15,13 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 public sealed class TrackFeatureVector
 {
     private TrackFeatureVector(
-        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector, bool isImputed)
+        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector,
+        string? genre, bool isImputed)
     {
         TrackId = trackId;
         Vector = vector;
         RawVector = rawVector;
+        Genre = genre;
         IsImputed = isImputed;
     }
 
@@ -37,6 +39,14 @@ public sealed class TrackFeatureVector
     /// </summary>
     public SimilarityFeatureVector RawVector { get; }
 
+    /// <summary>
+    /// Gênero da faixa (das audio-features), já normalizado pelo Catalog em lowercase, ou null quando ausente. É o
+    /// insumo do estágio de gênero do E4.3 (boost/filtro) — guardado no índice para o ranking híbrido não precisar
+    /// de outra ida ao banco por candidata. Só INFORMA a similaridade quando <see cref="IsImputed"/> é false: um
+    /// gênero de faixa imputada é estimado, não medido, e não deve boostar (DP-F) — a decisão é da política, não daqui.
+    /// </summary>
+    public string? Genre { get; }
+
     /// <summary>Se as features desta faixa foram imputadas (DP-F). Candidata sim, mas marcada para o consumidor.</summary>
     public bool IsImputed { get; }
 
@@ -46,7 +56,8 @@ public sealed class TrackFeatureVector
     /// </summary>
     /// <exception cref="DomainException">Quando o id da faixa é nulo ou em branco.</exception>
     public static TrackFeatureVector Create(
-        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector, bool isImputed)
+        string trackId, SimilarityFeatureVector vector, SimilarityFeatureVector rawVector,
+        string? genre, bool isImputed)
     {
         ArgumentNullException.ThrowIfNull(vector);
         ArgumentNullException.ThrowIfNull(rawVector);
@@ -54,6 +65,6 @@ public sealed class TrackFeatureVector
         if (string.IsNullOrWhiteSpace(trackId))
             throw new DomainException("Uma entrada do índice de similaridade precisa de um trackId não vazio.");
 
-        return new TrackFeatureVector(trackId, vector, rawVector, isImputed);
+        return new TrackFeatureVector(trackId, vector, rawVector, genre, isImputed);
     }
 }

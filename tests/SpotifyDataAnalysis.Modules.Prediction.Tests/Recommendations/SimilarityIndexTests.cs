@@ -20,8 +20,9 @@ public sealed class SimilarityIndexTests
             instrumentalness, liveness, speechiness, loudness
         ]);
 
-    private static RawTrackFeatures Track(string id, SimilarityFeatureVector raw, bool imputed = false) =>
-        new(id, raw, imputed);
+    private static RawTrackFeatures Track(
+        string id, SimilarityFeatureVector raw, string? genre = null, bool imputed = false) =>
+        new(id, raw, genre, imputed);
 
     /// <summary>Um catálogo pequeno com uma semente e vizinhos de proximidade conhecida (ordenável à mão).</summary>
     private static IReadOnlyList<RawTrackFeatures> SampleCatalog() =>

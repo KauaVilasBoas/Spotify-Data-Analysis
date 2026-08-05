@@ -21,13 +21,15 @@ public sealed class SimilarityIndexExplainTests
             instrumentalness, liveness, speechiness, loudness
         ]);
 
+    private static readonly GenreAffinityPolicy CosineOnly = GenreAffinityPolicy.CosineOnly();
+
     private static IReadOnlyList<RawTrackFeatures> SampleCatalog() =>
     [
-        new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), false),
-        new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), false),
-        new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), false),
-        new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), false),
-        new("imp",  Raw(0.78, 0.82, 0.79, 121.0, 0.12, 0.11, 0.10, 0.05, -8.1), IsImputed: true)
+        new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: null, false),
+        new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), Genre: null, false),
+        new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), Genre: null, false),
+        new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), Genre: null, false),
+        new("imp",  Raw(0.78, 0.82, 0.79, 121.0, 0.12, 0.11, 0.10, 0.05, -8.1), Genre: null, IsImputed: true)
     ];
 
     [Fact]
@@ -35,7 +37,7 @@ public sealed class SimilarityIndexExplainTests
     {
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
-        Assert.Null(index.ExplainNearestTo("unknown", topN: 3));
+        Assert.Null(index.ExplainNearestTo("unknown", topN: 3, CosineOnly));
     }
 
     [Fact]
@@ -44,7 +46,7 @@ public sealed class SimilarityIndexExplainTests
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
         IReadOnlyList<TrackSimilarity> ranked = index.FindNearestTo("seed", topN: 10)!;
-        IReadOnlyList<ExplainedTrackSimilarity> explained = index.ExplainNearestTo("seed", topN: 10)!;
+        IReadOnlyList<ExplainedTrackSimilarity> explained = index.ExplainNearestTo("seed", topN: 10, CosineOnly)!;
 
         Assert.Equal(ranked.Count, explained.Count);
         for (int i = 0; i < ranked.Count; i++)
@@ -56,16 +58,19 @@ public sealed class SimilarityIndexExplainTests
     }
 
     [Fact]
-    public void ExplainNearestTo_ContributionsSumToTheScore()
+    public void ExplainNearestTo_ContributionsSumToTheCosine_WhenGenreDoesNotWeigh()
     {
-        // O invariante que sustenta a explicabilidade: a soma das contribuições de uma vizinha É o seu score.
+        // O invariante que sustenta a explicabilidade: a soma das contribuições por feature É o cosseno da vizinha.
+        // Sem gênero, o score híbrido coincide com o cosseno, então a soma também reconstrói o Similarity.
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
-        IReadOnlyList<ExplainedTrackSimilarity> explained = index.ExplainNearestTo("seed", topN: 10)!;
+        IReadOnlyList<ExplainedTrackSimilarity> explained = index.ExplainNearestTo("seed", topN: 10, CosineOnly)!;
 
         foreach (ExplainedTrackSimilarity neighbor in explained)
         {
             double contributionSum = neighbor.Contributions.Sum(contribution => contribution.Contribution);
+            Assert.Equal(neighbor.CosineSimilarity, contributionSum, Tolerance);
+            Assert.Equal(0.0, neighbor.GenreBonus, Tolerance);
             Assert.Equal(neighbor.Similarity, contributionSum, Tolerance);
         }
     }
@@ -75,7 +80,7 @@ public sealed class SimilarityIndexExplainTests
     {
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
-        ExplainedTrackSimilarity neighbor = index.ExplainNearestTo("seed", topN: 1)![0];
+        ExplainedTrackSimilarity neighbor = index.ExplainNearestTo("seed", topN: 1, CosineOnly)![0];
 
         Assert.Equal(SimilarityFeatures.Dimension, neighbor.Contributions.Count);
         for (int i = 0; i < SimilarityFeatures.Ordered.Count; i++)
@@ -90,7 +95,7 @@ public sealed class SimilarityIndexExplainTests
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
         ExplainedTrackSimilarity near =
-            index.ExplainNearestTo("seed", topN: 10)!.Single(n => n.TrackId == "near");
+            index.ExplainNearestTo("seed", topN: 10, CosineOnly)!.Single(n => n.TrackId == "near");
 
         FeatureContribution energy = near.Contributions.Single(c => c.Feature == SimilarityFeature.Energy);
         Assert.Equal(0.80, energy.SeedValue, Tolerance);
@@ -107,7 +112,7 @@ public sealed class SimilarityIndexExplainTests
         SimilarityIndex index = SimilarityIndex.Build(SampleCatalog());
 
         ExplainedTrackSimilarity imputed =
-            index.ExplainNearestTo("seed", topN: 10)!.Single(n => n.TrackId == "imp");
+            index.ExplainNearestTo("seed", topN: 10, CosineOnly)!.Single(n => n.TrackId == "imp");
 
         Assert.True(imputed.IsImputed);
     }

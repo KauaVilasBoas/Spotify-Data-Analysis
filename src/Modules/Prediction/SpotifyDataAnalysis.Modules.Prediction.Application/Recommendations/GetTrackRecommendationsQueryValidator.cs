@@ -34,5 +34,14 @@ public sealed class GetTrackRecommendationsQueryValidator : AbstractValidator<Ge
                 $"'explainTopK' deve estar entre 1 e {GetTrackRecommendationsQuery.MaximumExplainTopK} " +
                 "(a dimensão do vetor de similaridade). " +
                 $"Sem informar, vale o padrão de {GetTrackRecommendationsQuery.DefaultExplainTopK}.");
+
+        // Um genreMode fora do enum (ex.: ?genreMode=99 ou um nome inexistente que o binder não resolveu) vira 400,
+        // não um comportamento default silencioso — o cliente deve saber que o modo pedido não existe.
+        RuleFor(query => query.GenreMode)
+            .IsInEnum()
+            .OverridePropertyName("genreMode")
+            .WithMessage(
+                "'genreMode' deve ser um de: boost (default, gênero pesa no ranking), off (cosine puro) ou " +
+                "sameGenreOnly (só o mesmo gênero da semente).");
     }
 }

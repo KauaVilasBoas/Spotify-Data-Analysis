@@ -30,14 +30,17 @@ internal sealed class CatalogSimilarityFeatureSource : BaseDataAccess, ISimilari
     internal const int MaximumBatchSize = 50_000;
 
     /// <summary>
-    /// Projeção das faixas ELEGÍVEIS: só as nove features contínuas (as que compõem o vetor), a identidade e a
-    /// marca de imputação. Sem popularidade, sem duração, sem gênero — nada disso é eixo de similaridade no E4.1.
-    /// O <c>WHERE</c> exige as nove presentes, então nenhuma coordenada chega nula ao domínio.
+    /// Projeção das faixas ELEGÍVEIS: as nove features contínuas (as que compõem o vetor), a identidade, o gênero e
+    /// a marca de imputação. O <b>gênero</b> entra a partir do E4.3 (estágio de ranking híbrido — boost/filtro por
+    /// gênero da semente); NÃO é dimensão do cosseno (o vetor continua com nove coordenadas), é insumo do estágio de
+    /// gênero, guardado no índice para o ranking não precisar de outra ida ao banco. O <c>WHERE</c> exige as nove
+    /// features presentes, então nenhuma coordenada chega nula ao domínio; o gênero pode ser nulo (a política trata).
     /// </summary>
     internal const string Sql =
         """
         SELECT
             t.id                                                            AS "TrackId",
+            t.audio_features ->> 'Genre'                                    AS "Genre",
             COALESCE((t.audio_features ->> 'IsImputed')::boolean, false)    AS "IsImputed",
             (t.audio_features ->> 'Danceability')::double precision         AS "Danceability",
             (t.audio_features ->> 'Energy')::double precision               AS "Energy",
@@ -109,6 +112,7 @@ internal sealed class CatalogSimilarityFeatureSource : BaseDataAccess, ISimilari
     /// </summary>
     private sealed record EligibleTrackRow(
         string TrackId,
+        string? Genre,
         bool IsImputed,
         double Danceability,
         double Energy,
@@ -120,7 +124,7 @@ internal sealed class CatalogSimilarityFeatureSource : BaseDataAccess, ISimilari
         double Speechiness,
         double Loudness)
     {
-        /// <summary>Monta o vetor CRU na ORDEM CANÔNICA de <see cref="SimilarityFeatures.Ordered"/>.</summary>
+        /// <summary>Monta o vetor CRU na ORDEM CANÔNICA de <see cref="SimilarityFeatures.Ordered"/>, com o gênero à parte.</summary>
         public RawTrackFeatures ToRawFeatures()
         {
             SimilarityFeatureVector rawVector = SimilarityFeatureVector.Create(
@@ -136,7 +140,7 @@ internal sealed class CatalogSimilarityFeatureSource : BaseDataAccess, ISimilari
                 Loudness
             ]);
 
-            return new RawTrackFeatures(TrackId, rawVector, IsImputed);
+            return new RawTrackFeatures(TrackId, rawVector, Genre, IsImputed);
         }
     }
 }

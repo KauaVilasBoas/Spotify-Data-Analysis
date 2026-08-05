@@ -6,19 +6,23 @@ using SpotifyDataAnalysis.SharedKernel.Messaging;
 namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 
 /// <summary>
-/// O caso de uso público do recomendador content-based (E4.2): dada uma faixa-semente do catálogo, devolve as N
-/// faixas mais parecidas por cosseno sobre audio-features normalizadas, cada uma com o "porquê rico" — score, as
-/// features que mais aproximaram (com valores originais) e o gênero compartilhado.
+/// O caso de uso público do recomendador content-based híbrido (E4.2/E4.3): dada uma faixa-semente do catálogo,
+/// devolve as N faixas mais parecidas por um score HÍBRIDO — cosseno sobre audio-features normalizadas combinado
+/// com a afinidade de gênero (boost/filtro/nada, conforme <see cref="GenreMode"/>) —, cada uma com o "porquê rico":
+/// score, as features que mais aproximaram (com valores originais), o gênero compartilhado e a contribuição do
+/// gênero ao ranking.
 ///
-/// <para>É <b>query</b> (leitura pura): consulta o índice cacheado e o catálogo, sem mudar estado. Orquestra três
+/// <para>É <b>query</b> (leitura pura): consulta o índice cacheado e o catálogo, sem mudar estado. Orquestra as
 /// peças já existentes — o motor de similaridade do E4.1 (via <see cref="ITrackSimilarityIndexProvider"/>), a
 /// explicabilidade do domínio (<see cref="SimilarityIndex.ExplainNearestTo"/>) e a leitura de metadados do
-/// catálogo — sem reimplementar nenhuma.</para>
+/// catálogo — e adiciona o estágio de gênero do E4.3 traduzindo o modo pedido numa <see cref="GenreAffinityPolicy"/>.</para>
 /// </summary>
 /// <param name="SeedTrackId">Id da faixa-semente no catálogo.</param>
 /// <param name="Limit">Quantas recomendações retornar (top-N).</param>
 /// <param name="ExplainTopK">Quantas features destacar na explicação de cada recomendação (top-K contribuições).</param>
-public sealed record GetTrackRecommendationsQuery(string SeedTrackId, int Limit, int ExplainTopK)
+/// <param name="GenreMode">Como o gênero da semente pesa no ranking (E4.3): boost (default), off (cosine puro) ou filtro duro.</param>
+public sealed record GetTrackRecommendationsQuery(
+    string SeedTrackId, int Limit, int ExplainTopK, GenreRankingModeContract GenreMode)
     : IQuery<TrackRecommendationsResponse>
 {
     /// <summary>Número de recomendações padrão quando o cliente não especifica.</summary>
@@ -32,6 +36,9 @@ public sealed record GetTrackRecommendationsQuery(string SeedTrackId, int Limit,
 
     /// <summary>Teto de features destacadas: a dimensão do vetor (não há mais que nove contribuições).</summary>
     public const int MaximumExplainTopK = 9;
+
+    /// <summary>Modo de gênero padrão (DP-C/DP-1): gênero LIGADO como boost — o híbrido leve por default.</summary>
+    public const GenreRankingModeContract DefaultGenreMode = GenreRankingModeContract.Boost;
 }
 
 internal sealed class GetTrackRecommendationsQueryHandler
@@ -44,6 +51,10 @@ internal sealed class GetTrackRecommendationsQueryHandler
     private const string RecommendationsImputedWarning =
         "Uma ou mais faixas recomendadas têm audio-features IMPUTADAS, não medidas — vêm marcadas com " +
         "isImputed=true e sua similaridade foi calculada sobre um valor estimado.";
+
+    private const string GenreFallbackWarning =
+        "A faixa-semente não tem gênero utilizável (ausente ou imputado), então o gênero foi ignorado no ranking: " +
+        "as recomendações caíram no cosine puro de audio-features. Nenhuma faixa foi filtrada em silêncio.";
 
     private readonly ITrackSimilarityIndexProvider _indexProvider;
     private readonly ITrackMetadataSource _metadataSource;
@@ -65,16 +76,26 @@ internal sealed class GetTrackRecommendationsQueryHandler
 
         SimilarityIndex index = await _indexProvider.GetIndexAsync(cancellationToken);
 
-        IReadOnlyList<ExplainedTrackSimilarity>? neighbors =
-            index.ExplainNearestTo(request.SeedTrackId, limit);
-
-        // Semente fora do índice: pode ser inexistente (404) ou existir sem features completas (422). A distinção
-        // é a mesma régua do E3.5 e não pode ser engolida — é decidida consultando o catálogo.
-        if (neighbors is null)
-            throw await ExplainMissingSeedAsync(request.SeedTrackId, cancellationToken);
-
+        // A semente decide 404/422 e alimenta a política de gênero (rótulo + imputação). Lida uma vez, aqui, tanto
+        // para o caminho de erro quanto para o de sucesso.
         TrackMetadataRow? seedMetadata =
             await _metadataSource.FindByTrackIdAsync(request.SeedTrackId, cancellationToken);
+
+        // O gênero que EFETIVAMENTE pontua é o do índice (a mesma fonte que o ranking compara candidato a
+        // candidato) — não o do metadata, para não haver dois rótulos que possam divergir. A marca de imputação
+        // vem do metadata da semente (mesmo jsonb): gênero de faixa imputada é estimado e não deve boostar (DP-F).
+        GenreAffinityPolicy genrePolicy = GenreAffinityPolicy.Create(
+            MapGenreMode(request.GenreMode),
+            index.GenreOf(request.SeedTrackId),
+            seedMetadata?.IsImputed ?? false);
+
+        IReadOnlyList<ExplainedTrackSimilarity>? neighbors =
+            index.ExplainNearestTo(request.SeedTrackId, limit, genrePolicy);
+
+        // Semente fora do índice: pode ser inexistente (404) ou existir sem features completas (422). A distinção
+        // é a mesma régua do E3.5 e não pode ser engolida — é decidida a partir do metadata já carregado.
+        if (neighbors is null)
+            throw ExplainMissingSeed(request.SeedTrackId, seedMetadata);
 
         IReadOnlyDictionary<string, TrackMetadataRow> neighborMetadata =
             await LoadNeighborMetadataAsync(neighbors, cancellationToken);
@@ -90,21 +111,40 @@ internal sealed class GetTrackRecommendationsQueryHandler
             SeedGenre = seedMetadata?.Genre,
             SeedIsImputed = seedMetadata?.IsImputed ?? false,
             IndexedTrackCount = index.Count,
+            RequestedGenreMode = request.GenreMode,
+            EffectiveGenreMode = MapGenreMode(genrePolicy.Mode),
+            GenreFellBackToCosineOnly = genrePolicy.FellBackToCosineOnly,
             Recommendations = recommendations,
-            Warnings = BuildWarnings(seedMetadata?.IsImputed ?? false, recommendations)
+            Warnings = BuildWarnings(
+                seedMetadata?.IsImputed ?? false, genrePolicy.FellBackToCosineOnly, recommendations)
         };
     }
 
-    /// <summary>
-    /// Traduz "semente não está no índice" no erro certo: <see cref="NotFoundException"/> (404) quando o id não
-    /// existe no catálogo, <see cref="BusinessException"/> (422) quando existe mas não tem as nove features — sem
-    /// insumo não há vetor, e sem vetor não há recomendação.
-    /// </summary>
-    private async Task<Exception> ExplainMissingSeedAsync(string seedTrackId, CancellationToken cancellationToken)
+    /// <summary>Traduz o modo de gênero do CONTRATO para o do domínio — a fronteira não deixa o enum de domínio vazar.</summary>
+    private static GenreRankingMode MapGenreMode(GenreRankingModeContract mode) => mode switch
     {
-        TrackMetadataRow? seed = await _metadataSource.FindByTrackIdAsync(seedTrackId, cancellationToken);
+        GenreRankingModeContract.Off => GenreRankingMode.Off,
+        GenreRankingModeContract.SameGenreOnly => GenreRankingMode.SameGenreOnly,
+        _ => GenreRankingMode.Boost
+    };
 
-        if (seed is null)
+    /// <summary>Traduz o modo de gênero do domínio de volta para o CONTRATO, para o response ecoar o modo efetivo.</summary>
+    private static GenreRankingModeContract MapGenreMode(GenreRankingMode mode) => mode switch
+    {
+        GenreRankingMode.Off => GenreRankingModeContract.Off,
+        GenreRankingMode.SameGenreOnly => GenreRankingModeContract.SameGenreOnly,
+        _ => GenreRankingModeContract.Boost
+    };
+
+    /// <summary>
+    /// Traduz "semente não está no índice" no erro certo, a partir do metadata JÁ carregado: <see cref="NotFoundException"/>
+    /// (404) quando o id não existe no catálogo, <see cref="BusinessException"/> (422) quando existe mas não tem as
+    /// nove features — sem insumo não há vetor, e sem vetor não há recomendação. Síncrono porque não relê nada: a
+    /// semente foi lida uma vez no início e serve aos dois caminhos.
+    /// </summary>
+    private static Exception ExplainMissingSeed(string seedTrackId, TrackMetadataRow? seedMetadata)
+    {
+        if (seedMetadata is null)
             return new NotFoundException("Track", seedTrackId);
 
         return new BusinessException(
@@ -143,8 +183,10 @@ internal sealed class GetTrackRecommendationsQueryHandler
                 Album = row?.Album,
                 Genre = row?.Genre,
                 Score = neighbor.Similarity,
+                CosineScore = neighbor.CosineSimilarity,
+                GenreBoost = neighbor.GenreBonus,
                 IsImputed = neighbor.IsImputed,
-                SharedGenre = ResolveSharedGenre(seedGenre, row?.Genre),
+                SharedGenre = ResolveSharedGenre(neighbor, seedGenre, row?.Genre),
                 TopFeatures = SelectTopFeatures(neighbor.Contributions, explainTopK)
             });
         }
@@ -153,12 +195,21 @@ internal sealed class GetTrackRecommendationsQueryHandler
     }
 
     /// <summary>
-    /// O gênero é COMPARTILHADO quando semente e candidata têm o mesmo (comparação ordinal — os gêneros são
-    /// gravados normalizados em lowercase pelo Catalog). É informação, não critério de ordenação: o filtro/boost
-    /// por gênero no ranking é o E4.3.
+    /// O gênero COMPARTILHADO exibido ao lado da faixa. Quando o gênero PESA no ranking (boost/filtro), a fonte da
+    /// verdade é o próprio domínio: <see cref="ExplainedTrackSimilarity.SharesSeedGenre"/> é o que motivou o boost/
+    /// a sobrevivência ao filtro, então "sharedGenre setado" ⟺ "gênero contou no ranking" — sem uma comparação
+    /// paralela no handler que pudesse divergir do motor (ex.: um rótulo imputado que o domínio não boostou). Quando
+    /// o gênero NÃO pesa (modo off/fallback), cai para a comparação descritiva do E4.2, ordinal sobre os rótulos já
+    /// normalizados em lowercase pelo Catalog — informação, sem efeito no ranking.
     /// </summary>
-    private static string? ResolveSharedGenre(string? seedGenre, string? candidateGenre)
+    private static string? ResolveSharedGenre(
+        ExplainedTrackSimilarity neighbor, string? seedGenre, string? candidateGenre)
     {
+        // Gênero pesou no ranking (boost/filtro duro): o domínio é a fonte da verdade do que compartilhou.
+        if (neighbor.SharesSeedGenre)
+            return candidateGenre ?? seedGenre;
+
+        // Modo off/fallback: nada boostou, mas o gênero compartilhado ainda é informação descritiva (E4.2).
         if (string.IsNullOrWhiteSpace(seedGenre) || string.IsNullOrWhiteSpace(candidateGenre))
             return null;
 
@@ -186,12 +237,17 @@ internal sealed class GetTrackRecommendationsQueryHandler
     }
 
     private static IReadOnlyList<string> BuildWarnings(
-        bool seedIsImputed, IReadOnlyList<TrackRecommendationItem> recommendations)
+        bool seedIsImputed,
+        bool genreFellBackToCosineOnly,
+        IReadOnlyList<TrackRecommendationItem> recommendations)
     {
         var warnings = new List<string>();
 
         if (seedIsImputed)
             warnings.Add(SeedImputedWarning);
+
+        if (genreFellBackToCosineOnly)
+            warnings.Add(GenreFallbackWarning);
 
         if (recommendations.Any(item => item.IsImputed))
             warnings.Add(RecommendationsImputedWarning);

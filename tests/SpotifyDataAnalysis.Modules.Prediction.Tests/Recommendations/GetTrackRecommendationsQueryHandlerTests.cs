@@ -6,9 +6,11 @@ using SpotifyDataAnalysis.SharedKernel.Exceptions;
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations;
 
 /// <summary>
-/// A orquestração do caso de uso público (E4.2): distinção 404/422 da semente, hidratação de metadados, top-K da
-/// explicação, gênero compartilhado (só informação), avisos de imputação nunca silenciosos e ordenação por score.
-/// Usa um índice real (catálogo pequeno) e um fake do metadata source — nem catálogo nem HTTP entram aqui.
+/// A orquestração do caso de uso público (E4.2/E4.3): distinção 404/422 da semente, hidratação de metadados, top-K
+/// da explicação, gênero compartilhado, avisos de imputação nunca silenciosos, ordenação por score e o estágio de
+/// gênero híbrido do E4.3 (boost por default, off relaxa para o cosine puro, filtro duro, fallback quando a semente
+/// não tem gênero utilizável e contribuição do gênero na explicação). Usa um índice real (catálogo pequeno) e um
+/// fake do metadata source — nem catálogo nem HTTP entram aqui.
 /// </summary>
 public sealed class GetTrackRecommendationsQueryHandlerTests
 {
@@ -23,15 +25,20 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
     private static IReadOnlyList<RawTrackFeatures> SampleCatalog() =>
     [
-        new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), false),
-        new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), false),
-        new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), false),
-        new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), false),
-        new("imp",  Raw(0.78, 0.82, 0.79, 121.0, 0.12, 0.11, 0.10, 0.05, -8.1), IsImputed: true)
+        new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: null, false),
+        new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), Genre: null, false),
+        new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), Genre: null, false),
+        new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), Genre: null, false),
+        new("imp",  Raw(0.78, 0.82, 0.79, 121.0, 0.12, 0.11, 0.10, 0.05, -8.1), Genre: null, IsImputed: true)
     ];
 
     private static ITrackSimilarityIndexProvider IndexOf(IReadOnlyList<RawTrackFeatures> catalog) =>
         new StubIndexProvider(SimilarityIndex.Build(catalog));
+
+    private static GetTrackRecommendationsQuery Query(
+        string seed, int limit = 10, int explainTopK = 3,
+        GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode) =>
+        new(seed, limit, explainTopK, genreMode);
 
     private static TrackMetadataRow Meta(
         string id, string? name = null, string? artist = null, string? album = null,
@@ -45,8 +52,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         var handler = new GetTrackRecommendationsQueryHandler(
             IndexOf(SampleCatalog()), new StubMetadataSource());
 
-        await Assert.ThrowsAsync<NotFoundException>(() => handler.HandleAsync(
-            new GetTrackRecommendationsQuery("ghost", Limit: 5, ExplainTopK: 3)));
+        await Assert.ThrowsAsync<NotFoundException>(() => handler.HandleAsync(Query("ghost", limit: 5)));
     }
 
     [Fact]
@@ -58,8 +64,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        await Assert.ThrowsAsync<BusinessException>(() => handler.HandleAsync(
-            new GetTrackRecommendationsQuery("orphan", Limit: 5, ExplainTopK: 3)));
+        await Assert.ThrowsAsync<BusinessException>(() => handler.HandleAsync(Query("orphan", limit: 5)));
     }
 
     [Fact]
@@ -72,8 +77,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         Assert.Equal("seed", response.SeedTrackId);
         Assert.DoesNotContain(response.Recommendations, item => item.TrackId == "seed");
@@ -95,8 +99,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         Assert.Equal("Seed Song", response.SeedName);
         Assert.Equal("pop", response.SeedGenre);
@@ -117,8 +120,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         foreach (TrackRecommendationItem item in response.Recommendations)
         {
@@ -131,6 +133,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     [Fact]
     public async Task Handle_SharedGenre_SetOnlyWhenSeedAndCandidateMatch()
     {
+        // Modo OFF: o gênero não pesa, mas o sharedGenre descritivo (E4.2) ainda aparece quando os rótulos batem.
         var metadata = new StubMetadataSource();
         metadata.Add(Meta("seed", genre: "pop"));
         metadata.Add(Meta("near", genre: "pop"));   // igual → compartilhado
@@ -140,8 +143,8 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Off));
 
         Assert.Equal("pop", response.Recommendations.Single(i => i.TrackId == "near").SharedGenre);
         Assert.Null(response.Recommendations.Single(i => i.TrackId == "mid").SharedGenre);
@@ -160,8 +163,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         Assert.False(response.SeedIsImputed);
         Assert.True(response.Recommendations.Single(i => i.TrackId == "imp").IsImputed);
@@ -178,8 +180,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         Assert.True(response.SeedIsImputed);
         Assert.Contains(response.Warnings, warning => warning.Contains("faixa-semente"));
@@ -189,26 +190,213 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     public async Task Handle_CleanCase_HasNoWarnings()
     {
         var metadata = new StubMetadataSource();
-        // Sem a vizinha imputada no top: limita a 3 e o catálogo ordena "imp" logo após "near",
-        // então excluímos "imp" trocando-o por metadados ausentes não resolve — usamos Limit alto e catálogo limpo.
         foreach (string id in new[] { "seed", "near", "mid", "far" })
-            metadata.Add(Meta(id, imputed: false));
+            metadata.Add(Meta(id, genre: "pop", imputed: false));
 
-        // Catálogo sem faixa imputada.
+        // Catálogo sem faixa imputada, todos "pop" (semente tem gênero → sem fallback → sem aviso).
         IReadOnlyList<RawTrackFeatures> cleanCatalog =
         [
-            new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), false),
-            new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), false),
-            new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), false),
-            new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), false)
+            new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: "pop", false),
+            new("near", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), Genre: "pop", false),
+            new("mid",  Raw(0.55, 0.55, 0.55, 110.0, 0.40, 0.20, 0.15, 0.06, -12.0), Genre: "pop", false),
+            new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), Genre: "pop", false)
         ];
 
         var handler = new GetTrackRecommendationsQueryHandler(IndexOf(cleanCatalog), metadata);
 
-        TrackRecommendationsResponse response = await handler.HandleAsync(
-            new GetTrackRecommendationsQuery("seed", Limit: 10, ExplainTopK: 3));
+        TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
         Assert.Empty(response.Warnings);
+    }
+
+    // --- E4.3: o estágio de gênero no ranking ---
+
+    /// <summary>
+    /// Catálogo espalhado (12 faixas, 6 gêneros) para os z-scores NÃO saturarem: os cossenos no topo ficam
+    /// separados por centésimos, como no catálogo real, de modo que o boost DEFAULT (0,15) de fato reordena.
+    /// Por cosseno puro o top-3 é [rockA, rockB, popA] — só um "pop"; o boost default traz popA/popB à frente.
+    /// </summary>
+    private static IReadOnlyList<RawTrackFeatures> GenreCatalog() =>
+    [
+        new("seed",  Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.15, 0.05, -8.0), Genre: "pop", false),
+        new("rockA", Raw(0.78, 0.83, 0.77, 124.0, 0.08, 0.10, 0.16, 0.05, -7.5), Genre: "rock", false),
+        new("rockB", Raw(0.83, 0.77, 0.83, 116.0, 0.13, 0.10, 0.14, 0.05, -8.6), Genre: "rock", false),
+        new("popA",  Raw(0.72, 0.74, 0.73, 113.0, 0.18, 0.13, 0.20, 0.07, -9.4), Genre: "pop", false),
+        new("popB",  Raw(0.75, 0.72, 0.76, 127.0, 0.14, 0.12, 0.11, 0.06, -9.0), Genre: "pop", false),
+        new("j1",    Raw(0.50, 0.55, 0.45, 100.0, 0.40, 0.30, 0.30, 0.10, -13.0), Genre: "jazz", false),
+        new("j2",    Raw(0.45, 0.40, 0.50, 95.0,  0.55, 0.45, 0.25, 0.12, -15.0), Genre: "jazz", false),
+        new("e1",    Raw(0.90, 0.95, 0.60, 130.0, 0.02, 0.05, 0.35, 0.04, -5.0), Genre: "edm", false),
+        new("e2",    Raw(0.88, 0.90, 0.55, 140.0, 0.03, 0.08, 0.40, 0.05, -4.5), Genre: "edm", false),
+        new("c1",    Raw(0.30, 0.20, 0.30, 80.0,  0.85, 0.60, 0.12, 0.04, -18.0), Genre: "classical", false),
+        new("c2",    Raw(0.25, 0.15, 0.25, 75.0,  0.90, 0.75, 0.10, 0.03, -20.0), Genre: "classical", false),
+        new("h1",    Raw(0.85, 0.65, 0.60, 95.0,  0.15, 0.05, 0.25, 0.30, -6.0), Genre: "hiphop", false)
+    ];
+
+    private static StubMetadataSource GenreMetadata()
+    {
+        var metadata = new StubMetadataSource();
+        metadata.Add(Meta("seed", genre: "pop"));
+        metadata.Add(Meta("rockA", genre: "rock"));
+        metadata.Add(Meta("rockB", genre: "rock"));
+        metadata.Add(Meta("popA", genre: "pop"));
+        metadata.Add(Meta("popB", genre: "pop"));
+        metadata.Add(Meta("j1", genre: "jazz"));
+        metadata.Add(Meta("j2", genre: "jazz"));
+        metadata.Add(Meta("e1", genre: "edm"));
+        metadata.Add(Meta("e2", genre: "edm"));
+        metadata.Add(Meta("c1", genre: "classical"));
+        metadata.Add(Meta("c2", genre: "classical"));
+        metadata.Add(Meta("h1", genre: "hiphop"));
+        return metadata;
+    }
+
+    [Fact]
+    public async Task Handle_DefaultBoost_LiftsSameGenreCoherenceOverOff_SameSeed()
+    {
+        // O critério de aceite central do E4.3: com gênero LIGADO (default boost), o top-N tem coerência de gênero
+        // MAIOR que com gênero DESLIGADO, para a MESMA semente. No cosine puro o top-2 é [rockA, rockB] (0 pop);
+        // com o boost default os "pop" sobem.
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+
+        TrackRecommendationsResponse boosted =
+            await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Boost));
+        TrackRecommendationsResponse cosineOnly =
+            await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Off));
+
+        int boostedSameGenre = boosted.Recommendations.Count(r => r.SharedGenre == "pop");
+        int cosineSameGenre = cosineOnly.Recommendations.Count(r => r.SharedGenre == "pop");
+
+        Assert.Equal(0, cosineSameGenre);
+        Assert.True(
+            boostedSameGenre > cosineSameGenre,
+            $"Boost deveria elevar a coerência de gênero no top-N (boost={boostedSameGenre}, off={cosineSameGenre}).");
+    }
+
+    [Fact]
+    public async Task Handle_Off_MatchesPureCosineRankingOfE41()
+    {
+        // Relaxamento total: off cai no cosine puro. Um vizinho de OUTRO gênero (rockA, cosseno maior) lidera;
+        // nenhum boost incide e o score coincide com o cosseno.
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Off));
+
+        Assert.Equal(GenreRankingModeContract.Off, response.EffectiveGenreMode);
+        Assert.All(response.Recommendations, r => Assert.Equal(0.0, r.GenreBoost));
+        Assert.All(response.Recommendations, r => Assert.Equal(r.CosineScore, r.Score, 9));
+        Assert.Equal("rockA", response.Recommendations[0].TrackId);
+    }
+
+    [Fact]
+    public async Task Handle_Boost_ExposesGenreContributionInExplanation()
+    {
+        // A explicabilidade coerente: uma vizinha do mesmo gênero mostra genreBoost > 0 e score = cosine + boost.
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
+
+        TrackRecommendationItem popA = response.Recommendations.Single(r => r.TrackId == "popA");
+        Assert.True(popA.GenreBoost > 0);
+        Assert.Equal(popA.CosineScore + popA.GenreBoost, popA.Score, 9);
+        Assert.Equal("pop", popA.SharedGenre);
+
+        TrackRecommendationItem rockA = response.Recommendations.Single(r => r.TrackId == "rockA");
+        Assert.Equal(0.0, rockA.GenreBoost);
+        Assert.Null(rockA.SharedGenre);
+    }
+
+    [Fact]
+    public async Task Handle_SameGenreOnly_FiltersOutOtherGenres()
+    {
+        // Filtro duro: só faixas do mesmo gênero da semente entram no top-N.
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", limit: 10, genreMode: GenreRankingModeContract.SameGenreOnly));
+
+        Assert.Equal(GenreRankingModeContract.SameGenreOnly, response.EffectiveGenreMode);
+        Assert.All(response.Recommendations, r => Assert.Equal("pop", r.SharedGenre));
+        Assert.All(response.Recommendations, r => Assert.Equal("pop", r.Genre));
+        Assert.Equal(2, response.Recommendations.Count); // popA e popB (a semente autoexclui)
+    }
+
+    [Fact]
+    public async Task Handle_SeedWithoutGenre_FallsBackToCosineOnly_AndSignals()
+    {
+        // Semente sem gênero utilizável: mesmo pedindo boost, cai graciosamente no cosine puro e SINALIZA (nunca
+        // filtra para vazio nem boosta em silêncio).
+        IReadOnlyList<RawTrackFeatures> catalog =
+        [
+            new("seed",    Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: null, false),
+            new("popNear", Raw(0.70, 0.72, 0.71, 118.0, 0.18, 0.12, 0.12, 0.06, -9.0), Genre: "pop", false),
+            new("rockClose",Raw(0.79, 0.81, 0.78, 121.0, 0.11, 0.10, 0.10, 0.05, -8.1), Genre: "rock", false)
+        ];
+        var metadata = new StubMetadataSource();
+        metadata.Add(Meta("seed", genre: null));
+        metadata.Add(Meta("popNear", genre: "pop"));
+        metadata.Add(Meta("rockClose", genre: "rock"));
+
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
+
+        Assert.Equal(GenreRankingModeContract.Boost, response.RequestedGenreMode);
+        Assert.Equal(GenreRankingModeContract.Off, response.EffectiveGenreMode);
+        Assert.True(response.GenreFellBackToCosineOnly);
+        Assert.All(response.Recommendations, r => Assert.Equal(0.0, r.GenreBoost));
+        Assert.Equal(2, response.Recommendations.Count);
+        Assert.Contains(response.Warnings, w => w.Contains("gênero"));
+    }
+
+    [Fact]
+    public async Task Handle_ImputedSeedGenre_DoesNotBoost_AndSignalsFallback()
+    {
+        // Semente com gênero IMPUTADO (DP-F): não se boosta com base num rótulo estimado; cai no cosine puro e sinaliza.
+        IReadOnlyList<RawTrackFeatures> catalog =
+        [
+            new("seed",    Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: "pop", IsImputed: true),
+            new("popNear", Raw(0.70, 0.72, 0.71, 118.0, 0.18, 0.12, 0.12, 0.06, -9.0), Genre: "pop", false),
+            new("rockClose",Raw(0.79, 0.81, 0.78, 121.0, 0.11, 0.10, 0.10, 0.05, -8.1), Genre: "rock", false)
+        ];
+        var metadata = new StubMetadataSource();
+        metadata.Add(Meta("seed", genre: "pop", imputed: true));
+        metadata.Add(Meta("popNear", genre: "pop"));
+        metadata.Add(Meta("rockClose", genre: "rock"));
+
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
+
+        Assert.True(response.GenreFellBackToCosineOnly);
+        Assert.All(response.Recommendations, r => Assert.Equal(0.0, r.GenreBoost));
+    }
+
+    [Fact]
+    public async Task Handle_ImputedCandidateGenre_DoesNotReceiveBoost()
+    {
+        // DP-F pelo lado da candidata: a faixa "pop" imputada NÃO recebe boost, mesmo coincidindo o rótulo.
+        IReadOnlyList<RawTrackFeatures> catalog =
+        [
+            new("seed",     Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: "pop", false),
+            new("popMeasured", Raw(0.70, 0.72, 0.71, 118.0, 0.18, 0.12, 0.12, 0.06, -9.0), Genre: "pop", false),
+            new("popImputed",  Raw(0.71, 0.73, 0.70, 117.0, 0.17, 0.13, 0.11, 0.07, -9.1), Genre: "pop", IsImputed: true)
+        ];
+        var metadata = new StubMetadataSource();
+        metadata.Add(Meta("seed", genre: "pop"));
+        metadata.Add(Meta("popMeasured", genre: "pop"));
+        metadata.Add(Meta("popImputed", genre: "pop", imputed: true));
+
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
+
+        Assert.True(response.Recommendations.Single(r => r.TrackId == "popMeasured").GenreBoost > 0);
+        Assert.Equal(0.0, response.Recommendations.Single(r => r.TrackId == "popImputed").GenreBoost);
     }
 
     private sealed class StubIndexProvider : ITrackSimilarityIndexProvider
