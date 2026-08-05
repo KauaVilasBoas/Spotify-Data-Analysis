@@ -7,10 +7,12 @@ using Microsoft.ML;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
 using SpotifyDataAnalysis.Modules.Prediction.Application;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Inference;
+using SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Training;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Models;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Inference;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Persistence;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Training;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.DependencyInjection;
@@ -91,6 +93,17 @@ public static class PredictionModuleServiceExtensions
         // Registro explícito (e não AddValidatorsFromAssembly) para não arrastar o pacote
         // FluentValidation.DependencyInjectionExtensions por causa de um único validador.
         services.AddScoped<IValidator<PredictPopularityCommand>, PredictPopularityCommandValidator>();
+
+        // --- Recomendação content-based (E4.1): motor de similaridade sobre audio-features ---
+
+        // Leitura das faixas elegíveis do schema "catalog" para montar o índice. Mesma fronteira do E3.1
+        // (Dapper via BaseDataAccess), scoped porque depende do DbConnectionFactory per-request.
+        services.AddScoped<ISimilarityFeatureSource, CatalogSimilarityFeatureSource>();
+
+        // Índice de similaridade em cache: SINGLETON, porque montar o espaço (varrer ~90k faixas e aprender μ/σ)
+        // é caro e o resultado é reusável entre requisições — o análogo do cache do modelo corrente do E3.5. Lê o
+        // source scoped abrindo um scope próprio via IServiceScopeFactory.
+        services.AddSingleton<ITrackSimilarityIndexProvider, CachedTrackSimilarityIndexProvider>();
 
         services.AddHandlersFromAssembly(typeof(PredictionApplicationAssemblyReference).Assembly);
 
