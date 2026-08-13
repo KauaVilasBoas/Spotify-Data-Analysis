@@ -100,6 +100,11 @@ public static class CatalogModuleServiceExtensions
         // Também pela CLI dev do Host (`seed-references`), rodado depois do `seed-catalog`.
         services.AddScoped<KaggleReferenceSeeder>();
 
+        // Seed de playlists a partir do dataset Pichl (E4.5): popula catalog.playlists casando cada faixa ao
+        // catálogo por TrackMatchKey reconstruído do dataset.csv, dando o insumo de co-ocorrência do E4.6. Também
+        // pela CLI dev do Host (`seed-playlists`), em lotes pelo DbContext cru (sem Outbox).
+        services.AddScoped<PichlPlaylistSeeder>();
+
         // Estratégias de casamento CSV → catálogo (E1.4/E1.9). A ORDEM DE REGISTRO É a ordem da chain no
         // TrackMatcher — da mais confiável para a menos confiável — e é aqui, na composição, que essa
         // precedência fica registrada (não escondida no matcher):

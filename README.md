@@ -91,6 +91,26 @@ match, fração resolvida pelo fallback, duplicatas e taxa de imputação.
 **Faltantes.** Atributos ausentes são preenchidos pela **mediana do gênero** (com mediana global de
 retaguarda) e a faixa fica marcada com `IsImputed` — nada é preenchido em silêncio.
 
+**Playlists para co-ocorrência (dataset Pichl, E4.5).** O recomendador colaborativo (E4.6) precisa de sinal de
+co-ocorrência item-item, que o *"Spotify Tracks Dataset"* não tem (é uma linha por faixa, sem playlists). Esse
+sinal vem do dataset *"Spotify Playlists"* (Pichl et al.) — <https://www.kaggle.com/datasets/andrewmvd/spotify-playlists>
+(~1,2 GB, colunas `user_id, artistname, trackname, playlistname`). O CSV **não é versionado** — baixe-o
+manualmente e aponte o caminho no seeder.
+
+O seeder lê o Pichl em streaming, agrupa por `user_id`+`playlistname`, e casa cada faixa ao catálogo por chave
+`"artista|título"` normalizada (`TrackMatchKey`) reconstruída do `dataset.csv` (o único lugar com o nome do
+artista). Popula `catalog.playlists` via `DbContext` cru em lotes — **sem Outbox** (é carga de dados, não
+ingestão de negócio). É idempotente: cada playlist recebe um id determinístico de `user_id`+`playlistname`, e
+reexecutar pula as já semeadas.
+
+```bash
+# argumentos: [csvPichl] [datasetCsv] [maxPlaylists]  (todos opcionais; teto default 50000 playlists novas/execução)
+dotnet run --project src/Host/SpotifyDataAnalysis.Api -- seed-playlists spotify-playlists/spotify_dataset.csv dataset.csv 50000
+```
+
+O comando devolve o **censo** que alimenta os gates do E4.6: taxa de casamento (linhas do Pichl que casaram) e,
+via consulta a `catalog.playlists`, a densidade de co-ocorrência (pares de faixas-do-catálogo em ≥2 playlists).
+
 ## Migrations
 
 ```bash
