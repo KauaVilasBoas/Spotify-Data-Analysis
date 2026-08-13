@@ -1,5 +1,6 @@
 using SpotifyDataAnalysis.Modules.Prediction.Contracts.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 using SpotifyDataAnalysis.SharedKernel.Messaging;
 
@@ -21,8 +22,9 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 /// <param name="Limit">Quantas recomendações retornar (top-N).</param>
 /// <param name="ExplainTopK">Quantas features destacar na explicação de cada recomendação (top-K contribuições).</param>
 /// <param name="GenreMode">Como o gênero da semente pesa no ranking (E4.3): boost (default), off (cosine puro) ou filtro duro.</param>
+/// <param name="Dedupe">Se colapsa quase-duplicatas no top-N (E4.7): default true; false devolve o ranking cru.</param>
 public sealed record GetTrackRecommendationsQuery(
-    string SeedTrackId, int Limit, int ExplainTopK, GenreRankingModeContract GenreMode)
+    string SeedTrackId, int Limit, int ExplainTopK, GenreRankingModeContract GenreMode, bool Dedupe)
     : IQuery<TrackRecommendationsResponse>
 {
     /// <summary>Número de recomendações padrão quando o cliente não especifica.</summary>
@@ -39,6 +41,9 @@ public sealed record GetTrackRecommendationsQuery(
 
     /// <summary>Modo de gênero padrão (DP-C/DP-1): gênero LIGADO como boost — o híbrido leve por default.</summary>
     public const GenreRankingModeContract DefaultGenreMode = GenreRankingModeContract.Boost;
+
+    /// <summary>Dedup ligado por default (E4.7): o usuário nunca quer ver a mesma música repetida sem pedir.</summary>
+    public const bool DefaultDedupe = true;
 }
 
 internal sealed class GetTrackRecommendationsQueryHandler
@@ -55,6 +60,17 @@ internal sealed class GetTrackRecommendationsQueryHandler
     private const string GenreFallbackWarning =
         "A faixa-semente não tem gênero utilizável (ausente ou imputado), então o gênero foi ignorado no ranking: " +
         "as recomendações caíram no cosine puro de audio-features. Nenhuma faixa foi filtrada em silêncio.";
+
+    /// <summary>
+    /// Fator de over-fetch do dedup (E4.7): para entregar <c>limit</c> itens DISTINTOS após colapsar
+    /// quase-duplicatas, é preciso pedir mais candidatas do que o limite. 3× cobre com folga o cenário medido no
+    /// E4.4 (maior grupo de duplicatas = 54, mas raríssimo no topo de uma semente típica), sem varrer o catálogo
+    /// além do necessário — a varredura kNN é O(n) no tamanho do índice, não no over-fetch.
+    /// </summary>
+    private const int DedupeOverFetchFactor = 3;
+
+    /// <summary>Piso do over-fetch, para limites pequenos ainda terem margem de colapso (ex.: limit=1 pede 10).</summary>
+    private const int MinimumDedupeOverFetch = 10;
 
     private readonly ITrackSimilarityIndexProvider _indexProvider;
     private readonly ITrackMetadataSource _metadataSource;
@@ -89,8 +105,15 @@ internal sealed class GetTrackRecommendationsQueryHandler
             index.GenreOf(request.SeedTrackId),
             seedMetadata?.IsImputed ?? false);
 
+        // Com dedup, pede-se MAIS candidatas que o limite (over-fetch): colapsar quase-duplicatas reduziria o
+        // resultado abaixo do pedido, e o card exige entregar `limit` itens distintos. Sem dedup, pede-se exatamente
+        // `limit` — o comportamento do E4.2/E4.3 permanece intacto.
+        int fetchCount = request.Dedupe
+            ? Math.Max(limit * DedupeOverFetchFactor, MinimumDedupeOverFetch)
+            : limit;
+
         IReadOnlyList<ExplainedTrackSimilarity>? neighbors =
-            index.ExplainNearestTo(request.SeedTrackId, limit, genrePolicy);
+            index.ExplainNearestTo(request.SeedTrackId, fetchCount, genrePolicy);
 
         // Semente fora do índice: pode ser inexistente (404) ou existir sem features completas (422). A distinção
         // é a mesma régua do E3.5 e não pode ser engolida — é decidida a partir do metadata já carregado.
@@ -100,8 +123,13 @@ internal sealed class GetTrackRecommendationsQueryHandler
         IReadOnlyDictionary<string, TrackMetadataRow> neighborMetadata =
             await LoadNeighborMetadataAsync(neighbors, cancellationToken);
 
-        IReadOnlyList<TrackRecommendationItem> recommendations =
-            BuildRecommendations(neighbors, neighborMetadata, seedMetadata?.Genre, explainTopK);
+        (IReadOnlyList<ExplainedTrackSimilarity> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
+            request.Dedupe
+                ? Deduplicate(neighbors, neighborMetadata, index, limit)
+                : (Take(neighbors, limit), EmptyCollapsedCounts);
+
+        IReadOnlyList<TrackRecommendationItem> recommendations = BuildRecommendations(
+            representatives, neighborMetadata, seedMetadata?.Genre, explainTopK, collapsedCounts);
 
         return new TrackRecommendationsResponse
         {
@@ -114,10 +142,63 @@ internal sealed class GetTrackRecommendationsQueryHandler
             RequestedGenreMode = request.GenreMode,
             EffectiveGenreMode = MapGenreMode(genrePolicy.Mode),
             GenreFellBackToCosineOnly = genrePolicy.FellBackToCosineOnly,
+            DedupeApplied = request.Dedupe,
+            TotalDuplicatesCollapsed = collapsedCounts.Values.Sum(),
             Recommendations = recommendations,
             Warnings = BuildWarnings(
                 seedMetadata?.IsImputed ?? false, genrePolicy.FellBackToCosineOnly, recommendations)
         };
+    }
+
+    private static readonly IReadOnlyDictionary<string, int> EmptyCollapsedCounts =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    private static IReadOnlyList<ExplainedTrackSimilarity> Take(
+        IReadOnlyList<ExplainedTrackSimilarity> neighbors, int limit) =>
+        neighbors.Count <= limit ? neighbors : neighbors.Take(limit).ToArray();
+
+    /// <summary>
+    /// Colapsa quase-duplicatas do top-N over-fetched (E4.7) e devolve os representantes (até <paramref name="limit"/>)
+    /// mais quantas versões cada um absorveu. Monta os <see cref="DeduplicationCandidate"/> a partir do metadata já
+    /// carregado (chave "artista|título" + popularity para a escolha do representante) e delega a decisão ao
+    /// <see cref="NearDuplicateCollapser"/>, que compara por cosseno via o índice — sem recomputar nada.
+    /// </summary>
+    private static (IReadOnlyList<ExplainedTrackSimilarity> Representatives, IReadOnlyDictionary<string, int> Collapsed)
+        Deduplicate(
+            IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+            IReadOnlyDictionary<string, TrackMetadataRow> metadata,
+            SimilarityIndex index,
+            int limit)
+    {
+        var candidates = new List<DeduplicationCandidate>(neighbors.Count);
+        foreach (ExplainedTrackSimilarity neighbor in neighbors)
+        {
+            metadata.TryGetValue(neighbor.TrackId, out TrackMetadataRow? row);
+
+            candidates.Add(new DeduplicationCandidate(
+                neighbor,
+                RecommendationDuplicateKey.From(row?.Name, row?.Artist),
+                row?.Popularity,
+                neighbor.IsImputed));
+        }
+
+        // O cosseno entre candidatas sai do índice já montado (leitura pura dos vetores). Duas candidatas do top-N
+        // sempre estão no índice, então o null-fallback nunca dispara aqui — mas se disparasse, 0 significa "não são
+        // a mesma música", que é o lado seguro (não funde).
+        var collapser = new NearDuplicateCollapser(
+            (a, b) => index.CosineBetween(a, b) ?? 0.0);
+
+        IReadOnlyList<CollapsedRecommendation> collapsed = collapser.Collapse(candidates, limit);
+
+        var representatives = new List<ExplainedTrackSimilarity>(collapsed.Count);
+        var collapsedCounts = new Dictionary<string, int>(collapsed.Count, StringComparer.Ordinal);
+        foreach (CollapsedRecommendation item in collapsed)
+        {
+            representatives.Add(item.Representative);
+            collapsedCounts[item.Representative.TrackId] = item.CollapsedDuplicateCount;
+        }
+
+        return (representatives, collapsedCounts);
     }
 
     /// <summary>Traduz o modo de gênero do CONTRATO para o do domínio — a fronteira não deixa o enum de domínio vazar.</summary>
@@ -167,13 +248,15 @@ internal sealed class GetTrackRecommendationsQueryHandler
         IReadOnlyList<ExplainedTrackSimilarity> neighbors,
         IReadOnlyDictionary<string, TrackMetadataRow> metadata,
         string? seedGenre,
-        int explainTopK)
+        int explainTopK,
+        IReadOnlyDictionary<string, int> collapsedCounts)
     {
         var items = new List<TrackRecommendationItem>(neighbors.Count);
 
         foreach (ExplainedTrackSimilarity neighbor in neighbors)
         {
             metadata.TryGetValue(neighbor.TrackId, out TrackMetadataRow? row);
+            collapsedCounts.TryGetValue(neighbor.TrackId, out int collapsed);
 
             items.Add(new TrackRecommendationItem
             {
@@ -187,7 +270,8 @@ internal sealed class GetTrackRecommendationsQueryHandler
                 GenreBoost = neighbor.GenreBonus,
                 IsImputed = neighbor.IsImputed,
                 SharedGenre = ResolveSharedGenre(neighbor, seedGenre, row?.Genre),
-                TopFeatures = SelectTopFeatures(neighbor.Contributions, explainTopK)
+                TopFeatures = SelectTopFeatures(neighbor.Contributions, explainTopK),
+                EquivalentVersionsCollapsed = collapsed
             });
         }
 

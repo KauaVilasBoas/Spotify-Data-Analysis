@@ -197,6 +197,23 @@ public sealed class SimilarityIndex
     }
 
     /// <summary>
+    /// O cosseno entre os vetores NORMALIZADOS de duas faixas do índice, ou <c>null</c> quando alguma delas não
+    /// está indexada. É a capacidade que o dedup do top-N (E4.7) precisa para reconhecer quase-duplicatas por
+    /// features praticamente idênticas — SEM recomputar normalização e SEM reordenar o ranking (é leitura pura dos
+    /// vetores já guardados). Não interfere no motor: só compara duas entradas existentes.
+    /// </summary>
+    public double? CosineBetween(string trackIdA, string trackIdB)
+    {
+        if (!_entriesById.TryGetValue(trackIdA, out TrackFeatureVector? a)
+            || !_entriesById.TryGetValue(trackIdB, out TrackFeatureVector? b))
+        {
+            return null;
+        }
+
+        return CosineSimilarity.Between(a.Vector, b.Vector);
+    }
+
+    /// <summary>
     /// As N faixas mais parecidas com um vetor CRU externo (semente que não está no catálogo — o modo "features à
     /// mão"), por cosseno puro. O vetor é normalizado pelos MESMOS parâmetros do índice antes de comparar. Sem
     /// gênero: uma semente externa não traz gênero conhecido, então o híbrido não se aplica — é sempre cosseno puro.

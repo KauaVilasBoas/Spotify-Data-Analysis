@@ -39,6 +39,7 @@ public interface ITrackMetadataSource
 /// <param name="Artist">Artista principal (1º crédito do array jsonb <c>artists</c>), quando presente.</param>
 /// <param name="Album">Nome do álbum (via <c>catalog.albums</c>), quando registrado.</param>
 /// <param name="Genre">Gênero das audio-features, quando a faixa tem features.</param>
+/// <param name="Popularity">Popularidade da faixa (0–100) — o 1º critério do representante no dedup do E4.7.</param>
 /// <param name="HasAudioFeatures">Se a faixa tem o jsonb <c>audio_features</c> não nulo.</param>
 /// <param name="IsImputed">Se as audio-features foram imputadas, não medidas (DP-F).</param>
 /// <param name="HasCompleteFeatures">Se as nove features contínuas do vetor de similaridade estão presentes.</param>
@@ -48,6 +49,7 @@ public sealed record TrackMetadataRow(
     string? Artist,
     string? Album,
     string? Genre,
+    int Popularity,
     bool HasAudioFeatures,
     bool IsImputed,
     bool HasCompleteFeatures);

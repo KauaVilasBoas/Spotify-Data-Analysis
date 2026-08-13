@@ -73,5 +73,18 @@ public sealed class RecommendationsControllerTests
         Assert.Equal(GetTrackRecommendationsQuery.DefaultExplainTopK, query.ExplainTopK);
         Assert.Equal(GetTrackRecommendationsQuery.DefaultGenreMode, query.GenreMode);
         Assert.Equal(GenreRankingModeContract.Boost, query.GenreMode);
+        Assert.True(query.Dedupe); // E4.7: dedup ligado por default
+    }
+
+    [Fact]
+    public async Task GetTrackRecommendations_PassesDedupeFlagThrough()
+    {
+        var mediator = new CapturingMediator(new TrackRecommendationsResponse());
+        var controller = new RecommendationsController(mediator);
+
+        await controller.GetTrackRecommendations("seed", dedupe: false, cancellationToken: CancellationToken.None);
+
+        var query = Assert.IsType<GetTrackRecommendationsQuery>(mediator.LastRequest);
+        Assert.False(query.Dedupe);
     }
 }

@@ -70,6 +70,20 @@ public sealed class TrackRecommendationsResponse
     /// </summary>
     public bool GenreFellBackToCosineOnly { get; init; }
 
+    /// <summary>
+    /// Se o dedup de quase-duplicatas (E4.7) foi aplicado a esta resposta. Quando <c>true</c>, o top-N não repete a
+    /// mesma música em <c>track_id</c>s diferentes; itens com <see cref="TrackRecommendationItem.EquivalentVersionsCollapsed"/>
+    /// &gt; 0 representam um grupo de versões equivalentes. <c>false</c> quando o cliente pediu <c>dedupe=false</c>.
+    /// </summary>
+    public bool DedupeApplied { get; init; }
+
+    /// <summary>
+    /// Quantas quase-duplicatas foram colapsadas no total desta resposta (soma dos
+    /// <see cref="TrackRecommendationItem.EquivalentVersionsCollapsed"/>). Zero quando o dedup não achou repetição ou
+    /// está desligado — o número que quantifica o quanto o top-N estava "sujo" antes do colapso.
+    /// </summary>
+    public int TotalDuplicatesCollapsed { get; init; }
+
     /// <summary>As faixas recomendadas, em ordem decrescente de similaridade, sem a própria semente. Pode vir vazia.</summary>
     public IReadOnlyList<TrackRecommendationItem> Recommendations { get; init; } = [];
 
@@ -138,6 +152,13 @@ public sealed class TrackRecommendationItem
     /// os valores originais da semente e da candidata, para o número ser legível.
     /// </summary>
     public IReadOnlyList<FeatureContributionDto> TopFeatures { get; init; } = [];
+
+    /// <summary>
+    /// Quantas OUTRAS versões equivalentes da mesma música (quase-duplicatas com <c>track_id</c>s diferentes) este
+    /// item representa, após o dedup do E4.7. Zero significa faixa única no top-N; &gt; 0 é a transparência de que
+    /// "esta faixa fala por N versões" — o catálogo tem duplicatas reais, e o item as absorveu em vez de repeti-las.
+    /// </summary>
+    public int EquivalentVersionsCollapsed { get; init; }
 }
 
 /// <summary>

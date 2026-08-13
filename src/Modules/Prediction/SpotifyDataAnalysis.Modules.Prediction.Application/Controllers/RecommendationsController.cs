@@ -69,6 +69,7 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// <param name="limit">Quantas recomendações retornar. Padrão 10, máximo 50.</param>
     /// <param name="explainTopK">Quantas features destacar na explicação de cada recomendação. Padrão 3, máximo 9.</param>
     /// <param name="genreMode">Como o gênero da semente pesa no ranking. <c>boost</c> (DEFAULT): bônus aditivo de 0,05 no score das candidatas do mesmo gênero, sem excluir ninguém. <c>off</c>: cosine puro de audio-features, o gênero não pesa. <c>sameGenreOnly</c>: filtro duro, só candidatas do mesmo gênero concorrem. Valor desconhecido → 400.</param>
+    /// <param name="dedupe">Se colapsa quase-duplicatas no top-N (E4.7). <c>true</c> (DEFAULT): a mesma música em <c>track_id</c>s diferentes vira UM item, e <c>equivalentVersionsCollapsed</c> conta as versões absorvidas; o representante é a de maior <c>popularity</c>. <c>false</c>: ranking cru, com duplicatas visíveis (debug).</param>
     /// <param name="cancellationToken">Cancelamento da requisição.</param>
     [HttpGet("track/{id}")]
     [ProducesResponseType(typeof(ApiResult<TrackRecommendationsResponse>), 200)]
@@ -80,10 +81,11 @@ public sealed class RecommendationsController : SpotifyControllerBase
         [FromQuery] int limit = GetTrackRecommendationsQuery.DefaultLimit,
         [FromQuery] int explainTopK = GetTrackRecommendationsQuery.DefaultExplainTopK,
         [FromQuery] GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode,
+        [FromQuery] bool dedupe = GetTrackRecommendationsQuery.DefaultDedupe,
         CancellationToken cancellationToken = default)
     {
         TrackRecommendationsResponse response = await _mediator.SendAsync(
-            new GetTrackRecommendationsQuery(id, limit, explainTopK, genreMode), cancellationToken);
+            new GetTrackRecommendationsQuery(id, limit, explainTopK, genreMode, dedupe), cancellationToken);
 
         return Ok(new ApiResult<TrackRecommendationsResponse>(
             true, "Faixas recomendadas por similaridade híbrida (áudio + gênero).", response));

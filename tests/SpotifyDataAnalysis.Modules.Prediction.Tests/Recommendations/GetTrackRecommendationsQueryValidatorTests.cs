@@ -16,7 +16,8 @@ public sealed class GetTrackRecommendationsQueryValidatorTests
     private static ValidationResult Validate(
         int limit, int explainTopK,
         GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode) =>
-        Validator.Validate(new GetTrackRecommendationsQuery("seed", limit, explainTopK, genreMode));
+        Validator.Validate(new GetTrackRecommendationsQuery(
+            "seed", limit, explainTopK, genreMode, GetTrackRecommendationsQuery.DefaultDedupe));
 
     [Theory]
     [InlineData(1, 1)]
@@ -56,7 +57,9 @@ public sealed class GetTrackRecommendationsQueryValidatorTests
     public void EmptySeedTrackId_FailsOnId()
     {
         ValidationResult result = Validator.Validate(
-            new GetTrackRecommendationsQuery("  ", 10, 3, GetTrackRecommendationsQuery.DefaultGenreMode));
+            new GetTrackRecommendationsQuery(
+                "  ", 10, 3, GetTrackRecommendationsQuery.DefaultGenreMode,
+                GetTrackRecommendationsQuery.DefaultDedupe));
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.PropertyName == "id");

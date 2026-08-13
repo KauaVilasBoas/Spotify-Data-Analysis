@@ -48,6 +48,7 @@ internal sealed class CatalogTrackMetadataSource : BaseDataAccess, ITrackMetadat
             t.artists -> 0 ->> 'Name'                                     AS "Artist",
             al.name                                                       AS "Album",
             t.audio_features ->> 'Genre'                                  AS "Genre",
+            t.popularity                                                  AS "Popularity",
             (t.audio_features IS NOT NULL)                                AS "HasAudioFeatures",
             COALESCE((t.audio_features ->> 'IsImputed')::boolean, false)  AS "IsImputed",
             ({{CompleteFeaturesPredicate}})                               AS "HasCompleteFeatures"

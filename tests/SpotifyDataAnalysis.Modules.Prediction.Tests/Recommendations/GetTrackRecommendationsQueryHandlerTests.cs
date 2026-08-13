@@ -35,16 +35,20 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     private static ITrackSimilarityIndexProvider IndexOf(IReadOnlyList<RawTrackFeatures> catalog) =>
         new StubIndexProvider(SimilarityIndex.Build(catalog));
 
+    // O default do helper é dedupe=false: estes testes cobrem o RANKING (E4.2/E4.3), e o dedup do E4.7 é
+    // pós-processamento com testes próprios. Ligá-lo aqui só adicionaria over-fetch sem mudar o que se afirma —
+    // exceto onde um teste específico do dedup pede dedupe=true.
     private static GetTrackRecommendationsQuery Query(
         string seed, int limit = 10, int explainTopK = 3,
-        GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode) =>
-        new(seed, limit, explainTopK, genreMode);
+        GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode,
+        bool dedupe = false) =>
+        new(seed, limit, explainTopK, genreMode, dedupe);
 
     private static TrackMetadataRow Meta(
         string id, string? name = null, string? artist = null, string? album = null,
-        string? genre = null, bool exists = true, bool imputed = false, bool complete = true) =>
+        string? genre = null, int popularity = 50, bool exists = true, bool imputed = false, bool complete = true) =>
         new(id, name ?? $"Track {id}", artist ?? $"Artist {id}", album ?? $"Album {id}",
-            genre, HasAudioFeatures: exists, IsImputed: imputed, HasCompleteFeatures: complete);
+            genre, popularity, HasAudioFeatures: exists, IsImputed: imputed, HasCompleteFeatures: complete);
 
     [Fact]
     public async Task Handle_UnknownSeed_ThrowsNotFound()
@@ -397,6 +401,84 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
         Assert.True(response.Recommendations.Single(r => r.TrackId == "popMeasured").GenreBoost > 0);
         Assert.Equal(0.0, response.Recommendations.Single(r => r.TrackId == "popImputed").GenreBoost);
+    }
+
+    // --- E4.7: o dedup de quase-duplicatas no top-N ---
+
+    /// <summary>
+    /// Catálogo com um par quase-idêntico ("hitA"/"hitB": mesma "artista|título", vetores idênticos → cosseno ≈ 1)
+    /// além de duas faixas distintas. É o cenário do card: a mesma música com track_ids diferentes.
+    /// </summary>
+    private static IReadOnlyList<RawTrackFeatures> DuplicateCatalog() =>
+    [
+        new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: "pop", false),
+        new("hitA", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), Genre: "pop", false),
+        new("hitB", Raw(0.79, 0.81, 0.78, 122.0, 0.11, 0.10, 0.10, 0.05, -8.2), Genre: "pop", false),
+        new("other", Raw(0.60, 0.62, 0.58, 110.0, 0.20, 0.15, 0.12, 0.06, -10.0), Genre: "pop", false),
+        new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), Genre: "pop", false)
+    ];
+
+    private static StubMetadataSource DuplicateMetadata()
+    {
+        var metadata = new StubMetadataSource();
+        metadata.Add(Meta("seed", genre: "pop"));
+        // hitA e hitB são a MESMA música (mesmo nome+artista), popularidades diferentes.
+        metadata.Add(Meta("hitA", name: "The Hit", artist: "The Band", genre: "pop", popularity: 30));
+        metadata.Add(Meta("hitB", name: "The Hit", artist: "The Band", genre: "pop", popularity: 95));
+        metadata.Add(Meta("other", name: "Other", artist: "Someone", genre: "pop", popularity: 50));
+        metadata.Add(Meta("far", name: "Far", artist: "Distant", genre: "pop", popularity: 50));
+        return metadata;
+    }
+
+    [Fact]
+    public async Task Handle_Dedupe_CollapsesTheSameSong_AndKeepsLimitDistinct()
+    {
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+
+        // limit=2, dedupe on: sem dedup o top-2 seria [hitA, hitB] (a mesma música duas vezes). Com dedup, o par
+        // colapsa e "other" preenche a 2ª vaga — 2 músicas DISTINTAS.
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Off, dedupe: true));
+
+        Assert.True(response.DedupeApplied);
+        Assert.Equal(2, response.Recommendations.Count);
+
+        string[] ids = response.Recommendations.Select(r => r.TrackId).ToArray();
+        Assert.Contains("other", ids);
+        // hitA e hitB nunca aparecem JUNTOS — no máximo o representante do par.
+        Assert.False(ids.Contains("hitA") && ids.Contains("hitB"));
+    }
+
+    [Fact]
+    public async Task Handle_Dedupe_PicksMostPopularRepresentative_AndSignalsCollapsedCount()
+    {
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", limit: 3, genreMode: GenreRankingModeContract.Off, dedupe: true));
+
+        // O representante do par é a versão mais popular (hitB, popularity 95).
+        TrackRecommendationItem representative =
+            response.Recommendations.Single(r => r.TrackId is "hitA" or "hitB");
+        Assert.Equal("hitB", representative.TrackId);
+        Assert.Equal(1, representative.EquivalentVersionsCollapsed);
+        Assert.Equal(1, response.TotalDuplicatesCollapsed);
+    }
+
+    [Fact]
+    public async Task Handle_DedupeOff_ShowsBothVersions_Raw()
+    {
+        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+
+        TrackRecommendationsResponse response =
+            await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Off, dedupe: false));
+
+        Assert.False(response.DedupeApplied);
+        Assert.Equal(0, response.TotalDuplicatesCollapsed);
+        string[] ids = response.Recommendations.Select(r => r.TrackId).ToArray();
+        // Sem dedup, as duas versões da mesma música ocupam o top-2 (o comportamento cru do E4.1).
+        Assert.Contains("hitA", ids);
+        Assert.Contains("hitB", ids);
     }
 
     private sealed class StubIndexProvider : ITrackSimilarityIndexProvider
