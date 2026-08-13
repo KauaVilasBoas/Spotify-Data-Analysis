@@ -26,11 +26,30 @@ public sealed class GenreAffinityPolicy
     /// <summary>
     /// Peso default do boost de gênero. Calibrado para REORDENAR sem virar filtro disfarçado: o cosine no espaço
     /// z-score deste recomendador fica tipicamente alto (0,9+) entre vizinhos próximos, e as diferenças de cosine
-    /// no topo são de centésimos — um bônus de 0,15 desempata a favor do mesmo gênero e resgata bons vizinhos de
-    /// gênero que perderam por pouco, sem sobrepujar uma candidata de cosine claramente superior de outro gênero.
-    /// Exposto e ajustável para o E4.4 recalibrar sobre os proxies (risco "boost mal calibrado" do card).
+    /// no topo são de centésimos, então basta um bônus pequeno para desempatar a favor do mesmo gênero e resgatar
+    /// bons vizinhos que perderam por pouco.
+    ///
+    /// <para><b>Valor CALIBRADO pelo E4.4</b> (era 0,15 provisório) sobre o catálogo real — 300 sementes fixas,
+    /// top-10, proxy de coerência de gênero medido do cosine puro até 0,15:</para>
+    /// <code>
+    /// peso   coerência   saturação (top-10 de um só gênero)
+    /// off      0,1347      0,0100
+    /// 0,02     0,3283      0,0900
+    /// 0,05     0,5833      0,3100   ← eleito
+    /// 0,08     0,7563      0,5167
+    /// 0,10     0,8270      0,6567
+    /// 0,15     0,9143      0,8233
+    /// </code>
+    /// <para>A curva não satura em lugar nenhum da faixa, então ela é informativa — e mostra que 0,15 levava 82% das
+    /// sementes a um top-10 de gênero único, ou seja, para quatro em cada cinco consultas o "boost" já era um filtro
+    /// duro, tornando o modo <see cref="GenreRankingMode.Boost"/> indistinguível de
+    /// <see cref="GenreRankingMode.SameGenreOnly"/> e apagando o eixo de relaxamento da DP-C.</para>
+    /// <para>0,05 é o MAIOR peso cuja saturação permanece minoritária (0,31): mais que quadruplica a coerência sobre
+    /// o cosine puro (0,1347 → 0,5833) e ainda deixa 69% das sementes com pelo menos um vizinho de outro gênero no
+    /// top-10 — desempate, que é o que a DP-C pediu, e não filtro. O gate do E4.4 defende os dois lados dessa
+    /// escolha (ganho mínimo e teto de saturação), então subir este número silenciosamente reprova a suíte.</para>
     /// </summary>
-    public const double DefaultBoostWeight = 0.15;
+    public const double DefaultBoostWeight = 0.05;
 
     private readonly string? _seedGenre;
 

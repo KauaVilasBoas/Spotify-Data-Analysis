@@ -213,7 +213,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
 
     /// <summary>
     /// Catálogo espalhado (12 faixas, 6 gêneros) para os z-scores NÃO saturarem: os cossenos no topo ficam
-    /// separados por centésimos, como no catálogo real, de modo que o boost DEFAULT (0,15) de fato reordena.
+    /// separados por centésimos, como no catálogo real, de modo que o boost DEFAULT de fato reordena.
     /// Por cosseno puro o top-3 é [rockA, rockB, popA] — só um "pop"; o boost default traz popA/popB à frente.
     /// </summary>
     private static IReadOnlyList<RawTrackFeatures> GenreCatalog() =>

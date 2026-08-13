@@ -35,9 +35,13 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// quando compartilham o gênero.
     ///
     /// <para><b>Gênero no ranking (E4.3, DP-C):</b> por DEFAULT o gênero da semente PESA no ranking como um boost —
-    /// candidatas do mesmo gênero ganham um bônus no score (<c>genreMode=boost</c>). É relaxável por parâmetro:
-    /// <c>genreMode=off</c> volta ao cosine puro de áudio (E4.1); <c>genreMode=sameGenreOnly</c> aplica o filtro
-    /// duro (só o mesmo gênero da semente). O modo efetivo vem em <c>effectiveGenreMode</c>. Se a SEMENTE não tem
+    /// candidatas do mesmo gênero ganham um bônus ADITIVO fixo de <b>0,05</b> no score
+    /// (<c>score = cosineScore + genreBoost</c>), peso calibrado pelo E4.4 sobre o catálogo real. O boost NÃO
+    /// exclui ninguém: só reordena, e uma candidata de outro gênero com cosine claramente melhor continua à frente.
+    /// É relaxável por parâmetro: <c>genreMode=off</c> volta ao cosine puro de áudio, sem bônus algum (E4.1);
+    /// <c>genreMode=boost</c> é o default descrito acima; <c>genreMode=sameGenreOnly</c> aplica o filtro DURO,
+    /// descartando toda candidata de outro gênero antes do ranking (e, aí, sem bônus — a coerência já é garantida
+    /// pela exclusão). O modo efetivo vem em <c>effectiveGenreMode</c>. Se a SEMENTE não tem
     /// gênero utilizável (ausente ou imputado, DP-F), o ranking cai graciosamente no cosine puro,
     /// <c>genreFellBackToCosineOnly=true</c> e há um aviso em <c>warnings</c> — nunca filtra para vazio em silêncio.</para>
     ///
@@ -54,7 +58,7 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// "seedGenre": "pop", "seedIsImputed": false, "indexedTrackCount": 89712,
     /// "requestedGenreMode": "boost", "effectiveGenreMode": "boost", "genreFellBackToCosineOnly": false,
     /// "recommendations": [ { "trackId": "1abc...", "name": "Faixa Parecida", "artist": "Artista", "album": "Álbum",
-    /// "genre": "pop", "score": 1.131, "cosineScore": 0.981, "genreBoost": 0.15, "isImputed": false,
+    /// "genre": "pop", "score": 1.031, "cosineScore": 0.981, "genreBoost": 0.05, "isImputed": false,
     /// "sharedGenre": "pop", "topFeatures": [
     /// { "feature": "Energy", "seedValue": 0.82, "candidateValue": 0.80, "contribution": 0.19 },
     /// { "feature": "Danceability", "seedValue": 0.74, "candidateValue": 0.73, "contribution": 0.17 },
@@ -64,7 +68,7 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// <param name="id">Id da faixa-semente no catálogo (Spotify track id).</param>
     /// <param name="limit">Quantas recomendações retornar. Padrão 10, máximo 50.</param>
     /// <param name="explainTopK">Quantas features destacar na explicação de cada recomendação. Padrão 3, máximo 9.</param>
-    /// <param name="genreMode">Como o gênero pesa no ranking: <c>boost</c> (default), <c>off</c> (cosine puro) ou <c>sameGenreOnly</c> (filtro duro).</param>
+    /// <param name="genreMode">Como o gênero da semente pesa no ranking. <c>boost</c> (DEFAULT): bônus aditivo de 0,05 no score das candidatas do mesmo gênero, sem excluir ninguém. <c>off</c>: cosine puro de audio-features, o gênero não pesa. <c>sameGenreOnly</c>: filtro duro, só candidatas do mesmo gênero concorrem. Valor desconhecido → 400.</param>
     /// <param name="cancellationToken">Cancelamento da requisição.</param>
     [HttpGet("track/{id}")]
     [ProducesResponseType(typeof(ApiResult<TrackRecommendationsResponse>), 200)]

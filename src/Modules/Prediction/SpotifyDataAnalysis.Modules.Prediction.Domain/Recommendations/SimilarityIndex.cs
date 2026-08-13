@@ -97,6 +97,14 @@ public sealed class SimilarityIndex
         _entriesById.TryGetValue(trackId, out TrackFeatureVector? entry) ? entry.Genre : null;
 
     /// <summary>
+    /// Se as features da faixa foram IMPUTADAS (DP-F), ou <c>null</c> quando ela não está no índice. Acessor de
+    /// leitura acrescentado pelo E4.4: o ranking já propaga a marca de cada VIZINHO, mas a marca da SEMENTE só
+    /// existia fora do índice, e a avaliação precisa tratar semente imputada explicitamente.
+    /// </summary>
+    public bool? IsImputedTrack(string trackId) =>
+        _entriesById.TryGetValue(trackId, out TrackFeatureVector? entry) ? entry.IsImputed : null;
+
+    /// <summary>
     /// As N faixas mais parecidas com a faixa-semente do índice, por CosineSimilarity puro (E4.1), em ordem
     /// decrescente e SEM a própria semente. Sobrecarga de conveniência sem gênero: equivale a passar uma política
     /// neutra. Devolve <c>null</c> quando a semente não está no índice — a distinção entre "faixa inexistente/sem
