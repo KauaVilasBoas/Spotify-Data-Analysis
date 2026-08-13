@@ -41,8 +41,10 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     private static GetTrackRecommendationsQuery Query(
         string seed, int limit = 10, int explainTopK = 3,
         GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode,
-        bool dedupe = false) =>
-        new(seed, limit, explainTopK, genreMode, dedupe);
+        bool dedupe = false,
+        RecommendationStrategyContract strategy = RecommendationStrategyContract.Content,
+        double blendWeight = GetTrackRecommendationsQuery.DefaultBlendWeight) =>
+        new(seed, limit, explainTopK, genreMode, dedupe, strategy, blendWeight);
 
     private static TrackMetadataRow Meta(
         string id, string? name = null, string? artist = null, string? album = null,
@@ -53,7 +55,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     [Fact]
     public async Task Handle_UnknownSeed_ThrowsNotFound()
     {
-        var handler = new GetTrackRecommendationsQueryHandler(
+        var handler = Handler(
             IndexOf(SampleCatalog()), new StubMetadataSource());
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.HandleAsync(Query("ghost", limit: 5)));
@@ -66,7 +68,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         var metadata = new StubMetadataSource();
         metadata.Add(Meta("orphan", complete: false));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         await Assert.ThrowsAsync<BusinessException>(() => handler.HandleAsync(Query("orphan", limit: 5)));
     }
@@ -79,7 +81,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         foreach (string id in new[] { "near", "mid", "far", "imp" })
             metadata.Add(Meta(id));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -101,7 +103,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         foreach (string id in new[] { "mid", "far", "imp" })
             metadata.Add(Meta(id));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -122,7 +124,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         foreach (string id in new[] { "near", "mid", "far", "imp" })
             metadata.Add(Meta(id));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -145,7 +147,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         metadata.Add(Meta("far", genre: null));     // ausente → nulo
         metadata.Add(Meta("imp", genre: "pop"));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Off));
@@ -165,7 +167,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         metadata.Add(Meta("far"));
         metadata.Add(Meta("imp", imputed: true));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -182,7 +184,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         foreach (string id in new[] { "near", "mid", "far", "imp" })
             metadata.Add(Meta(id));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(SampleCatalog()), metadata);
+        var handler = Handler(IndexOf(SampleCatalog()), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -206,7 +208,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
             new("far",  Raw(0.10, 0.10, 0.10, 60.0,  0.90, 0.80, 0.70, 0.60, -30.0), Genre: "pop", false)
         ];
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(cleanCatalog), metadata);
+        var handler = Handler(IndexOf(cleanCatalog), metadata);
 
         TrackRecommendationsResponse response = await handler.HandleAsync(Query("seed"));
 
@@ -260,7 +262,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         // O critério de aceite central do E4.3: com gênero LIGADO (default boost), o top-N tem coerência de gênero
         // MAIOR que com gênero DESLIGADO, para a MESMA semente. No cosine puro o top-2 é [rockA, rockB] (0 pop);
         // com o boost default os "pop" sobem.
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+        var handler = Handler(IndexOf(GenreCatalog()), GenreMetadata());
 
         TrackRecommendationsResponse boosted =
             await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Boost));
@@ -281,7 +283,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     {
         // Relaxamento total: off cai no cosine puro. Um vizinho de OUTRO gênero (rockA, cosseno maior) lidera;
         // nenhum boost incide e o score coincide com o cosseno.
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+        var handler = Handler(IndexOf(GenreCatalog()), GenreMetadata());
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Off));
@@ -296,7 +298,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     public async Task Handle_Boost_ExposesGenreContributionInExplanation()
     {
         // A explicabilidade coerente: uma vizinha do mesmo gênero mostra genreBoost > 0 e score = cosine + boost.
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+        var handler = Handler(IndexOf(GenreCatalog()), GenreMetadata());
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
@@ -315,7 +317,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     public async Task Handle_SameGenreOnly_FiltersOutOtherGenres()
     {
         // Filtro duro: só faixas do mesmo gênero da semente entram no top-N.
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(GenreCatalog()), GenreMetadata());
+        var handler = Handler(IndexOf(GenreCatalog()), GenreMetadata());
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", limit: 10, genreMode: GenreRankingModeContract.SameGenreOnly));
@@ -342,7 +344,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         metadata.Add(Meta("popNear", genre: "pop"));
         metadata.Add(Meta("rockClose", genre: "rock"));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+        var handler = Handler(IndexOf(catalog), metadata);
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
@@ -370,7 +372,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         metadata.Add(Meta("popNear", genre: "pop"));
         metadata.Add(Meta("rockClose", genre: "rock"));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+        var handler = Handler(IndexOf(catalog), metadata);
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
@@ -394,7 +396,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         metadata.Add(Meta("popMeasured", genre: "pop"));
         metadata.Add(Meta("popImputed", genre: "pop", imputed: true));
 
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(catalog), metadata);
+        var handler = Handler(IndexOf(catalog), metadata);
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", genreMode: GenreRankingModeContract.Boost));
@@ -433,7 +435,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     [Fact]
     public async Task Handle_Dedupe_CollapsesTheSameSong_AndKeepsLimitDistinct()
     {
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+        var handler = Handler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
 
         // limit=2, dedupe on: sem dedup o top-2 seria [hitA, hitB] (a mesma música duas vezes). Com dedup, o par
         // colapsa e "other" preenche a 2ª vaga — 2 músicas DISTINTAS.
@@ -452,7 +454,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     [Fact]
     public async Task Handle_Dedupe_PicksMostPopularRepresentative_AndSignalsCollapsedCount()
     {
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+        var handler = Handler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", limit: 3, genreMode: GenreRankingModeContract.Off, dedupe: true));
@@ -468,7 +470,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
     [Fact]
     public async Task Handle_DedupeOff_ShowsBothVersions_Raw()
     {
-        var handler = new GetTrackRecommendationsQueryHandler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
+        var handler = Handler(IndexOf(DuplicateCatalog()), DuplicateMetadata());
 
         TrackRecommendationsResponse response =
             await handler.HandleAsync(Query("seed", limit: 2, genreMode: GenreRankingModeContract.Off, dedupe: false));
@@ -480,6 +482,85 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         Assert.Contains("hitA", ids);
         Assert.Contains("hitB", ids);
     }
+
+    // --- E4.6: o blend com o sinal colaborativo ---
+
+    [Fact]
+    public async Task Handle_Blend_BringsInACollaborativeOnlyTrack_NotInTheContentTopN()
+    {
+        // "far" está longe no áudio (cairia no fim do content), mas co-ocorre forte com a semente. No blend, ela
+        // sobe e é marcada como blended (tem áudio) — o sinal colaborativo puxou uma faixa que o áudio esconderia.
+        var metadata = new StubMetadataSource();
+        foreach (string id in new[] { "seed", "near", "mid", "far", "imp" })
+            metadata.Add(Meta(id, genre: "pop"));
+
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add("seed", new CoOccurringTrack("far", CoPlaylists: 40, Jaccard: 0.9));
+
+        var handler = Handler(IndexOf(SampleCatalog()), metadata, coOccurrence);
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", limit: 3, genreMode: GenreRankingModeContract.Off,
+                strategy: RecommendationStrategyContract.Blend, blendWeight: 0.6));
+
+        Assert.Equal(RecommendationStrategyContract.Blend, response.EffectiveStrategy);
+        Assert.False(response.CollaborativeSignalUnavailable);
+
+        TrackRecommendationItem far = response.Recommendations.Single(r => r.TrackId == "far");
+        Assert.Equal("blended", far.Signal);
+        Assert.Equal(40, far.CoPlaylists);
+        Assert.Equal(0.9, far.CoOccurrenceScore);
+        // Com peso alto e Jaccard 0,9, "far" deixou de ser a última — o colaborativo a promoveu.
+        Assert.NotEqual("far", response.Recommendations[^1].TrackId);
+    }
+
+    [Fact]
+    public async Task Handle_Blend_WithoutCoOccurrence_FallsBackToContent_AndSignals()
+    {
+        var metadata = new StubMetadataSource();
+        foreach (string id in new[] { "seed", "near", "mid", "far", "imp" })
+            metadata.Add(Meta(id, genre: "pop"));
+
+        // Matriz vazia: a semente não tem co-ocorrência → cai para content e sinaliza.
+        var handler = Handler(IndexOf(SampleCatalog()), metadata, new StubCoOccurrenceSource());
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", genreMode: GenreRankingModeContract.Off,
+                strategy: RecommendationStrategyContract.Blend));
+
+        Assert.Equal(RecommendationStrategyContract.Content, response.EffectiveStrategy);
+        Assert.True(response.CollaborativeSignalUnavailable);
+        Assert.Contains(response.Warnings, w => w.Contains("colaborativo"));
+        Assert.All(response.Recommendations, r => Assert.Null(r.Signal));
+    }
+
+    [Fact]
+    public async Task Handle_ContentStrategy_DoesNotConsultCoOccurrence()
+    {
+        var metadata = new StubMetadataSource();
+        foreach (string id in new[] { "seed", "near", "mid", "far", "imp" })
+            metadata.Add(Meta(id, genre: "pop"));
+
+        // Mesmo com co-ocorrência disponível, strategy=content (default) não a usa: nenhum item traz signal.
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add("seed", new CoOccurringTrack("far", 40, 0.9));
+
+        var handler = Handler(IndexOf(SampleCatalog()), metadata, coOccurrence);
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", genreMode: GenreRankingModeContract.Off,
+                strategy: RecommendationStrategyContract.Content));
+
+        Assert.Equal(RecommendationStrategyContract.Content, response.EffectiveStrategy);
+        Assert.All(response.Recommendations, r => Assert.Null(r.Signal));
+        Assert.All(response.Recommendations, r => Assert.Equal(0, r.CoPlaylists));
+    }
+
+    /// <summary>Handler com um sinal colaborativo VAZIO por default — os testes de content/E4.3/E4.7 não usam blend.</summary>
+    private static GetTrackRecommendationsQueryHandler Handler(
+        ITrackSimilarityIndexProvider index, ITrackMetadataSource metadata,
+        ITrackCoOccurrenceSource? coOccurrence = null) =>
+        new(index, metadata, coOccurrence ?? new StubCoOccurrenceSource());
 
     private sealed class StubIndexProvider : ITrackSimilarityIndexProvider
     {
@@ -507,6 +588,23 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
             IReadOnlyDictionary<string, TrackMetadataRow> found = trackIds
                 .Where(_rows.ContainsKey)
                 .ToDictionary(id => id, id => _rows[id], StringComparer.Ordinal);
+
+            return Task.FromResult(found);
+        }
+    }
+
+    private sealed class StubCoOccurrenceSource : ITrackCoOccurrenceSource
+    {
+        private readonly Dictionary<string, List<CoOccurringTrack>> _bySeed = new(StringComparer.Ordinal);
+
+        public void Add(string seed, params CoOccurringTrack[] neighbors) => _bySeed[seed] = neighbors.ToList();
+
+        public Task<IReadOnlyList<CoOccurringTrack>> FindCoOccurringAsync(
+            string seedTrackId, int limit, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<CoOccurringTrack> found = _bySeed.TryGetValue(seedTrackId, out List<CoOccurringTrack>? list)
+                ? list.Take(limit).ToArray()
+                : [];
 
             return Task.FromResult(found);
         }

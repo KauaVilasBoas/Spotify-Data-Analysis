@@ -111,6 +111,19 @@ dotnet run --project src/Host/SpotifyDataAnalysis.Api -- seed-playlists spotify-
 O comando devolve o **censo** que alimenta os gates do E4.6: taxa de casamento (linhas do Pichl que casaram) e,
 via consulta a `catalog.playlists`, a densidade de co-ocorrência (pares de faixas-do-catálogo em ≥2 playlists).
 
+**Matriz de co-ocorrência (blend colaborativo, E4.6).** Depois de semear as playlists, materialize a matriz de
+pares item-item que sustenta o `strategy=blend`. O passo batch lê `catalog.playlists`, forma os pares que
+co-ocorrem em ≥2 playlists, calcula o Jaccard e grava em `prediction.track_cooccurrence` (a recomendação lê dessa
+tabela, nunca do self-join sobre jsonb a cada request):
+
+```bash
+dotnet run --project src/Host/SpotifyDataAnalysis.Api -- build-cooccurrence
+```
+
+Rode-o de novo sempre que repopular as playlists (é idempotente — trunca e reconstrói). Com a matriz pronta,
+`GET /api/recommendations/track/{id}?strategy=blend&blendWeight=0.5` mistura o "aparece junto em playlists" ao
+"soa parecido"; sem a matriz, o blend cai graciosamente para o content-based e avisa.
+
 ## Migrations
 
 ```bash

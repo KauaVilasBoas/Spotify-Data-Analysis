@@ -1,5 +1,6 @@
 using SpotifyDataAnalysis.Modules.Prediction.Contracts.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 using SpotifyDataAnalysis.SharedKernel.Messaging;
@@ -23,8 +24,11 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 /// <param name="ExplainTopK">Quantas features destacar na explicação de cada recomendação (top-K contribuições).</param>
 /// <param name="GenreMode">Como o gênero da semente pesa no ranking (E4.3): boost (default), off (cosine puro) ou filtro duro.</param>
 /// <param name="Dedupe">Se colapsa quase-duplicatas no top-N (E4.7): default true; false devolve o ranking cru.</param>
+/// <param name="Strategy">Content puro (default) ou blend com o colaborativo item-item (E4.6).</param>
+/// <param name="BlendWeight">Peso do sinal colaborativo no blend, em [0, 1] (E4.6). Só vale para strategy=blend.</param>
 public sealed record GetTrackRecommendationsQuery(
-    string SeedTrackId, int Limit, int ExplainTopK, GenreRankingModeContract GenreMode, bool Dedupe)
+    string SeedTrackId, int Limit, int ExplainTopK, GenreRankingModeContract GenreMode, bool Dedupe,
+    RecommendationStrategyContract Strategy, double BlendWeight)
     : IQuery<TrackRecommendationsResponse>
 {
     /// <summary>Número de recomendações padrão quando o cliente não especifica.</summary>
@@ -44,6 +48,12 @@ public sealed record GetTrackRecommendationsQuery(
 
     /// <summary>Dedup ligado por default (E4.7): o usuário nunca quer ver a mesma música repetida sem pedir.</summary>
     public const bool DefaultDedupe = true;
+
+    /// <summary>Estratégia default (E4.6, DP-2): content puro — o colaborativo é opt-in, sem impor sem evidência.</summary>
+    public const RecommendationStrategyContract DefaultStrategy = RecommendationStrategyContract.Content;
+
+    /// <summary>Peso default do colaborativo no blend (E4.6, DP-2): 0,35 (conservador — o content ainda pesa mais).</summary>
+    public const double DefaultBlendWeight = 0.35;
 }
 
 internal sealed class GetTrackRecommendationsQueryHandler
@@ -61,6 +71,11 @@ internal sealed class GetTrackRecommendationsQueryHandler
         "A faixa-semente não tem gênero utilizável (ausente ou imputado), então o gênero foi ignorado no ranking: " +
         "as recomendações caíram no cosine puro de audio-features. Nenhuma faixa foi filtrada em silêncio.";
 
+    private const string CollaborativeUnavailableWarning =
+        "O blend colaborativo foi pedido, mas a faixa-semente não tem co-ocorrência registrada em playlists (ou a " +
+        "matriz nunca foi construída): as recomendações caíram no content-based puro. O colaborativo não foi " +
+        "ignorado em silêncio.";
+
     /// <summary>
     /// Fator de over-fetch do dedup (E4.7): para entregar <c>limit</c> itens DISTINTOS após colapsar
     /// quase-duplicatas, é preciso pedir mais candidatas do que o limite. 3× cobre com folga o cenário medido no
@@ -74,12 +89,16 @@ internal sealed class GetTrackRecommendationsQueryHandler
 
     private readonly ITrackSimilarityIndexProvider _indexProvider;
     private readonly ITrackMetadataSource _metadataSource;
+    private readonly ITrackCoOccurrenceSource _coOccurrenceSource;
 
     public GetTrackRecommendationsQueryHandler(
-        ITrackSimilarityIndexProvider indexProvider, ITrackMetadataSource metadataSource)
+        ITrackSimilarityIndexProvider indexProvider,
+        ITrackMetadataSource metadataSource,
+        ITrackCoOccurrenceSource coOccurrenceSource)
     {
         _indexProvider = indexProvider;
         _metadataSource = metadataSource;
+        _coOccurrenceSource = coOccurrenceSource;
     }
 
     public async Task<TrackRecommendationsResponse> HandleAsync(
@@ -105,10 +124,11 @@ internal sealed class GetTrackRecommendationsQueryHandler
             index.GenreOf(request.SeedTrackId),
             seedMetadata?.IsImputed ?? false);
 
-        // Com dedup, pede-se MAIS candidatas que o limite (over-fetch): colapsar quase-duplicatas reduziria o
-        // resultado abaixo do pedido, e o card exige entregar `limit` itens distintos. Sem dedup, pede-se exatamente
-        // `limit` — o comportamento do E4.2/E4.3 permanece intacto.
-        int fetchCount = request.Dedupe
+        // Over-fetch: com dedup (E4.7) ou blend (E4.6), pede-se MAIS candidatas que o limite — colapsar ou blendar
+        // reduziria o resultado abaixo do pedido, e o contrato exige entregar `limit` itens distintos. Sem nenhum
+        // dos dois, pede-se exatamente `limit` (o comportamento do E4.2/E4.3 permanece intacto).
+        bool overFetches = request.Dedupe || request.Strategy == RecommendationStrategyContract.Blend;
+        int fetchCount = overFetches
             ? Math.Max(limit * DedupeOverFetchFactor, MinimumDedupeOverFetch)
             : limit;
 
@@ -120,16 +140,34 @@ internal sealed class GetTrackRecommendationsQueryHandler
         if (neighbors is null)
             throw ExplainMissingSeed(request.SeedTrackId, seedMetadata);
 
-        IReadOnlyDictionary<string, TrackMetadataRow> neighborMetadata =
-            await LoadNeighborMetadataAsync(neighbors, cancellationToken);
+        // O sinal colaborativo (E4.6) só é buscado no modo blend. Vazio significa cobertura zero (faixa nunca
+        // co-ocorreu, ou a matriz nunca foi construída) — o handler cai graciosamente para o content puro.
+        IReadOnlyList<CoOccurringTrack> coOccurring = request.Strategy == RecommendationStrategyContract.Blend
+            ? await _coOccurrenceSource.FindCoOccurringAsync(request.SeedTrackId, fetchCount, cancellationToken)
+            : [];
 
-        (IReadOnlyList<ExplainedTrackSimilarity> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
+        RankedCandidate[] ranked = request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count > 0
+            ? BlendCandidates(request.SeedTrackId, neighbors, coOccurring, request.BlendWeight)
+            : ContentCandidates(neighbors);
+
+        bool collaborativeUnavailable =
+            request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count == 0;
+
+        // Metadata de TODOS os candidatos (inclui faixas só-colaborativas que não vêm do índice content).
+        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata =
+            await LoadMetadataAsync(ranked.Select(candidate => candidate.TrackId), cancellationToken);
+
+        (IReadOnlyList<RankedCandidate> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
             request.Dedupe
-                ? Deduplicate(neighbors, neighborMetadata, index, limit)
-                : (Take(neighbors, limit), EmptyCollapsedCounts);
+                ? Deduplicate(ranked, candidateMetadata, index, limit)
+                : (TakeLimit(ranked, limit), EmptyCollapsedCounts);
 
         IReadOnlyList<TrackRecommendationItem> recommendations = BuildRecommendations(
-            representatives, neighborMetadata, seedMetadata?.Genre, explainTopK, collapsedCounts);
+            representatives, candidateMetadata, seedMetadata?.Genre, explainTopK, collapsedCounts);
+
+        RecommendationStrategyContract effectiveStrategy = collaborativeUnavailable
+            ? RecommendationStrategyContract.Content
+            : request.Strategy;
 
         return new TrackRecommendationsResponse
         {
@@ -142,59 +180,138 @@ internal sealed class GetTrackRecommendationsQueryHandler
             RequestedGenreMode = request.GenreMode,
             EffectiveGenreMode = MapGenreMode(genrePolicy.Mode),
             GenreFellBackToCosineOnly = genrePolicy.FellBackToCosineOnly,
+            EffectiveStrategy = effectiveStrategy,
+            CollaborativeSignalUnavailable = collaborativeUnavailable,
             DedupeApplied = request.Dedupe,
             TotalDuplicatesCollapsed = collapsedCounts.Values.Sum(),
             Recommendations = recommendations,
             Warnings = BuildWarnings(
-                seedMetadata?.IsImputed ?? false, genrePolicy.FellBackToCosineOnly, recommendations)
+                seedMetadata?.IsImputed ?? false, genrePolicy.FellBackToCosineOnly,
+                collaborativeUnavailable, recommendations)
         };
     }
 
     private static readonly IReadOnlyDictionary<string, int> EmptyCollapsedCounts =
         new Dictionary<string, int>(StringComparer.Ordinal);
 
-    private static IReadOnlyList<ExplainedTrackSimilarity> Take(
-        IReadOnlyList<ExplainedTrackSimilarity> neighbors, int limit) =>
-        neighbors.Count <= limit ? neighbors : neighbors.Take(limit).ToArray();
+    /// <summary>
+    /// Um candidato já rankeado, no formato que o dedup e a montagem consomem — o denominador comum entre o content
+    /// puro e o blend. Carrega a vizinha rica (quando há sinal de áudio) e os campos colaborativos (quando há
+    /// co-ocorrência), para a montagem do item saber qual "porquê" exibir sem reconsultar nada.
+    /// </summary>
+    private sealed record RankedCandidate(
+        string TrackId,
+        ExplainedTrackSimilarity? Neighbor,
+        RecommendationSignal Signal,
+        int CoPlaylists,
+        double CoOccurrenceScore,
+        bool IsImputed,
+        double DedupeCosine);
+
+    /// <summary>Traduz o top-N content puro (E4.1–E4.3) em candidatos rankeados — sinal ContentOnly, sem colaborativo.</summary>
+    private static RankedCandidate[] ContentCandidates(IReadOnlyList<ExplainedTrackSimilarity> neighbors)
+    {
+        var candidates = new RankedCandidate[neighbors.Count];
+        for (int i = 0; i < neighbors.Count; i++)
+        {
+            ExplainedTrackSimilarity neighbor = neighbors[i];
+            candidates[i] = new RankedCandidate(
+                neighbor.TrackId, neighbor, RecommendationSignal.ContentOnly,
+                CoPlaylists: 0, CoOccurrenceScore: 0.0, neighbor.IsImputed, neighbor.CosineSimilarity);
+        }
+
+        return candidates;
+    }
 
     /// <summary>
-    /// Colapsa quase-duplicatas do top-N over-fetched (E4.7) e devolve os representantes (até <paramref name="limit"/>)
-    /// mais quantas versões cada um absorveu. Monta os <see cref="DeduplicationCandidate"/> a partir do metadata já
-    /// carregado (chave "artista|título" + popularity para a escolha do representante) e delega a decisão ao
-    /// <see cref="NearDuplicateCollapser"/>, que compara por cosseno via o índice — sem recomputar nada.
+    /// Blenda o content-based com o colaborativo (E4.6) via <see cref="RecommendationBlender"/> e traduz o ranking
+    /// blendado em candidatos. Faixas só-colaborativas entram sem vizinha rica; o cosseno de dedup delas é 0 (não
+    /// têm vetor comparável no top-N de áudio), então só colapsam por chave textual — o que é correto.
     /// </summary>
-    private static (IReadOnlyList<ExplainedTrackSimilarity> Representatives, IReadOnlyDictionary<string, int> Collapsed)
+    private static RankedCandidate[] BlendCandidates(
+        string seedTrackId,
+        IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+        IReadOnlyList<CoOccurringTrack> coOccurring,
+        double blendWeight)
+    {
+        var contentCandidates = new List<BlendContentCandidate>(neighbors.Count);
+        foreach (ExplainedTrackSimilarity neighbor in neighbors)
+            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.CosineSimilarity, neighbor));
+
+        var collaborativeCandidates = new List<BlendCollaborativeCandidate>(coOccurring.Count);
+        foreach (CoOccurringTrack track in coOccurring)
+            collaborativeCandidates.Add(new BlendCollaborativeCandidate(track.TrackId, track.CoPlaylists, track.Jaccard));
+
+        var blender = new RecommendationBlender(blendWeight);
+        IReadOnlyList<BlendedRecommendation> blended = blender.Blend(
+            seedTrackId, contentCandidates, collaborativeCandidates, int.MaxValue);
+
+        var candidates = new RankedCandidate[blended.Count];
+        for (int i = 0; i < blended.Count; i++)
+        {
+            BlendedRecommendation item = blended[i];
+            candidates[i] = new RankedCandidate(
+                item.TrackId,
+                item.Neighbor,
+                item.Signal,
+                item.CoPlaylists,
+                item.Jaccard,
+                item.Neighbor?.IsImputed ?? false,
+                item.Neighbor?.CosineSimilarity ?? 0.0);
+        }
+
+        return candidates;
+    }
+
+    private static IReadOnlyList<RankedCandidate> TakeLimit(RankedCandidate[] candidates, int limit) =>
+        candidates.Length <= limit ? candidates : candidates[..limit];
+
+    /// <summary>
+    /// Colapsa quase-duplicatas do ranking over-fetched (E4.7) — vale tanto para o content puro quanto para o blend
+    /// (o card manda o dedup rodar sobre o ranking final). Monta os <see cref="DeduplicationCandidate"/> a partir do
+    /// metadata (chave "artista|título" + popularity) e delega ao <see cref="NearDuplicateCollapser"/>, que funde por
+    /// cosseno (o <c>DedupeCosine</c> de cada candidato, via índice) OU pela chave textual.
+    /// </summary>
+    private static (IReadOnlyList<RankedCandidate> Representatives, IReadOnlyDictionary<string, int> Collapsed)
         Deduplicate(
-            IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+            RankedCandidate[] ranked,
             IReadOnlyDictionary<string, TrackMetadataRow> metadata,
             SimilarityIndex index,
             int limit)
     {
-        var candidates = new List<DeduplicationCandidate>(neighbors.Count);
-        foreach (ExplainedTrackSimilarity neighbor in neighbors)
-        {
-            metadata.TryGetValue(neighbor.TrackId, out TrackMetadataRow? row);
+        var byTrackId = new Dictionary<string, RankedCandidate>(ranked.Length, StringComparer.Ordinal);
+        var deduplicationCandidates = new List<DeduplicationCandidate>(ranked.Length);
 
-            candidates.Add(new DeduplicationCandidate(
-                neighbor,
+        foreach (RankedCandidate candidate in ranked)
+        {
+            metadata.TryGetValue(candidate.TrackId, out TrackMetadataRow? row);
+            byTrackId[candidate.TrackId] = candidate;
+
+            // A vizinha rica pode ser null (faixa só-colaborativa): fabrica-se uma casca com o TrackId e a marca de
+            // imputação apenas para o colapsador ter uma identidade — a explicabilidade de áudio dessas faixas é
+            // vazia por definição, e o dedup só precisa do id e da chave.
+            ExplainedTrackSimilarity carrier = candidate.Neighbor
+                ?? new ExplainedTrackSimilarity(candidate.TrackId, 0.0, 0.0, 0.0, false, candidate.IsImputed, []);
+
+            deduplicationCandidates.Add(new DeduplicationCandidate(
+                carrier,
                 RecommendationDuplicateKey.From(row?.Name, row?.Artist),
                 row?.Popularity,
-                neighbor.IsImputed));
+                candidate.IsImputed));
         }
 
-        // O cosseno entre candidatas sai do índice já montado (leitura pura dos vetores). Duas candidatas do top-N
-        // sempre estão no índice, então o null-fallback nunca dispara aqui — mas se disparasse, 0 significa "não são
-        // a mesma música", que é o lado seguro (não funde).
-        var collapser = new NearDuplicateCollapser(
-            (a, b) => index.CosineBetween(a, b) ?? 0.0);
+        // O cosseno de dedup vem do índice para faixas com vetor; faixas só-colaborativas não estão no índice content
+        // e recebem 0 (nunca fundem por cosseno — só por chave, o que é correto).
+        var collapser = new NearDuplicateCollapser((a, b) => index.CosineBetween(a, b) ?? 0.0);
 
-        IReadOnlyList<CollapsedRecommendation> collapsed = collapser.Collapse(candidates, limit);
+        IReadOnlyList<CollapsedRecommendation> collapsed = collapser.Collapse(deduplicationCandidates, limit);
 
-        var representatives = new List<ExplainedTrackSimilarity>(collapsed.Count);
+        var representatives = new List<RankedCandidate>(collapsed.Count);
         var collapsedCounts = new Dictionary<string, int>(collapsed.Count, StringComparer.Ordinal);
         foreach (CollapsedRecommendation item in collapsed)
         {
-            representatives.Add(item.Representative);
+            // O representante preserva os sinais colaborativos do candidato original de mesmo id.
+            representatives.Add(byTrackId[item.Representative.TrackId]);
             collapsedCounts[item.Representative.TrackId] = item.CollapsedDuplicateCount;
         }
 
@@ -233,50 +350,64 @@ internal sealed class GetTrackRecommendationsQueryHandler
             "vetor de similaridade e, portanto, não há como recomendar faixas parecidas.");
     }
 
-    private async Task<IReadOnlyDictionary<string, TrackMetadataRow>> LoadNeighborMetadataAsync(
-        IReadOnlyList<ExplainedTrackSimilarity> neighbors, CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<string, TrackMetadataRow>> LoadMetadataAsync(
+        IEnumerable<string> trackIds, CancellationToken cancellationToken)
     {
-        if (neighbors.Count == 0)
+        string[] ids = trackIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (ids.Length == 0)
             return new Dictionary<string, TrackMetadataRow>(StringComparer.Ordinal);
-
-        string[] ids = neighbors.Select(neighbor => neighbor.TrackId).ToArray();
 
         return await _metadataSource.FindByTrackIdsAsync(ids, cancellationToken);
     }
 
     private static IReadOnlyList<TrackRecommendationItem> BuildRecommendations(
-        IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+        IReadOnlyList<RankedCandidate> candidates,
         IReadOnlyDictionary<string, TrackMetadataRow> metadata,
         string? seedGenre,
         int explainTopK,
         IReadOnlyDictionary<string, int> collapsedCounts)
     {
-        var items = new List<TrackRecommendationItem>(neighbors.Count);
+        var items = new List<TrackRecommendationItem>(candidates.Count);
 
-        foreach (ExplainedTrackSimilarity neighbor in neighbors)
+        foreach (RankedCandidate candidate in candidates)
         {
-            metadata.TryGetValue(neighbor.TrackId, out TrackMetadataRow? row);
-            collapsedCounts.TryGetValue(neighbor.TrackId, out int collapsed);
+            metadata.TryGetValue(candidate.TrackId, out TrackMetadataRow? row);
+            collapsedCounts.TryGetValue(candidate.TrackId, out int collapsed);
+
+            ExplainedTrackSimilarity? neighbor = candidate.Neighbor;
 
             items.Add(new TrackRecommendationItem
             {
-                TrackId = neighbor.TrackId,
+                TrackId = candidate.TrackId,
                 Name = row?.Name,
                 Artist = row?.Artist,
                 Album = row?.Album,
                 Genre = row?.Genre,
-                Score = neighbor.Similarity,
-                CosineScore = neighbor.CosineSimilarity,
-                GenreBoost = neighbor.GenreBonus,
-                IsImputed = neighbor.IsImputed,
-                SharedGenre = ResolveSharedGenre(neighbor, seedGenre, row?.Genre),
-                TopFeatures = SelectTopFeatures(neighbor.Contributions, explainTopK),
-                EquivalentVersionsCollapsed = collapsed
+                // Faixa só-colaborativa não tem score de áudio: o Score exibido é o Jaccard (o único sinal que a
+                // sustentou), e cosine/genreBoost ficam zerados — coerente com signal=collaborative.
+                Score = neighbor?.Similarity ?? candidate.CoOccurrenceScore,
+                CosineScore = neighbor?.CosineSimilarity ?? 0.0,
+                GenreBoost = neighbor?.GenreBonus ?? 0.0,
+                IsImputed = candidate.IsImputed,
+                SharedGenre = neighbor is null ? null : ResolveSharedGenre(neighbor, seedGenre, row?.Genre),
+                TopFeatures = neighbor is null ? [] : SelectTopFeatures(neighbor.Contributions, explainTopK),
+                EquivalentVersionsCollapsed = collapsed,
+                Signal = MapSignalLabel(candidate.Signal),
+                CoPlaylists = candidate.CoPlaylists,
+                CoOccurrenceScore = candidate.CoOccurrenceScore
             });
         }
 
         return items;
     }
+
+    /// <summary>O rótulo textual do sinal para o response; nulo no content puro (não há blend a explicar).</summary>
+    private static string? MapSignalLabel(RecommendationSignal signal) => signal switch
+    {
+        RecommendationSignal.CollaborativeOnly => "collaborative",
+        RecommendationSignal.Blended => "blended",
+        _ => null
+    };
 
     /// <summary>
     /// O gênero COMPARTILHADO exibido ao lado da faixa. Quando o gênero PESA no ranking (boost/filtro), a fonte da
@@ -323,6 +454,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
     private static IReadOnlyList<string> BuildWarnings(
         bool seedIsImputed,
         bool genreFellBackToCosineOnly,
+        bool collaborativeUnavailable,
         IReadOnlyList<TrackRecommendationItem> recommendations)
     {
         var warnings = new List<string>();
@@ -332,6 +464,9 @@ internal sealed class GetTrackRecommendationsQueryHandler
 
         if (genreFellBackToCosineOnly)
             warnings.Add(GenreFallbackWarning);
+
+        if (collaborativeUnavailable)
+            warnings.Add(CollaborativeUnavailableWarning);
 
         if (recommendations.Any(item => item.IsImputed))
             warnings.Add(RecommendationsImputedWarning);

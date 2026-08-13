@@ -74,6 +74,23 @@ public sealed class RecommendationsControllerTests
         Assert.Equal(GetTrackRecommendationsQuery.DefaultGenreMode, query.GenreMode);
         Assert.Equal(GenreRankingModeContract.Boost, query.GenreMode);
         Assert.True(query.Dedupe); // E4.7: dedup ligado por default
+        Assert.Equal(RecommendationStrategyContract.Content, query.Strategy); // E4.6: content por default
+        Assert.Equal(GetTrackRecommendationsQuery.DefaultBlendWeight, query.BlendWeight);
+    }
+
+    [Fact]
+    public async Task GetTrackRecommendations_PassesBlendStrategyAndWeightThrough()
+    {
+        var mediator = new CapturingMediator(new TrackRecommendationsResponse());
+        var controller = new RecommendationsController(mediator);
+
+        await controller.GetTrackRecommendations(
+            "seed", strategy: RecommendationStrategyContract.Blend, blendWeight: 0.5,
+            cancellationToken: CancellationToken.None);
+
+        var query = Assert.IsType<GetTrackRecommendationsQuery>(mediator.LastRequest);
+        Assert.Equal(RecommendationStrategyContract.Blend, query.Strategy);
+        Assert.Equal(0.5, query.BlendWeight);
     }
 
     [Fact]

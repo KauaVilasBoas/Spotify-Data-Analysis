@@ -17,7 +17,14 @@ public sealed class GetTrackRecommendationsQueryValidatorTests
         int limit, int explainTopK,
         GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode) =>
         Validator.Validate(new GetTrackRecommendationsQuery(
-            "seed", limit, explainTopK, genreMode, GetTrackRecommendationsQuery.DefaultDedupe));
+            "seed", limit, explainTopK, genreMode, GetTrackRecommendationsQuery.DefaultDedupe,
+            GetTrackRecommendationsQuery.DefaultStrategy, GetTrackRecommendationsQuery.DefaultBlendWeight));
+
+    private static ValidationResult ValidateStrategy(
+        RecommendationStrategyContract strategy, double blendWeight) =>
+        Validator.Validate(new GetTrackRecommendationsQuery(
+            "seed", 10, 3, GetTrackRecommendationsQuery.DefaultGenreMode,
+            GetTrackRecommendationsQuery.DefaultDedupe, strategy, blendWeight));
 
     [Theory]
     [InlineData(1, 1)]
@@ -59,10 +66,40 @@ public sealed class GetTrackRecommendationsQueryValidatorTests
         ValidationResult result = Validator.Validate(
             new GetTrackRecommendationsQuery(
                 "  ", 10, 3, GetTrackRecommendationsQuery.DefaultGenreMode,
-                GetTrackRecommendationsQuery.DefaultDedupe));
+                GetTrackRecommendationsQuery.DefaultDedupe,
+                GetTrackRecommendationsQuery.DefaultStrategy, GetTrackRecommendationsQuery.DefaultBlendWeight));
 
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, error => error.PropertyName == "id");
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.35)]
+    [InlineData(1.0)]
+    public void ValidBlendWeight_Passes(double blendWeight)
+    {
+        Assert.True(ValidateStrategy(RecommendationStrategyContract.Blend, blendWeight).IsValid);
+    }
+
+    [Theory]
+    [InlineData(-0.1)]
+    [InlineData(1.5)]
+    public void BlendWeightOutOfRange_FailsOnBlendWeight(double blendWeight)
+    {
+        ValidationResult result = ValidateStrategy(RecommendationStrategyContract.Blend, blendWeight);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.PropertyName == "blendWeight");
+    }
+
+    [Fact]
+    public void UnknownStrategy_FailsOnStrategy()
+    {
+        ValidationResult result = ValidateStrategy((RecommendationStrategyContract)99, 0.35);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.PropertyName == "strategy");
     }
 
     [Theory]

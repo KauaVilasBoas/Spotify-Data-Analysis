@@ -43,5 +43,17 @@ public sealed class GetTrackRecommendationsQueryValidator : AbstractValidator<Ge
             .WithMessage(
                 "'genreMode' deve ser um de: boost (default, gênero pesa no ranking), off (cosine puro) ou " +
                 "sameGenreOnly (só o mesmo gênero da semente).");
+
+        RuleFor(query => query.Strategy)
+            .IsInEnum()
+            .OverridePropertyName("strategy")
+            .WithMessage("'strategy' deve ser um de: content (default) ou blend (mistura o colaborativo).");
+
+        // Peso fora de [0, 1] vira 400: um blendWeight negativo ou > 1 não tem sentido e o domínio o rejeitaria
+        // com 500. A validação de fronteira lê o mesmo intervalo do RecommendationBlender.
+        RuleFor(query => query.BlendWeight)
+            .InclusiveBetween(0.0, 1.0)
+            .OverridePropertyName("blendWeight")
+            .WithMessage("'blendWeight' deve estar entre 0 e 1. Sem informar, vale o padrão de 0,35.");
     }
 }

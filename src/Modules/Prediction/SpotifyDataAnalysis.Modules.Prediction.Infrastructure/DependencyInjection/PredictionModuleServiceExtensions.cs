@@ -111,6 +111,16 @@ public static class PredictionModuleServiceExtensions
         // Mesma fronteira do E3.1 (Dapper via BaseDataAccess), scoped porque depende do DbConnectionFactory.
         services.AddScoped<ITrackMetadataSource, CatalogTrackMetadataSource>();
 
+        // --- Recomendação colaborativa (E4.6): co-ocorrência item-item + blend ---
+
+        // Leitura da matriz de pares pré-computada (prediction.track_cooccurrence) por id, a cada request. O blend
+        // lê dela em vez do self-join sobre jsonb (DP-3). Scoped, como as demais leituras.
+        services.AddScoped<ITrackCoOccurrenceSource, CatalogTrackCoOccurrenceSource>();
+
+        // Passo batch que materializa a matriz a partir de catalog.playlists (Pichl, E4.5). Disparado pela CLI dev
+        // (build-cooccurrence), não por endpoint — é carga analítica, não caminho de request.
+        services.AddScoped<CoOccurrenceMatrixBuilder>();
+
         // Validador de fronteira do endpoint público: limit ∈ [1, 50] e explainTopK ∈ [1, 9] viram 400
         // (ProblemDetails) via ValidationBehavior, não 500. Registro explícito (mesma razão do validador do E3.5).
         services.AddScoped<IValidator<GetTrackRecommendationsQuery>, GetTrackRecommendationsQueryValidator>();

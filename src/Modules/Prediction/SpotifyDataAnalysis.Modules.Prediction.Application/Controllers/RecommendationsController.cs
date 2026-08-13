@@ -70,6 +70,8 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// <param name="explainTopK">Quantas features destacar na explicação de cada recomendação. Padrão 3, máximo 9.</param>
     /// <param name="genreMode">Como o gênero da semente pesa no ranking. <c>boost</c> (DEFAULT): bônus aditivo de 0,05 no score das candidatas do mesmo gênero, sem excluir ninguém. <c>off</c>: cosine puro de audio-features, o gênero não pesa. <c>sameGenreOnly</c>: filtro duro, só candidatas do mesmo gênero concorrem. Valor desconhecido → 400.</param>
     /// <param name="dedupe">Se colapsa quase-duplicatas no top-N (E4.7). <c>true</c> (DEFAULT): a mesma música em <c>track_id</c>s diferentes vira UM item, e <c>equivalentVersionsCollapsed</c> conta as versões absorvidas; o representante é a de maior <c>popularity</c>. <c>false</c>: ranking cru, com duplicatas visíveis (debug).</param>
+    /// <param name="strategy">Estratégia de recomendação (E4.6). <c>content</c> (DEFAULT): só áudio+gênero. <c>blend</c>: mistura o content-based com o sinal colaborativo item-item (faixas que co-ocorrem em playlists reais). No blend, cada item traz <c>signal</c> (content/collaborative/blended), <c>coPlaylists</c> e <c>coOccurrenceScore</c> (Jaccard). Se a semente não tem co-ocorrência, cai para content e avisa em <c>warnings</c>.</param>
+    /// <param name="blendWeight">Peso do sinal colaborativo no blend, em [0, 1] (E4.6). Padrão 0,35. Só vale para <c>strategy=blend</c>. 0 = content puro; 1 = colaborativo puro.</param>
     /// <param name="cancellationToken">Cancelamento da requisição.</param>
     [HttpGet("track/{id}")]
     [ProducesResponseType(typeof(ApiResult<TrackRecommendationsResponse>), 200)]
@@ -82,10 +84,13 @@ public sealed class RecommendationsController : SpotifyControllerBase
         [FromQuery] int explainTopK = GetTrackRecommendationsQuery.DefaultExplainTopK,
         [FromQuery] GenreRankingModeContract genreMode = GetTrackRecommendationsQuery.DefaultGenreMode,
         [FromQuery] bool dedupe = GetTrackRecommendationsQuery.DefaultDedupe,
+        [FromQuery] RecommendationStrategyContract strategy = GetTrackRecommendationsQuery.DefaultStrategy,
+        [FromQuery] double blendWeight = GetTrackRecommendationsQuery.DefaultBlendWeight,
         CancellationToken cancellationToken = default)
     {
         TrackRecommendationsResponse response = await _mediator.SendAsync(
-            new GetTrackRecommendationsQuery(id, limit, explainTopK, genreMode, dedupe), cancellationToken);
+            new GetTrackRecommendationsQuery(id, limit, explainTopK, genreMode, dedupe, strategy, blendWeight),
+            cancellationToken);
 
         return Ok(new ApiResult<TrackRecommendationsResponse>(
             true, "Faixas recomendadas por similaridade híbrida (áudio + gênero).", response));

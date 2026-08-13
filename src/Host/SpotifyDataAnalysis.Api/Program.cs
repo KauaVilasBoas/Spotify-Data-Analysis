@@ -11,6 +11,7 @@ using SpotifyDataAnalysis.Modules.Analytics.Infrastructure;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
 using SpotifyDataAnalysis.Modules.Prediction.Infrastructure;
+using SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Recommendations;
 using SpotifyDataAnalysis.SharedKernel.Observability;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -211,6 +212,24 @@ if (args.Length >= 1 && args[0] == "seed-playlists")
         $"(taxa {playlists.MatchRate:P2}); {playlists.DistinctCatalogTracksCovered} faixas do catálogo cobertas; " +
         $"mapa {playlists.ResolvableMatchKeys} chaves ({playlists.AmbiguousMatchKeysDiscarded} ambíguas) " +
         $"em {playlists.ElapsedMilliseconds} ms.");
+    return;
+}
+
+// ---------------------------------------------------------------------------
+// Dev CLI (E4.6): `dotnet run -- build-cooccurrence` materializa a matriz de co-ocorrência item-item em
+// prediction.track_cooccurrence a partir de catalog.playlists (Pichl, semeado no E4.5) e ENCERRA. Passo batch
+// que sustenta o blend colaborativo (DP-3): a recomendação lê da tabela, nunca do self-join sobre jsonb.
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "build-cooccurrence")
+{
+    using IServiceScope coOccurrenceScope = app.Services.CreateScope();
+    CoOccurrenceMatrixBuilder coOccurrenceBuilder =
+        coOccurrenceScope.ServiceProvider.GetRequiredService<CoOccurrenceMatrixBuilder>();
+
+    CoOccurrenceBuildResult built = await coOccurrenceBuilder.RebuildAsync();
+
+    Console.WriteLine(
+        $"[build-cooccurrence] {built.PairsWritten} pares materializados em {built.ElapsedMilliseconds} ms.");
     return;
 }
 

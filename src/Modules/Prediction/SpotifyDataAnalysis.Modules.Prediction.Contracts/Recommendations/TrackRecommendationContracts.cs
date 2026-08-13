@@ -17,6 +17,19 @@ public enum GenreRankingModeContract
 }
 
 /// <summary>
+/// A estratégia de recomendação (E4.6, DP-2): só content-based ou o blend com o sinal colaborativo. Enum POCO do
+/// contrato — o módulo traduz para o serviço interno; nenhum tipo de domínio atravessa a fronteira.
+/// </summary>
+public enum RecommendationStrategyContract
+{
+    /// <summary>Só o content-based (áudio+gênero) do E4.1–E4.3. DEFAULT — o colaborativo é opt-in (sem impor sem evidência).</summary>
+    Content = 0,
+
+    /// <summary>Blend do content-based com o colaborativo item-item (co-ocorrência em playlists), E4.6.</summary>
+    Blend = 1
+}
+
+/// <summary>
 /// A resposta pública do recomendador content-based híbrido (E4.2/E4.3), na fronteira do módulo. POCO achatado:
 /// nenhum tipo de domínio (<c>SimilarityIndex</c>, <c>TrackSimilarity</c>) nem do Catalog atravessa aqui — é o
 /// contrato que a tela de Recomendações (E5.4) e o Swagger consomem.
@@ -69,6 +82,19 @@ public sealed class TrackRecommendationsResponse
     /// silêncio, e o motivo também aparece em <see cref="Warnings"/>.
     /// </summary>
     public bool GenreFellBackToCosineOnly { get; init; }
+
+    /// <summary>
+    /// A estratégia EFETIVAMENTE aplicada (E4.6). Coincide com a pedida, salvo quando <c>blend</c> foi pedido mas a
+    /// matriz de co-ocorrência está vazia (nunca construída) — aí cai para <see cref="RecommendationStrategyContract.Content"/>
+    /// e <see cref="CollaborativeSignalUnavailable"/> fica <c>true</c>.
+    /// </summary>
+    public RecommendationStrategyContract EffectiveStrategy { get; init; }
+
+    /// <summary>
+    /// <c>true</c> quando o cliente pediu <c>blend</c> mas não havia sinal colaborativo (matriz vazia): a resposta
+    /// caiu no content puro e o motivo aparece em <see cref="Warnings"/>. O colaborativo nunca é ignorado em silêncio.
+    /// </summary>
+    public bool CollaborativeSignalUnavailable { get; init; }
 
     /// <summary>
     /// Se o dedup de quase-duplicatas (E4.7) foi aplicado a esta resposta. Quando <c>true</c>, o top-N não repete a
@@ -159,6 +185,25 @@ public sealed class TrackRecommendationItem
     /// "esta faixa fala por N versões" — o catálogo tem duplicatas reais, e o item as absorveu em vez de repeti-las.
     /// </summary>
     public int EquivalentVersionsCollapsed { get; init; }
+
+    /// <summary>
+    /// Qual sinal sustentou esta recomendação no blend (E4.6): <c>content</c> (só áudio+gênero), <c>collaborative</c>
+    /// (só co-ocorrência — pode nem ter vetor de áudio) ou <c>blended</c> (ambos). Nulo quando a estratégia é
+    /// <c>content</c> puro (não há blend a explicar). É a transparência de cobertura parcial da DP.
+    /// </summary>
+    public string? Signal { get; init; }
+
+    /// <summary>
+    /// Em quantas playlists reais esta faixa co-ocorre com a semente (E4.6). Zero/ausente quando o sinal é só
+    /// content. É o "aparece junto em N playlists" do porquê rico colaborativo.
+    /// </summary>
+    public int CoPlaylists { get; init; }
+
+    /// <summary>
+    /// O Jaccard (interseção/união de playlists) entre esta faixa e a semente, em [0, 1] — a força normalizada do
+    /// laço colaborativo. Zero quando o sinal é só content.
+    /// </summary>
+    public double CoOccurrenceScore { get; init; }
 }
 
 /// <summary>
