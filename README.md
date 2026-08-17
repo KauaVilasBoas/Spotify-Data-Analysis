@@ -1,5 +1,7 @@
 # SpotifyDataAnalysis
 
+[![CI](https://github.com/KauaVilasBoas/Spotify-Data-Analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/KauaVilasBoas/Spotify-Data-Analysis/actions/workflows/ci.yml)
+
 Monólito modular em **.NET 8** — DDD + CQRS + Clean Architecture, mesma arquitetura de referência do SISLAB, porém **single-tenant / uso próprio** (sem isolamento por tenant na fundação).
 
 ## Arquitetura
