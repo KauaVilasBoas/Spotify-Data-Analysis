@@ -34,6 +34,8 @@ docs/
 # O padrao de artefatos e ANCORADO na raiz: sem a barra inicial, "models/" casa com QUALQUER pasta
 # Models/ da solucao e engole codigo-fonte — foi o que aconteceu com o agregado do E3.4.
 /dataset.csv
+# Dataset de playlists (Pichl et al. ~1,18 GB) para o colaborativo do E4 — insumo do seeder E4.5.
+/spotify-playlists/
 *.mlnet
 /models/
 
