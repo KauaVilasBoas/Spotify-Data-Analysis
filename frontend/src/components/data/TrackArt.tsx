@@ -33,7 +33,7 @@ export function TrackArt({ trackId, features, size = 64, className, animated = f
       width={size}
       height={size}
       role="img"
-      aria-label={`Generated artwork for this track, derived from its audio features`}
+      aria-label="Generated cover artwork, derived from this track's identity and audio profile"
       className={cn('shrink-0 overflow-hidden rounded-[22%]', className)}
     >
       <defs>

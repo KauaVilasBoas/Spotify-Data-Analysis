@@ -44,6 +44,47 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value))
 }
 
+interface SyntheticFeatures {
+  energy: number
+  valence: number
+  danceability: number
+  acousticness: number
+  tempo: number
+  loudness: number
+  key: number
+  hue: number
+}
+
+/**
+ * Deterministic unit-interval stream derived from the id hash, used to stand in for audio
+ * features on the list endpoints, which return track identity but no feature vector. The art
+ * therefore stays unique and stable per track whether or not features were loaded.
+ */
+function seededUnits(seed: number): SyntheticFeatures {
+  let state = seed === 0 ? 0x9e3779b9 : seed
+
+  const nextUnit = (): number => {
+    state ^= state << 13
+    state >>>= 0
+    state ^= state >>> 17
+    state ^= state << 5
+    state >>>= 0
+
+    return state / 0xffffffff
+  }
+
+  return {
+    energy: nextUnit(),
+    valence: nextUnit(),
+    danceability: nextUnit(),
+    acousticness: nextUnit(),
+    tempo: nextUnit(),
+    loudness: nextUnit(),
+    key: nextUnit(),
+    hue: nextUnit(),
+  }
+}
+
 function catmullRomLoop(points: Array<[number, number]>): string {
   const count = points.length
 
@@ -96,16 +137,18 @@ export function buildTrackArtSpec(
   const center = size / 2
   const maxRadius = size * 0.42
 
-  const energy = clamp01(features?.energy ?? 0.5)
-  const valence = clamp01(features?.valence ?? 0.5)
-  const danceability = clamp01(features?.danceability ?? 0.5)
-  const acousticness = clamp01(features?.acousticness ?? 0.5)
-  const tempo = features?.tempo ?? 120
-  const loudness = features?.loudness ?? -10
-  const musicalKey = features?.key ?? 0
+  const seeded = seededUnits(hash)
 
-  const hue = (musicalKey * 30 + valence * 90 + (hash % 40)) % 360
-  const hueAccent = (hue + 40 + energy * 70) % 360
+  const energy = clamp01(features?.energy ?? seeded.energy)
+  const valence = clamp01(features?.valence ?? seeded.valence)
+  const danceability = clamp01(features?.danceability ?? seeded.danceability)
+  const acousticness = clamp01(features?.acousticness ?? seeded.acousticness)
+  const tempo = features?.tempo ?? 70 + seeded.tempo * 110
+  const loudness = features?.loudness ?? -22 + seeded.loudness * 20
+  const musicalKey = features?.key ?? Math.floor(seeded.key * 12)
+
+  const hue = (seeded.hue * 360 + musicalKey * 12 + valence * 40) % 360
+  const hueAccent = (hue + 35 + energy * 85) % 360
 
   const resolution = 96
   const lobes = 3 + Math.round(danceability * 5)

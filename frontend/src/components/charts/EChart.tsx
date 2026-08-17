@@ -1,11 +1,16 @@
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
-import { init, use, type ECharts, type EChartsCoreOption } from 'echarts/core'
+import {
+  init,
+  use as registerEchartsModules,
+  type ECharts,
+  type EChartsCoreOption,
+} from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
-use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
+registerEchartsModules([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 interface EChartProps {
   option: EChartsCoreOption

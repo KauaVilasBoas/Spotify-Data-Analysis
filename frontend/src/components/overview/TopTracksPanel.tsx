@@ -54,9 +54,10 @@ export function TopTracksPanel({ items, totalCount }: TopTracksPanelProps) {
         ))}
       </ol>
 
-      <p className="px-5 py-3.5 text-xs text-text-faint">
-        Top {formatInteger(items.length)} of {formatInteger(totalCount)} ranked tracks. Artwork is
-        generated from each track&rsquo;s audio features.
+      <p className="px-5 py-3.5 text-xs leading-relaxed text-text-faint">
+        Top {formatInteger(items.length)} of {formatInteger(totalCount)} ranked tracks. The dataset
+        carries no cover images, so every sleeve here is generated from the track&rsquo;s own
+        identity and audio profile.
       </p>
     </Panel>
   )
