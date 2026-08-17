@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+      - 'feature/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build-and-test:
+    name: build + test (clone limpo)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Cache do NuGet chaveado pelos .csproj: qualquer mudanca de dependencia invalida o cache.
+      - name: Cache de pacotes NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore SpotifyDataAnalysis.sln
+
+      # TreatWarningsAsErrors vem do Directory.Build.props e NAO deve ser afrouxado aqui.
+      - name: Build (Release, warnings-as-errors)
+        run: dotnet build SpotifyDataAnalysis.sln -c Release --no-restore
+
+      # verbosity=normal e obrigatorio: e o que faz cada teste ignorado aparecer nomeado no log,
+      # com o motivo do skip (os [PostgresFact] exigem Postgres real e sao pulados de proposito).
+      - name: Test (Release)
+        run: >
+          dotnet test SpotifyDataAnalysis.sln -c Release --no-build
+          --logger "console;verbosity=normal"
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ${{ runner.temp }}/test-results
+
+      - name: Resumo dos testes ignorados
+        if: always()
+        shell: bash
+        run: |
+          echo "### Testes ignorados (skip explicito)" >> "$GITHUB_STEP_SUMMARY"
+          grep -rhoP '(?<=outcome="NotExecuted" testName=")[^"]+' \
+            "${{ runner.temp }}/test-results" 2>/dev/null \
+            | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Motivo esperado: [PostgresFact] requer Postgres real (ConnectionStrings__SpotifyDb)." \
+            >> "$GITHUB_STEP_SUMMARY"

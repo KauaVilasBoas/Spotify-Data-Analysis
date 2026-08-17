@@ -1,9 +1,20 @@
+## AUDITORIA DE PADRÕES (E6.1)
+# Regra do repositório: todo padrão de DIRETÓRIO é ancorado na raiz (`/x/`) ou justificado
+# explicitamente abaixo. Padrão de diretório sem barra inicial casa com QUALQUER pasta de mesmo
+# nome em qualquer profundidade — foi assim que `models/` engoliu o agregado do E3.4 e o `main`
+# deixou de compilar a partir de clone limpo.
+
 ## .NET / build output
+# `bin/` e `obj/` ficam NÃO ancorados de propósito: o SDK os gera dentro de cada projeto, em
+# qualquer profundidade, e nunca são nome de pasta de código-fonte.
 bin/
 obj/
-[Dd]ebug/
-[Rr]elease/
-artifacts/
+# `[Dd]ebug/` e `[Rr]elease/` foram REMOVIDOS na auditoria do E6.1: eram redundantes (o output vive
+# sob bin/ e obj/) e "Release" é conceito de domínio aqui (release date de álbum) — uma pasta
+# `Release/` de código-fonte seria engolida silenciosamente.
+# `artifacts/` foi ANCORADO: o domínio de Prediction já fala em ModelArtifact, e uma pasta
+# `Artifacts/` de código-fonte cairia na mesma armadilha do `models/`.
+/artifacts/
 *.user
 *.suo
 
@@ -13,6 +24,7 @@ artifacts/
 *.DotSettings.user
 
 ## Test / coverage
+# Não ancorado por necessidade: cada projeto de teste gera o seu `TestResults/`.
 [Tt]est[Rr]esult*/
 coverage*.json
 coverage*.xml
@@ -24,15 +36,14 @@ secrets.json
 # Connection strings / credenciais vão para User Secrets ou variáveis de ambiente — nunca no repo.
 
 ## Docs / planejamento (não publicados no portfólio)
-docs/
+# ANCORADO na auditoria do E6.1: sem a barra, casaria qualquer `Docs/` dentro de um módulo.
+/docs/
 
 ## Claude Code (tooling local — agentes e settings da máquina)
 .claude/
 
 ## Dataset / modelos de ML (dados locais e artefatos — nunca versionar)
 # O CSV do Kaggle (~20 MB) e os modelos treinados (.zip/.mlnet) ficam no disco, fora do git.
-# O padrao de artefatos e ANCORADO na raiz: sem a barra inicial, "models/" casa com QUALQUER pasta
-# Models/ da solucao e engole codigo-fonte — foi o que aconteceu com o agregado do E3.4.
 /dataset.csv
 # Dataset de playlists (Pichl et al. ~1,18 GB) para o colaborativo do E4 — insumo do seeder E4.5.
 /spotify-playlists/
