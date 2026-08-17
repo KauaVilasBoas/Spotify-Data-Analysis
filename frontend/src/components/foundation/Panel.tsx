@@ -2,29 +2,33 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 interface PanelProps {
+  title?: string
   eyebrow?: string
-  aside?: ReactNode
+  action?: ReactNode
+  children: ReactNode
   className?: string
   bodyClassName?: string
-  children: ReactNode
 }
 
-export function Panel({ eyebrow, aside, className, bodyClassName, children }: PanelProps) {
+export function Panel({ title, eyebrow, action, children, className, bodyClassName }: PanelProps) {
+  const hasHeader = title !== undefined || eyebrow !== undefined || action !== undefined
+
   return (
-    <section
-      className={cn(
-        'relative border border-hairline bg-ink-raised/70 backdrop-blur-[1px]',
-        'before:absolute before:top-[-1px] before:left-[-1px] before:size-2 before:border-t before:border-l before:border-acid/60 before:content-[""]',
-        'after:absolute after:right-[-1px] after:bottom-[-1px] after:size-2 after:border-r after:border-b after:border-acid/60 after:content-[""]',
-        className,
-      )}
-    >
-      {(eyebrow !== undefined || aside !== undefined) && (
-        <header className="flex items-baseline justify-between gap-4 border-b border-hairline px-5 py-3">
-          {eyebrow !== undefined && <h2 className="label-micro">{eyebrow}</h2>}
-          {aside}
+    <section className={cn('surface-card relative overflow-hidden', className)}>
+      {hasHeader && (
+        <header className="flex items-start justify-between gap-4 border-b border-line/70 px-5 py-4">
+          <div className="min-w-0 space-y-1">
+            {eyebrow !== undefined && <p className="label-micro">{eyebrow}</p>}
+            {title !== undefined && (
+              <h2 className="truncate text-[0.98rem] font-semibold tracking-tight text-text">
+                {title}
+              </h2>
+            )}
+          </div>
+          {action}
         </header>
       )}
+
       <div className={cn('px-5 py-5', bodyClassName)}>{children}</div>
     </section>
   )

@@ -58,15 +58,15 @@ function linkSignals(external: AbortSignal | undefined, timeoutMs: number): [Abo
 }
 
 /**
- * Ponto único de saída HTTP da SPA. Desembrulha o `ApiResult<T>` da API e traduz qualquer
- * falha — ProblemDetails, envelope quebrado ou ausência de resposta — em `ApiError`.
- * Nenhuma tela deve ler `.data.data` nem inspecionar `response.status`.
+ * The single HTTP egress point of the SPA. Unwraps the API `ApiResult<T>` and translates any
+ * failure — ProblemDetails, broken envelope or no response at all — into `ApiError`.
+ * No screen should ever read `.data.data` or inspect `response.status`.
  */
 export async function getResource<T>({ path, query, signal }: ApiRequest): Promise<T> {
   if (!apiConfig.isConfigured) {
     throw apiErrorFromKind(
       'configuration',
-      'VITE_API_BASE_URL não foi definida. Copie frontend/.env.example para frontend/.env.local e aponte para a API.',
+      'VITE_API_BASE_URL is not set. Copy frontend/.env.example to frontend/.env.local and point it at the API.',
     )
   }
 
@@ -98,7 +98,7 @@ export async function getResource<T>({ path, query, signal }: ApiRequest): Promi
   if (!isApiResult<T>(payload)) {
     throw apiErrorFromKind(
       'malformed',
-      `A resposta de ${path} não veio no envelope ApiResult<T> esperado.`,
+      `The response from ${path} did not arrive in the expected ApiResult<T> envelope.`,
     )
   }
 
@@ -109,7 +109,7 @@ export async function getResource<T>({ path, query, signal }: ApiRequest): Promi
       'malformed',
       envelope.message.trim().length > 0
         ? envelope.message
-        : `A API respondeu 200 em ${path}, mas sem payload.`,
+        : `The API answered 200 on ${path} but sent no payload.`,
     )
   }
 

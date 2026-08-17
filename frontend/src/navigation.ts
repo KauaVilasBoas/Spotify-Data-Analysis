@@ -1,7 +1,6 @@
-export type SectionStatus = 'disponivel' | 'em-construcao'
+export type SectionStatus = 'available' | 'planned'
 
 export interface NavSection {
-  index: string
   path: string
   label: string
   summary: string
@@ -11,41 +10,24 @@ export interface NavSection {
 
 export const navSections: readonly NavSection[] = [
   {
-    index: '01',
     path: '/',
-    label: 'Visão geral',
-    summary: 'Resumo do catálogo e cobertura de audio-features.',
-    status: 'disponivel',
+    label: 'Overview',
+    summary: 'Catalog scale, audio-feature coverage and model standing.',
+    status: 'available',
   },
   {
-    index: '02',
-    path: '/catalogo',
-    label: 'Catálogo',
-    summary: 'Busca e detalhe de faixas, artistas e álbuns.',
-    status: 'em-construcao',
+    path: '/catalog',
+    label: 'Catalog',
+    summary: 'Search and inspect tracks, artists and albums.',
+    status: 'planned',
     card: 'E5.2',
   },
   {
-    index: '03',
-    path: '/insights',
-    label: 'Insights',
-    summary: 'Distribuições, correlações e recortes por gênero e ano de lançamento.',
-    status: 'em-construcao',
+    path: '/model',
+    label: 'Model',
+    summary: 'Popularity regression, feature importance and dataset splits.',
+    status: 'planned',
     card: 'E5.3',
-  },
-  {
-    index: '04',
-    path: '/recomendacoes',
-    label: 'Recomendações',
-    summary: 'Faixas similares com explicabilidade por feature.',
-    status: 'em-construcao',
-  },
-  {
-    index: '05',
-    path: '/predicao',
-    label: 'Predição',
-    summary: 'Estimativa de popularidade a partir das audio-features.',
-    status: 'em-construcao',
   },
 ]
 

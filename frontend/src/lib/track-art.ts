@@ -51,7 +51,8 @@ function catmullRomLoop(points: Array<[number, number]>): string {
     return ''
   }
 
-  const at = (index: number): [number, number] => points[((index % count) + count) % count]
+  const at = (index: number): [number, number] =>
+    points[((index % count) + count) % count] as [number, number]
   const segments: string[] = [`M ${at(0)[0].toFixed(2)} ${at(0)[1].toFixed(2)}`]
 
   for (let index = 0; index < count; index += 1) {

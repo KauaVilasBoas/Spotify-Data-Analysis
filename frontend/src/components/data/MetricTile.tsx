@@ -1,11 +1,13 @@
-import { formatInteger } from '@/lib/format'
+import NumberFlow from '@number-flow/react'
 import { cn } from '@/lib/utils'
 
 interface MetricTileProps {
   label: string
   value: number
-  footnote?: string
-  accent?: boolean
+  caption?: string
+  suffix?: string
+  fractionDigits?: number
+  emphasis?: boolean
   delayMs?: number
   className?: string
 }
@@ -13,30 +15,35 @@ interface MetricTileProps {
 export function MetricTile({
   label,
   value,
-  footnote,
-  accent = false,
+  caption,
+  suffix,
+  fractionDigits = 0,
+  emphasis = false,
   delayMs = 0,
   className,
 }: MetricTileProps) {
   return (
-    <div
-      className={cn(
-        'animate-rise border-t border-hairline pt-3 pr-4',
-        accent && 'border-acid',
-        className,
-      )}
-      style={{ animationDelay: `${delayMs}ms` }}
-    >
+    <div className={cn('animate-rise space-y-1.5', className)} style={{ animationDelay: `${delayMs}ms` }}>
       <p className="label-micro">{label}</p>
       <p
         className={cn(
-          'numeral mt-1.5 text-[2.5rem] leading-none',
-          accent ? 'text-acid' : 'text-bone',
+          'numeral flex items-baseline gap-1 text-text',
+          emphasis ? 'text-[2.25rem]' : 'text-[1.7rem]',
         )}
       >
-        {formatInteger(value)}
+        <NumberFlow
+          value={value}
+          locales="en-US"
+          format={{
+            minimumFractionDigits: fractionDigits,
+            maximumFractionDigits: fractionDigits,
+          }}
+        />
+        {suffix !== undefined && (
+          <span className="text-[0.55em] font-semibold text-text-faint">{suffix}</span>
+        )}
       </p>
-      {footnote !== undefined && <p className="mt-1.5 text-xs text-bone-faint">{footnote}</p>}
+      {caption !== undefined && <p className="text-xs text-text-faint">{caption}</p>}
     </div>
   )
 }

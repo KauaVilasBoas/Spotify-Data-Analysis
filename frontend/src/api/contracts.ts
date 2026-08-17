@@ -1,12 +1,12 @@
 /**
- * Espelho TypeScript dos três contratos públicos da API .NET.
+ * TypeScript mirror of the three public contracts of the .NET API.
  *
  * - `ApiResult<T>`     -> SpotifyDataAnalysis.SharedKernel.Http.ApiResult<T>
  * - `PagedResult<T>`   -> SpotifyDataAnalysis.SharedKernel.Messaging.PagedResult<TItem>
- * - `ProblemDetails`   -> RFC 7807, escrito pelo ExceptionHandlingMiddleware do Host
+ * - `ProblemDetails`   -> RFC 7807, written by the host ExceptionHandlingMiddleware
  *
- * O Host serializa em camelCase (default do System.Text.Json no ASP.NET Core) e converte
- * enums pelo NOME (JsonStringEnumConverter), não pelo ordinal.
+ * The host serializes in camelCase (the System.Text.Json default on ASP.NET Core) and writes
+ * enums by NAME (JsonStringEnumConverter), not by ordinal.
  */
 
 export interface ApiResult<T> {

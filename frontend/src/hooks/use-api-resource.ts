@@ -14,11 +14,11 @@ export interface ApiResource<T> {
 export type ResourceFetcher<T> = (signal: AbortSignal) => Promise<T>
 
 /**
- * Ciclo de vida de uma leitura da API reduzido a uma máquina de estados fechada, para nenhuma tela
- * precisar combinar `isLoading` com `data` nula na mão. Cancela a requisição em curso ao desmontar e
- * ao recarregar, e converte qualquer rejeição em `ApiError`.
+ * The lifecycle of an API read reduced to a closed state machine, so no screen has to combine
+ * `isLoading` with a null `data` by hand. Cancels the in-flight request on unmount and on
+ * reload, and converts any rejection into `ApiError`.
  *
- * O `fetcher` participa das dependências: memorize-o com `useCallback` no chamador.
+ * The `fetcher` participates in the dependencies: memoize it with `useCallback` in the caller.
  */
 export function useApiResource<T>(fetcher: ResourceFetcher<T>): ApiResource<T> {
   const [state, setState] = useState<ResourceState<T>>({ status: 'loading' })
