@@ -60,14 +60,20 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
           --results-directory ${{ runner.temp }}/test-results
 
+      # O skip nao pode ficar escondido: este passo lista no stdout do job E no summary quais
+      # testes nao executaram e por que, para que "verde" nunca signifique "nao rodou".
       - name: Resumo dos testes ignorados
         if: always()
         shell: bash
         run: |
-          echo "### Testes ignorados (skip explicito)" >> "$GITHUB_STEP_SUMMARY"
-          grep -rhoP '(?<=outcome="NotExecuted" testName=")[^"]+' \
-            "${{ runner.temp }}/test-results" 2>/dev/null \
-            | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Motivo esperado: [PostgresFact] requer Postgres real (ConnectionStrings__SpotifyDb)." \
-            >> "$GITHUB_STEP_SUMMARY"
+          RESULTS_DIR="${{ runner.temp }}/test-results"
+          IGNORADOS=$(grep -rhoP '(?<=outcome="NotExecuted" testName=")[^"]+' "$RESULTS_DIR" 2>/dev/null | sort || true)
+          TOTAL=$(printf '%s' "$IGNORADOS" | grep -c . || true)
+          MOTIVO='[PostgresFact] requer Postgres real (variavel ConnectionStrings__SpotifyDb ausente no CI por decisao DP-1 do card E6.1).'
+          {
+            echo "=============================================="
+            echo "Testes ignorados: $TOTAL"
+            echo "Motivo: $MOTIVO"
+            [ -n "$IGNORADOS" ] && printf '%s\n' "$IGNORADOS" | sed 's/^/  - /'
+            echo "=============================================="
+          } | tee -a "$GITHUB_STEP_SUMMARY"
