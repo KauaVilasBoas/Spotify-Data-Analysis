@@ -24,46 +24,46 @@ interface ApiErrorShape {
 }
 
 const HEADLINE: Readonly<Record<ApiErrorKind, string>> = {
-  offline: 'A API não respondeu',
-  timeout: 'A API demorou demais para responder',
-  validation: 'Requisição inválida',
-  notFound: 'Recurso não encontrado',
-  businessRule: 'Regra de negócio violada',
-  conflict: 'Conflito de estado',
-  forbidden: 'Acesso negado',
-  server: 'Erro interno da API',
-  malformed: 'Resposta fora do contrato',
-  configuration: 'Configuração ausente',
+  offline: 'The API did not respond',
+  timeout: 'The API took too long to respond',
+  validation: 'Invalid request',
+  notFound: 'Resource not found',
+  businessRule: 'Business rule violated',
+  conflict: 'State conflict',
+  forbidden: 'Access denied',
+  server: 'Internal API error',
+  malformed: 'Response broke the contract',
+  configuration: 'Missing configuration',
 }
 
 const FALLBACK_DETAIL: Readonly<Record<ApiErrorKind, string>> = {
   offline:
-    'Nenhuma resposta chegou do host configurado. A API pode estar fora do ar, ou a origem deste front pode não estar liberada no CORS.',
-  timeout: 'A requisição foi cancelada por exceder o tempo limite configurado.',
-  validation: 'Os parâmetros enviados não passaram na validação da API.',
-  notFound: 'A API informou que o recurso solicitado não existe.',
-  businessRule: 'A operação foi recusada por uma regra de negócio do domínio.',
-  conflict: 'O estado atual do recurso não permite esta operação.',
-  forbidden: 'A API recusou o acesso a este recurso.',
-  server: 'A API encontrou um erro inesperado ao processar a requisição.',
-  malformed: 'A resposta não seguiu o envelope ApiResult<T> publicado pela API.',
-  configuration: 'A aplicação não foi configurada corretamente.',
+    'No response arrived from the configured host. The API may be down, or this origin may not be allowed by its CORS policy.',
+  timeout: 'The request was cancelled after exceeding the configured timeout.',
+  validation: 'The parameters sent did not pass the API validation.',
+  notFound: 'The API reported that the requested resource does not exist.',
+  businessRule: 'The operation was refused by a domain business rule.',
+  conflict: 'The current state of the resource does not allow this operation.',
+  forbidden: 'The API refused access to this resource.',
+  server: 'The API hit an unexpected error while processing the request.',
+  malformed: 'The response did not follow the ApiResult<T> envelope published by the API.',
+  configuration: 'The application has not been configured correctly.',
 }
 
 const NEXT_STEP: Readonly<Record<ApiErrorKind, string>> = {
   offline:
-    'Suba o Host (dotnet run --project src/Host/SpotifyDataAnalysis.Api) e confirme que a origem deste front consta em Cors:AllowedOrigins.',
+    'Start the host (dotnet run --project src/Host/SpotifyDataAnalysis.Api) and confirm this origin is listed under Cors:AllowedOrigins.',
   timeout:
-    'Em hospedagem gratuita o primeiro acesso acorda o serviço. Tente de novo em alguns segundos ou aumente VITE_API_TIMEOUT_MS.',
-  validation: 'Ajuste os parâmetros da consulta e repita.',
-  notFound: 'Confira o identificador informado — a API não encontrou esse recurso.',
-  businessRule: 'Reveja as pré-condições descritas na mensagem antes de repetir a operação.',
-  conflict: 'Recarregue os dados antes de tentar de novo.',
-  forbidden: 'Esta operação exige uma permissão que a sessão atual não possui.',
-  server: 'Consulte os logs da API usando o traceId acima.',
-  malformed: 'Isto é defeito de backend, não do front: o contrato publicado não foi respeitado.',
+    'On free hosting the first request wakes the service up. Try again in a few seconds, or raise VITE_API_TIMEOUT_MS.',
+  validation: 'Adjust the query parameters and retry.',
+  notFound: 'Check the identifier — the API could not find that resource.',
+  businessRule: 'Review the preconditions described in the message before retrying.',
+  conflict: 'Reload the data before trying again.',
+  forbidden: 'This operation requires a permission the current session does not hold.',
+  server: 'Check the API logs using the trace id above.',
+  malformed: 'This is a backend defect, not a frontend one: the published contract was not honoured.',
   configuration:
-    'Defina VITE_API_BASE_URL em frontend/.env.local e reinicie o servidor de desenvolvimento.',
+    'Set VITE_API_BASE_URL in frontend/.env.local and restart the dev server.',
 }
 
 const RECOVERABLE_KINDS: ReadonlySet<ApiErrorKind> = new Set<ApiErrorKind>([
@@ -73,12 +73,13 @@ const RECOVERABLE_KINDS: ReadonlySet<ApiErrorKind> = new Set<ApiErrorKind>([
 ])
 
 /**
- * Erro único que toda a aplicação consome. Absorve as duas pontas de falha — o ProblemDetails
- * (RFC 7807) devolvido pela API e a falha de transporte, quando não há resposta nenhuma — e as expõe
- * com a mesma forma, para nenhuma tela precisar inspecionar `Response` nem `TypeError`.
+ * The single error type the whole application consumes. It absorbs both failure ends — the
+ * RFC 7807 ProblemDetails returned by the API and the transport failure where no response
+ * arrives at all — and exposes them with one shape, so no screen has to inspect `Response`
+ * or `TypeError`.
  *
- * `headline` e `nextStep` são a leitura em português, derivadas do `kind`; `detail`, `apiTitle` e
- * `problemType` preservam o que a API de fato disse, sem tradução inventada.
+ * `headline` and `nextStep` are the human reading derived from `kind`; `detail`, `apiTitle`
+ * and `problemType` preserve what the API actually said, with no invented translation.
  */
 export class ApiError extends Error {
   readonly kind: ApiErrorKind
