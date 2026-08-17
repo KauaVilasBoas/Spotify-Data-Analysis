@@ -1,0 +1,18 @@
+# Segue a mesma regra do .gitignore da raiz: padrão de DIRETÓRIO é ancorado (`/x/`) ou justificado.
+# O scaffold do Vite trazia `dist`, `node_modules` e `*.local` sem barra nem barra inicial — `dist`
+# solto casaria até um ARQUIVO chamado dist. Reescrito na auditoria do E5.1.
+
+# Output do build do Vite (`npm run build`). Ancorado: só existe na raiz do front.
+/dist/
+
+# Caches locais de ferramenta.
+/node_modules/
+/.vite/
+
+# Overrides locais de ambiente (VITE_API_BASE_URL da máquina). O `.env.example` e o
+# `.env.development` (apenas localhost) permanecem versionados.
+/.env.local
+/.env.*.local
+
+# Logs de npm/node. Não ancorado de propósito: nunca são nome de fonte.
+*.log
