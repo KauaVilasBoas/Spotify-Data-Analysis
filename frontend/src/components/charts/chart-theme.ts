@@ -1,7 +1,7 @@
 export const CHART_COLORS = {
   brand: '#1ed760',
   brandDim: 'rgba(30, 215, 96, 0.28)',
-  axis: '#6b7484',
+  axis: '#8a93a3',
   split: 'rgba(35, 40, 51, 0.85)',
   text: '#a7b0bf',
   positive: '#1ed760',
