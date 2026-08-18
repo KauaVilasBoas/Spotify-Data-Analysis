@@ -31,7 +31,7 @@ export function UnderConstructionPage() {
         <div className="space-y-3">
           <p className="text-text-dim">{section?.summary ?? 'This section is not implemented.'}</p>
           <p className="max-w-prose text-sm text-text-faint">
-            The route exists and navigation reaches it on purpose — the shell keeps no dead links.
+            The route exists and navigation reaches it on purpose; the shell keeps no dead links.
             The content lands in this section&rsquo;s own card, reusing the same typed API client
             and the same loading, empty and error states already defined here.
           </p>

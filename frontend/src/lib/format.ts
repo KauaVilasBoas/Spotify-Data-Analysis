@@ -35,7 +35,7 @@ export function formatDecimal(value: number, fractionDigits = 2): string {
 }
 
 export function formatShare(part: number, whole: number): string {
-  return whole === 0 ? '—' : percentFormatter.format(part / whole)
+  return whole === 0 ? 'n/a' : percentFormatter.format(part / whole)
 }
 
 export function share(part: number, whole: number): number {
@@ -71,5 +71,5 @@ export function formatSignedDecimal(value: number, fractionDigits = 3): string {
 export function formatDate(isoValue: string): string {
   const parsed = new Date(isoValue)
 
-  return Number.isNaN(parsed.getTime()) ? '—' : dateFormatter.format(parsed)
+  return Number.isNaN(parsed.getTime()) ? 'n/a' : dateFormatter.format(parsed)
 }

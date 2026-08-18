@@ -48,7 +48,7 @@ export interface TrackDetail {
 }
 
 /**
- * The catalog search parameter is `search` — confirmed against the running API. Sending
+ * The catalog search parameter is `search`, confirmed against the running API. Sending
  * `searchTerm` is silently ignored and returns the entire unfiltered catalog.
  */
 export function searchTracks(

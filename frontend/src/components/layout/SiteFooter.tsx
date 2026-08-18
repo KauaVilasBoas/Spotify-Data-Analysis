@@ -15,7 +15,7 @@ export function SiteFooter() {
             <p className="max-w-md text-xs leading-relaxed text-text-faint">
               An independent analytics workbench built over the public{' '}
               <span className="text-text-dim">Spotify Tracks Dataset on Kaggle</span>. Data is read
-              from that static dataset — never from the Spotify Web API.
+              from that static dataset, never from the Spotify Web API.
             </p>
           </div>
         </div>

@@ -21,11 +21,11 @@ export function HeroPanel({ summary, model }: HeroPanelProps) {
     { label: 'Albums', value: formatInteger(summary.distinctAlbums) },
     {
       label: 'Model R²',
-      value: model === null ? '—' : formatDecimal(model.model.rSquared, 2),
+      value: model === null ? 'n/a' : formatDecimal(model.model.rSquared, 2),
     },
     {
       label: 'Model MAE',
-      value: model === null ? '—' : formatDecimal(model.model.meanAbsoluteError, 1),
+      value: model === null ? 'n/a' : formatDecimal(model.model.meanAbsoluteError, 1),
     },
   ]
 
@@ -51,7 +51,7 @@ export function HeroPanel({ summary, model }: HeroPanelProps) {
         </h1>
 
         <p className="mt-4 max-w-2xl text-[0.95rem] leading-relaxed text-text-dim">
-          Every number on this page is read live from the project API — no fixtures, no seeded
+          Every number on this page is read live from the project API. No fixtures, no seeded
           demo data.
         </p>
 

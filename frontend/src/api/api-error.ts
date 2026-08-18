@@ -56,7 +56,7 @@ const NEXT_STEP: Readonly<Record<ApiErrorKind, string>> = {
   timeout:
     'On free hosting the first request wakes the service up. Try again in a few seconds, or raise VITE_API_TIMEOUT_MS.',
   validation: 'Adjust the query parameters and retry.',
-  notFound: 'Check the identifier — the API could not find that resource.',
+  notFound: 'Check the identifier. The API could not find that resource.',
   businessRule: 'Review the preconditions described in the message before retrying.',
   conflict: 'Reload the data before trying again.',
   forbidden: 'This operation requires a permission the current session does not hold.',
@@ -73,9 +73,9 @@ const RECOVERABLE_KINDS: ReadonlySet<ApiErrorKind> = new Set<ApiErrorKind>([
 ])
 
 /**
- * The single error type the whole application consumes. It absorbs both failure ends — the
- * RFC 7807 ProblemDetails returned by the API and the transport failure where no response
- * arrives at all — and exposes them with one shape, so no screen has to inspect `Response`
+ * The single error type the whole application consumes. It absorbs both failure ends (the
+ * RFC 7807 ProblemDetails returned by the API, and the transport failure where no response
+ * arrives at all) and exposes them with one shape, so no screen has to inspect `Response`
  * or `TypeError`.
  *
  * `headline` and `nextStep` are the human reading derived from `kind`; `detail`, `apiTitle`

@@ -22,7 +22,7 @@ export function CorrelationPanel() {
               <CorrelationChart correlations={data.correlations} />
             </Suspense>
             <p className="text-xs leading-relaxed text-text-faint">
-              Every coefficient sits inside ±0.13 — no single audio feature explains popularity on
+              Every coefficient sits inside ±0.13. No single audio feature explains popularity on
               its own. Computed over {formatInteger(data.consideredCount)} tracks with measured
               features; imputed rows {data.includedImputed ? 'included' : 'excluded'}.
             </p>

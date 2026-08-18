@@ -25,8 +25,8 @@ const FEATURE_ORDER = [
 ] as const
 
 /**
- * FNV-1a over the track id. The catalog has no cover artwork at all — every album row is
- * `is_enriched = false` and the schema carries no image column — so identity has to be derived,
+ * FNV-1a over the track id. The catalog has no cover artwork at all: every album row is
+ * `is_enriched = false` and the schema carries no image column, so identity has to be derived,
  * and it has to be stable across renders and sessions.
  */
 function hashTrackId(trackId: string): number {

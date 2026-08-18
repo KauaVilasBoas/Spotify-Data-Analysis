@@ -59,7 +59,7 @@ function linkSignals(external: AbortSignal | undefined, timeoutMs: number): [Abo
 
 /**
  * The single HTTP egress point of the SPA. Unwraps the API `ApiResult<T>` and translates any
- * failure — ProblemDetails, broken envelope or no response at all — into `ApiError`.
+ * failure (ProblemDetails, broken envelope or no response at all) into `ApiError`.
  * No screen should ever read `.data.data` or inspect `response.status`.
  */
 export async function getResource<T>({ path, query, signal }: ApiRequest): Promise<T> {
