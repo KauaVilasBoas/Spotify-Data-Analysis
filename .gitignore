@@ -50,9 +50,19 @@ secrets.json
 *.mlnet
 /models/
 
-## Frontend (quando existir)
+## Frontend (SPA React/Vite em /frontend)
+# `node_modules/` fica NÃO ancorado de propósito, pela mesma justificativa de `bin/`+`obj/`: o npm o
+# gera em qualquer profundidade (raiz do front hoje, workspaces amanhã) e o nome é reservado do
+# ecossistema — nunca é pasta de código-fonte. Sem essa linha escrita, a regra do topo do arquivo
+# ficaria contrariada por um padrão sem âncora e sem motivo (foi assim que `models/` engoliu o E3.4).
 node_modules/
+# `frontend/dist/` é ANCORADO pelo prefixo de caminho: `dist/` solto engoliria qualquer pasta de mesmo
+# nome, e o output do Vite só existe aqui.
 frontend/dist/
+# Variáveis locais do Vite (VITE_API_BASE_URL apontando para o ambiente da máquina). O `.env.example`
+# e o `.env.development` (só localhost) ficam versionados; qualquer `.local` não.
+frontend/.env.local
+frontend/.env.*.local
 
 ## OS
 .DS_Store
