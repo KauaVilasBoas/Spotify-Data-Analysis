@@ -22,11 +22,17 @@ export const navSections: readonly NavSection[] = [
     status: 'available',
   },
   {
+    path: '/insights',
+    label: 'Insights',
+    summary: 'Feature-vs-popularity correlation, distributions and genre and year cuts.',
+    status: 'available',
+    card: 'E5.3',
+  },
+  {
     path: '/model',
     label: 'Model',
     summary: 'Popularity regression, feature importance and dataset splits.',
     status: 'planned',
-    card: 'E5.3',
   },
 ]
 

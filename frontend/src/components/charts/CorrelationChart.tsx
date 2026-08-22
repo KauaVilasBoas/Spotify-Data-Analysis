@@ -12,7 +12,12 @@ interface CorrelationChartProps {
 
 export function CorrelationChart({ correlations, height = 280 }: CorrelationChartProps) {
   const option = useMemo<EChartsCoreOption>(() => {
-    const sorted = [...correlations].sort((a, b) => a.coefficient - b.coefficient)
+    // A null coefficient means PostgreSQL could not compute `corr()`; it is dropped from the plot
+    // (never rendered as zero). The Insights screen surfaces those cases explicitly elsewhere.
+    const computed = correlations.filter(
+      (item): item is FeatureCorrelation & { coefficient: number } => item.coefficient !== null,
+    )
+    const sorted = [...computed].sort((a, b) => a.coefficient - b.coefficient)
 
     return {
       animationDuration: 720,
