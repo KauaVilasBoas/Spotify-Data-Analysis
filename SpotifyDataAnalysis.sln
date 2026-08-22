@@ -65,6 +65,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Modules.Prediction.Tests", "tests\SpotifyDataAnalysis.Modules.Prediction.Tests\SpotifyDataAnalysis.Modules.Prediction.Tests.csproj", "{6BFA0071-F91E-4903-BD9A-93ABC294DFA8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpotifyDataAnalysis.Api.Tests", "tests\SpotifyDataAnalysis.Api.Tests\SpotifyDataAnalysis.Api.Tests.csproj", "{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -162,6 +164,10 @@ Global
 		{6BFA0071-F91E-4903-BD9A-93ABC294DFA8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6BFA0071-F91E-4903-BD9A-93ABC294DFA8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6BFA0071-F91E-4903-BD9A-93ABC294DFA8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{820AD640-FAA4-4EE6-892A-261972099F1F} = {2C4252D2-6F10-4D05-842B-2E09CCBA7591}
@@ -193,5 +199,6 @@ Global
 		{1EA6B44A-E248-4858-9CF5-4E10780FFE0F} = {BDC51A5B-373F-46F6-9C85-04CDBD01E785}
 		{8F9EE096-5378-43E6-8A41-9DD63C7E0CA4} = {BDC51A5B-373F-46F6-9C85-04CDBD01E785}
 		{6BFA0071-F91E-4903-BD9A-93ABC294DFA8} = {58B40D1B-742B-42CB-90F6-5B4E086F0D95}
+		{5B960C34-5AC3-4BBB-8D4F-09F070D61B3F} = {58B40D1B-742B-42CB-90F6-5B4E086F0D95}
 	EndGlobalSection
 EndGlobal

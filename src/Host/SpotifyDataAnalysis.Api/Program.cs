@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog;
+using SpotifyDataAnalysis.Api.Configuration;
 using SpotifyDataAnalysis.Api.Middleware;
 using SpotifyDataAnalysis.Api.Observability;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
@@ -37,6 +38,16 @@ builder.Services.AddSpotifyInfrastructure();
 builder.Services.AddScoped<CorrelationIdAccessor>();
 builder.Services.Replace(
     ServiceDescriptor.Scoped<ICorrelationIdAccessor>(sp => sp.GetRequiredService<CorrelationIdAccessor>()));
+
+// ---------------------------------------------------------------------------
+// Forwarded headers. When the API runs behind a TLS-terminating reverse proxy (Caddy), it must read the
+// real scheme (https), host and client IP from the X-Forwarded-* headers instead of Kestrel's view of the
+// plain-HTTP hop from the proxy. Proxy trust is environment-scoped (config-driven, no hard-coded IPs) and
+// never accepts forged headers from arbitrary origins. The bound settings also decide, below, whether the
+// HTTPS-redirect middleware runs at all (behind a proxy the redirect is the proxy's job).
+// ---------------------------------------------------------------------------
+ForwardedHeadersSettings forwardedHeadersSettings =
+    builder.Services.AddSpotifyForwardedHeaders(builder.Configuration, builder.Environment);
 
 // ---------------------------------------------------------------------------
 // Composition Root — module discovery and registration via assembly scanning.
@@ -237,8 +248,14 @@ if (args.Length >= 1 && args[0] == "build-cooccurrence")
 // HTTP pipeline
 // ---------------------------------------------------------------------------
 
-// First in the pipeline so it wraps every downstream middleware and endpoint,
-// translating domain/application exceptions into the RFC 7807 ProblemDetails response.
+// Absolute first: rewrite HttpContext.Request scheme/host and Connection.RemoteIpAddress from the trusted
+// proxy's X-Forwarded-* headers, BEFORE anything reads scheme or client IP (exception boundary, correlation
+// id, security headers, request logging, HSTS, HTTPS redirect, CORS). No-op when not behind a proxy.
+if (ForwardedHeadersConfiguration.IsBehindProxy(forwardedHeadersSettings))
+    app.UseForwardedHeaders();
+
+// Wraps every downstream middleware and endpoint, translating domain/application exceptions into the
+// RFC 7807 ProblemDetails response.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // Correlation id — resolves X-Correlation-Id (or generates one), stores it on the scoped accessor for the
@@ -269,7 +286,11 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
+// Behind a TLS-terminating proxy the API only listens on HTTP, so the framework can't determine an HTTPS
+// port to redirect to — which is exactly the "failed to determine the https port" warning this card kills.
+// The HTTP→HTTPS redirect is the proxy's (Caddy's) responsibility at the edge, so we skip it in proxy mode.
+if (!ForwardedHeadersConfiguration.IsBehindProxy(forwardedHeadersSettings))
+    app.UseHttpsRedirection();
 
 app.UseCors("SpotifyCorsPolicy");
 
