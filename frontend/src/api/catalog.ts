@@ -48,17 +48,39 @@ export interface TrackDetail {
 }
 
 /**
+ * Sort order accepted by `GET /api/tracks?sort=`. The API writes enums by name, so the
+ * wire values match these string literals verbatim.
+ */
+export type TrackSort = 'Name' | 'PopularityDesc'
+
+export interface TrackSearchParams {
+  search: string
+  page: number
+  pageSize: number
+  sort: TrackSort
+}
+
+/**
  * The catalog search parameter is `search`, confirmed against the running API. Sending
- * `searchTerm` is silently ignored and returns the entire unfiltered catalog.
+ * `searchTerm` is silently ignored and returns the entire unfiltered catalog (and, since E6.3,
+ * an unknown parameter is rejected with 400 instead of quietly returning everything).
+ *
+ * `search` matches by case-insensitive substring against the track name or any credited artist,
+ * so one input covers both. Paging is stable on the server (id tie-break); the client never
+ * re-sorts, or that guarantee would be lost.
  */
 export function searchTracks(
-  search: string,
-  pageSize: number,
+  { search, page, pageSize, sort }: TrackSearchParams,
   signal?: AbortSignal,
 ): Promise<PagedResult<TrackListItem>> {
   return getResource<PagedResult<TrackListItem>>({
     path: '/api/tracks',
-    query: { search: search.trim().length > 0 ? search.trim() : undefined, page: 1, pageSize },
+    query: {
+      search: search.trim().length > 0 ? search.trim() : undefined,
+      page,
+      pageSize,
+      sort,
+    },
     signal,
   })
 }

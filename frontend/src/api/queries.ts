@@ -2,7 +2,13 @@ import { useQuery, type UseQueryOptions } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { toApiError } from './api-error'
 import type { ApiResource } from '@/hooks/use-api-resource'
-import { getTrackById, searchTracks, type TrackDetail, type TrackListItem } from './catalog'
+import {
+  getTrackById,
+  searchTracks,
+  type TrackDetail,
+  type TrackListItem,
+  type TrackSort,
+} from './catalog'
 import type { PagedResult } from './contracts'
 import {
   getAudioFeatureDistribution,
@@ -34,6 +40,8 @@ export const queryKeys = {
   correlations: ['insights', 'correlations'] as const,
   genres: (pageSize: number) => ['insights', 'genres', pageSize] as const,
   trackSearch: (search: string, pageSize: number) => ['catalog', 'tracks', search, pageSize] as const,
+  catalogSearch: (search: string, page: number, sort: TrackSort, pageSize: number) =>
+    ['catalog', 'search', search, page, sort, pageSize] as const,
   track: (id: string) => ['catalog', 'track', id] as const,
   model: ['prediction', 'model', 'current'] as const,
   datasetStats: ['prediction', 'dataset', 'stats'] as const,
@@ -107,8 +115,26 @@ export function useTrackSearch(
 ): ApiResource<PagedResult<TrackListItem>> {
   return useApiQuery(
     queryKeys.trackSearch(search, pageSize),
-    (signal) => searchTracks(search, pageSize, signal),
+    (signal) => searchTracks({ search, page: 1, pageSize, sort: 'Name' }, signal),
     { enabled, placeholderData: (previous) => previous },
+  )
+}
+
+/**
+ * Catalog screen search: the full parameter set the page controls (paging + sort). Keeps the
+ * previous page as placeholder so navigating pages does not flash the loading state, while the
+ * server keeps its stable ordering (the client never re-sorts).
+ */
+export function useCatalogSearch(
+  search: string,
+  page: number,
+  sort: TrackSort,
+  pageSize: number,
+): ApiResource<PagedResult<TrackListItem>> {
+  return useApiQuery(
+    queryKeys.catalogSearch(search, page, sort, pageSize),
+    (signal) => searchTracks({ search, page, pageSize, sort }, signal),
+    { placeholderData: (previous) => previous },
   )
 }
 

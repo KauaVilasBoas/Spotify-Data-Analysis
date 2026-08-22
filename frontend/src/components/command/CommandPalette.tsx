@@ -91,7 +91,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               value={track.trackId}
               onSelect={() => {
                 onOpenChange(false)
-                navigate(`/?track=${track.trackId}`)
+                navigate(`/catalog?track=${track.trackId}`)
               }}
               className="flex cursor-pointer items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 text-sm data-[selected=true]:bg-surface-3"
             >

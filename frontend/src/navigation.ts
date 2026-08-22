@@ -19,8 +19,7 @@ export const navSections: readonly NavSection[] = [
     path: '/catalog',
     label: 'Catalog',
     summary: 'Search and inspect tracks, artists and albums.',
-    status: 'planned',
-    card: 'E5.2',
+    status: 'available',
   },
   {
     path: '/model',
