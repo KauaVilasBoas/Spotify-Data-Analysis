@@ -11,14 +11,19 @@ import {
 } from './catalog'
 import type { PagedResult } from './contracts'
 import {
+  getAlbumYearInsights,
+  getArtistInsights,
   getAudioFeatureDistribution,
   getCatalogSummary,
   getFeatureCorrelations,
   getGenreInsights,
   getPopularityRanking,
+  type AlbumYearInsightItem,
+  type ArtistInsightItem,
   type AudioFeatureDistribution,
   type AudioFeatureName,
   type CatalogSummary,
+  type ContinuousAudioFeatureName,
   type FeatureCorrelations,
   type GenreInsightItem,
   type PopularityRankingItem,
@@ -34,11 +39,18 @@ import {
 
 export const queryKeys = {
   summary: ['insights', 'summary'] as const,
-  popularity: (pageSize: number) => ['insights', 'popularity', pageSize] as const,
-  distribution: (feature: AudioFeatureName, buckets: number) =>
-    ['insights', 'distribution', feature, buckets] as const,
-  correlations: ['insights', 'correlations'] as const,
+  popularity: (pageSize: number, genre: string | null) =>
+    ['insights', 'popularity', pageSize, genre] as const,
+  distribution: (
+    feature: AudioFeatureName | ContinuousAudioFeatureName,
+    buckets: number,
+    includeImputed: boolean,
+  ) => ['insights', 'distribution', feature, buckets, includeImputed] as const,
+  correlations: (includeImputed: boolean) => ['insights', 'correlations', includeImputed] as const,
   genres: (pageSize: number) => ['insights', 'genres', pageSize] as const,
+  albumsByYear: (pageSize: number) => ['insights', 'albums', 'by-year', pageSize] as const,
+  artists: (pageSize: number, includeUnenriched: boolean) =>
+    ['insights', 'artists', pageSize, includeUnenriched] as const,
   trackSearch: (search: string, pageSize: number) => ['catalog', 'tracks', search, pageSize] as const,
   catalogSearch: (search: string, page: number, sort: TrackSort, pageSize: number) =>
     ['catalog', 'search', search, page, sort, pageSize] as const,
@@ -85,27 +97,52 @@ export function useCatalogSummary(): ApiResource<CatalogSummary> {
   return useApiQuery(queryKeys.summary, getCatalogSummary)
 }
 
-export function usePopularityRanking(pageSize: number): ApiResource<PagedResult<PopularityRankingItem>> {
-  return useApiQuery(queryKeys.popularity(pageSize), (signal) =>
-    getPopularityRanking(pageSize, signal),
+export function usePopularityRanking(
+  pageSize: number,
+  genre: string | null = null,
+): ApiResource<PagedResult<PopularityRankingItem>> {
+  return useApiQuery(
+    queryKeys.popularity(pageSize, genre),
+    (signal) => getPopularityRanking(pageSize, genre, signal),
+    { placeholderData: (previous) => previous },
   )
 }
 
 export function useAudioFeatureDistribution(
-  feature: AudioFeatureName,
+  feature: AudioFeatureName | ContinuousAudioFeatureName,
   buckets: number,
+  includeImputed = false,
 ): ApiResource<AudioFeatureDistribution> {
-  return useApiQuery(queryKeys.distribution(feature, buckets), (signal) =>
-    getAudioFeatureDistribution(feature, buckets, signal),
+  return useApiQuery(queryKeys.distribution(feature, buckets, includeImputed), (signal) =>
+    getAudioFeatureDistribution(feature, buckets, includeImputed, signal),
   )
 }
 
-export function useFeatureCorrelations(): ApiResource<FeatureCorrelations> {
-  return useApiQuery(queryKeys.correlations, getFeatureCorrelations)
+export function useFeatureCorrelations(includeImputed = false): ApiResource<FeatureCorrelations> {
+  return useApiQuery(queryKeys.correlations(includeImputed), (signal) =>
+    getFeatureCorrelations(includeImputed, signal),
+  )
 }
 
 export function useGenreInsights(pageSize: number): ApiResource<PagedResult<GenreInsightItem>> {
   return useApiQuery(queryKeys.genres(pageSize), (signal) => getGenreInsights(pageSize, signal))
+}
+
+export function useAlbumYearInsights(
+  pageSize: number,
+): ApiResource<PagedResult<AlbumYearInsightItem>> {
+  return useApiQuery(queryKeys.albumsByYear(pageSize), (signal) =>
+    getAlbumYearInsights(pageSize, signal),
+  )
+}
+
+export function useArtistInsights(
+  pageSize: number,
+  includeUnenriched = false,
+): ApiResource<PagedResult<ArtistInsightItem>> {
+  return useApiQuery(queryKeys.artists(pageSize, includeUnenriched), (signal) =>
+    getArtistInsights(pageSize, includeUnenriched, signal),
+  )
 }
 
 export function useTrackSearch(

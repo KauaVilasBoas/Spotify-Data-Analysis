@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import { CatalogPage } from '@/pages/CatalogPage'
+import { InsightsPage } from '@/pages/InsightsPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { OverviewPage } from '@/pages/OverviewPage'
 import { UnderConstructionPage } from '@/pages/UnderConstructionPage'
@@ -28,6 +29,7 @@ export function App() {
           <Route element={<AppShell />}>
             <Route index element={<OverviewPage />} />
             <Route path="/catalog" element={<CatalogPage />} />
+            <Route path="/insights" element={<InsightsPage />} />
             {plannedSections.map((section) => (
               <Route key={section.path} path={section.path} element={<UnderConstructionPage />} />
             ))}
