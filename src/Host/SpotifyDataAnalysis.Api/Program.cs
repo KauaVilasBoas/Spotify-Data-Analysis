@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Serilog;
 using SpotifyDataAnalysis.Api.Configuration;
+using SpotifyDataAnalysis.Api.Filters;
 using SpotifyDataAnalysis.Api.Middleware;
 using SpotifyDataAnalysis.Api.Observability;
 using SpotifyDataAnalysis.Infrastructure.DependencyInjection;
@@ -66,8 +67,15 @@ ModuleLoader.RegisterModules(builder.Services, builder.Configuration, moduleAsse
 // ---------------------------------------------------------------------------
 // MVC controllers contributed by the modules. Enums cross the API boundary as
 // their NAME, not their ordinal, so names stay stable if an enum is reordered.
+//
+// RejectUnknownQueryParametersFilter (E6.3) is a global action filter: it rejects
+// a query string carrying a parameter the action does not declare with a 400
+// ProblemDetails, instead of silently ignoring it and returning the whole catalog
+// as "success". Registered once here so the rule is transversal to every controller
+// without any module referencing the Host.
 // ---------------------------------------------------------------------------
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+    options.Filters.Add<RejectUnknownQueryParametersFilter>());
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 

@@ -14,7 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- WebApplicationFactory<Program> boots the real Host composition root against an in-memory TestServer. -->
+    <!-- WebApplicationFactory<Program> boots the real Host composition root against an in-memory TestServer;
+         the Host also exposes the RejectUnknownQueryParametersFilter via InternalsVisibleTo (Api.csproj). -->
     <ProjectReference Include="..\..\src\Host\SpotifyDataAnalysis.Api\SpotifyDataAnalysis.Api.csproj" />
   </ItemGroup>
 
