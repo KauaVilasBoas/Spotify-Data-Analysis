@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+.git/
+.github/
+.idea/
+.claude/
+.vs/
+docs/
+frontend/
+tests/
+spotify-playlists/
+dataset.csv
+*.user
+*.suo
+*.md
