@@ -39,8 +39,19 @@ secrets.json
 # ANCORADO na auditoria do E6.1: sem a barra, casaria qualquer `Docs/` dentro de um módulo.
 /docs/
 
-## Claude Code (tooling local — agentes e settings da máquina)
-.claude/
+## Claude Code (setup do projeto versionado; estado da máquina, não)
+# REESCRITO ao adotar o vibe-coding-toolkit: antes a pasta INTEIRA era ignorada como "tooling
+# local". Isso deixava o `CLAUDE.md` da raiz sem par — as regras de orquestração, os agentes
+# especialistas e a memória do projeto sumiam num clone limpo, exatamente o gate que o E6.1
+# existe para defender. Passa a valer a convenção oficial do Claude Code: `settings.json` é do
+# PROJETO (versionado), `settings.local.json` é da MÁQUINA (ignorado).
+# Todos ANCORADOS: `.claude/` só existe na raiz, e um `agents/` ou `memory/` dentro de um módulo
+# não deve ser engolido por acidente — a armadilha do `models/` do E3.4.
+/.claude/settings.local.json
+/.claude/shell-snapshots/
+/.claude/todos/
+/.claude/statsig/
+/.claude/history.jsonl
 
 ## Dataset / modelos de ML (dados locais e artefatos — nunca versionar)
 # O CSV do Kaggle (~20 MB) e os modelos treinados (.zip/.mlnet) ficam no disco, fora do git.
