@@ -59,6 +59,8 @@ Quando o trabalho é delegável, despache o especialista que casa com a tarefa, 
 | `debugger` | Causa raiz de bug, crash ou teste instável — **antes** de qualquer correção ser proposta. | sonnet |
 | `spotify-po` | Objetivo de negócio → backlog: descoberta, critérios de aceite, cards no Trello, prioridade. Não escreve código. | opus |
 
+Para despachar mais de um especialista ao mesmo tempo, siga [`.claude/rules/parallel-subagent-driven-development.md`](.claude/rules/parallel-subagent-driven-development.md) — duas tarefas só entram na mesma onda se nenhuma depende da outra (nem transitivamente) **e** os conjuntos de arquivos são totalmente disjuntos; implementador nunca commita, quem orquestra commita por tarefa, capturando o `HEAD` na hora.
+
 ## Arquitetura — regras invioláveis
 
 As 42 regras do `SpotifyDataAnalysis.ArchitectureTests` (ArchUnitNET) validam boa parte disto. **Nunca afrouxe uma regra existente para fazer um teste passar** — isso é regressão, não ajuste.
