@@ -78,6 +78,13 @@ As 42 regras do `SpotifyDataAnalysis.ArchitectureTests` (ArchUnitNET) validam bo
 
 Antes de criar algo novo, **procure o que já existe** — `SharedKernel` e `Infrastructure` compartilhada já entregam `Entity`, `AggregateRoot`, `ValueObject`, `Guard`, `IClock`, `PagedQuery/PagedResult`, mediator, behaviors, Outbox e `BaseDataAccess`.
 
+## Memória do projeto
+
+As lições que já custaram caro — e que não se descobrem lendo o código — ficam em `.claude/memory/`. O índice e as regras de uso são carregados aqui, em toda sessão:
+
+@.claude/memory/INSTRUCTIONS.md
+@.claude/memory/MEMORY.md
+
 ## Convenções
 
 - **Commits atômicos e frequentes**, em **Conventional Commits**, mensagem em português. Commite a cada milestone que compila; nunca acumule dezenas de mudanças.
