@@ -23,8 +23,8 @@ Iniciado em **2026-09-11**, na branch `feature/vibe-coding-toolkit-setup`.
 | 6 | `.claude/settings.json` + hooks reais | ✅ |
 | 7 | Regra de ondas paralelas copiada e referenciada | ✅ |
 | 8 | Fluxo completo ponta a ponta rodado ao menos uma vez | ⬜ |
-| 9 | Quality gates configurados, divisão decidida | ⬜ |
-| 10 | Ao menos uma regra nova em warn→error | ⬜ |
+| 9 | Quality gates configurados, divisão decidida | ✅ |
+| 10 | Ao menos uma regra nova em warn→error | ✅ |
 | 11 | Sistema de memória leve configurado | ✅ |
 | 12 | (Opcional) Vault Obsidian + MCP | ⬜ |
 | 13 | (Opcional) Graphify | ⬜ |
@@ -102,7 +102,60 @@ Backup do arquivo original antes de sobrescrever (ele é gitignored — não há
 histórico para recuperar):
 `%TEMP%\settings.local.json.bak-2026-09-11`.
 
-Commit: ver `chore(claude): faxina das permissoes`.
+Commit: `18b8e75`.
+
+### Etapa 5 — Parte 5: quality gates
+
+Adaptada, não copiada. O toolkit pressupõe ESLint + Biome em JS/TS; aqui a
+divisão em dois linters sem sobreposição vira **Roslyn analyzers no backend** e
+**oxlint no frontend** — dois analisadores, domínios disjuntos, zero regra
+duplicada.
+
+**Medido antes de configurar** (o prompt `08` é explícito: instalar e medir, não
+consertar):
+
+| Medição | Resultado |
+|---|---|
+| Avisos de analisador na solução | **694 distintos** |
+| Concentração | **604 (87%) são `CA1707`** — todos em `tests/`, zero em `src/` |
+| Backlog real | **90 avisos em 13 regras** |
+| Arquivos > 350 linhas (backend) | **4** |
+| Arquivos > 350 linhas (frontend) | **0** |
+| Média de linhas por arquivo | backend 87 · frontend 76 |
+
+**`CA1707` foi desligada em `tests/`** — decisão de escopo, não dívida. Nome de
+teste `Metodo_Deve_X_Quando_Y` é idiomático em xUnit e é o que o
+`test-engineer` exige. "Corrigir" destruiria legibilidade para satisfazer uma
+regra escrita para API pública. Em `src/` ela continua valendo — e lá já está em
+zero, ou seja, **bloqueia**.
+
+**O tier de migração warn→error** existia como problema real aqui: com
+`TreatWarningsAsErrors=true`, qualquer regra nova nasceria bloqueando. O
+equivalente .NET do tier "warn" do toolkit é `WarningsNotAsErrors` no
+`Directory.Build.props` — a regra fica ligada e visível, sem travar o build,
+enquanto a contagem for maior que zero.
+
+> **Como promover uma regra:** zere a contagem dela, remova o ID de
+> `WarningsNotAsErrors`, e ela passa a bloquear para sempre. A contagem de cada
+> uma está registrada como comentário ao lado da lista, com data — é o que torna
+> a dívida visível em vez de virar "depois a gente aperta isso".
+
+**Teto de 350 linhas:** ativado no frontend (`eslint/max-lines` no oxlint), onde
+a contagem já era zero — nasce bloqueando de forma legítima, que é exatamente o
+critério de promoção do toolkit. Verificado que a regra realmente dispara
+(baixando o teto para 50 temporariamente): nome de regra errado no oxlint é
+ignorado em silêncio, e um gate silencioso é pior que gate nenhum. No backend
+não existe analisador equivalente — os 4 arquivos estão registrados abaixo como
+backlog medido.
+
+**Verificação, com saída real:**
+
+- `dotnet build -c Release`: **0 erros, 90 avisos**, `CA1707` zerado.
+- `dotnet test -c Release`: **721 aprovados, 2 ignorados, 0 falhas** (723 total).
+  Os 2 ignorados são os `[PostgresFact]`, nomeados no log.
+- `npm run lint` e `npm run typecheck`: verdes.
+
+Commit: ver `build(quality)`.
 
 ---
 
@@ -124,10 +177,18 @@ Commit: ver `chore(claude): faxina das permissoes`.
 
 ## Pendente
 
-1. **Parte 5 — quality gates.** Backend: não existe `.editorconfig`; as regras de
-   estilo não são medidas hoje. O `TreatWarningsAsErrors` já é o *fim* da
-   migração warn→error, não o começo dela. Frontend: oxlint já em
-   `--max-warnings=0`; falta escrever como uma regra nova entra.
+1. **Backlog medido, deliberadamente não corrigido** (medir e consertar são
+   trabalhos separados):
+   - 90 avisos de analisador em 13 regras, cada um no tier de migração.
+     `CA1001` (tipo com campo `IDisposable` que não implementa `IDisposable`,
+     3 ocorrências) é a de maior valor: é classe de bug, não estilo.
+   - 4 arquivos de backend acima de 350 linhas:
+     `GetTrackRecommendationsQueryHandlerTests.cs` (612),
+     `GetTrackRecommendationsQuery.cs` (476),
+     `SpotifyApiClientTests.cs` (394),
+     `ImportKaggleAudioFeaturesTests.cs` (384).
+     O prompt `09-file-size-refactor` é o segundo tempo disso — corta por
+     responsabilidade, nunca por contagem de linha.
 2. **Parte 4 — fluxo completo ponta a ponta.** Brainstorm → plano → ondas
    paralelas → revisão multi-agente → commit. Só fecha sobre um card real; é o
    último item, por construção.

@@ -6,5 +6,40 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>$(MSBuildProjectName.Replace('-', '_'))</RootNamespace>
+
+    <!-- Quality gates: analisadores do .NET ligados no modo Recommended. Medido em
+         2026-09-11 antes de ligar: 90 avisos reais em 13 regras (fora CA1707, tratado
+         no .editorconfig). Nao e um preset de ~200 regras jogado em cima da base. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- TIER DE MIGRACAO (warn -> error).
+         Regra nova NUNCA nasce bloqueando: ou trava todo mundo de uma vez, ou alguem
+         desliga por frustracao. Cada ID aqui esta ligado e VISIVEL como aviso, mas
+         isento do TreatWarningsAsErrors acima enquanto a contagem dele for maior que
+         zero. Quando zerar, REMOVA o ID desta lista — ai a regra passa a bloquear e
+         fica assim para sempre.
+
+         A contagem nao pode virar "depois a gente aperta isso": ela esta registrada em
+         .claude/SETUP.md, com data, e e o que torna a divida visivel em vez de teorica.
+
+         Contagem medida em 2026-09-11 (dotnet build, solucao inteira):
+           CA1848  31  usar delegate de LoggerMessage no lugar de log interpolado
+           CA1861  22  array constante como argumento -> static readonly
+           CA1859  12  usar tipo concreto para evitar despacho virtual
+           CA1822   5  membro pode ser static
+           CA1711   5  sufixo de identificador incorreto
+           CA1305   4  faltou IFormatProvider (formatacao dependente de cultura)
+           CA1001   3  tipo com campo IDisposable nao implementa IDisposable
+           CA1716   2  identificador colide com palavra reservada
+           CA1863   2  usar CompositeFormat
+           CA1826   1  usar propriedade no lugar de metodo Enumerable
+           CA1806   1  resultado de metodo ignorado
+           CA1805   1  inicializacao explicita para o valor default
+           CA1000   1  nao declarar membro static em tipo generico -->
+    <WarningsNotAsErrors>CA1848;CA1861;CA1859;CA1822;CA1711;CA1305;CA1001;CA1716;CA1863;CA1826;CA1806;CA1805;CA1000</WarningsNotAsErrors>
   </PropertyGroup>
 </Project>

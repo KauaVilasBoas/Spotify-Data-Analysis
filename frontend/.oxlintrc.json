@@ -4,7 +4,8 @@
   "rules": {
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "eslint/max-lines": ["error", { "max": 350, "skipBlankLines": false, "skipComments": false }]
   },
   "overrides": [
     {
