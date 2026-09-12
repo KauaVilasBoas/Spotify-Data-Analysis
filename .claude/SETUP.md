@@ -73,6 +73,37 @@ Ao bater o teto de 130 linhas, a sessão deve parar e pedir decisão.
 
 Commit: `ad01451`.
 
+### Etapa 4 — faxina das permissões
+
+O `settings.local.json` tinha **298 entradas** e crescia sozinho: cada comando
+aprovado numa sessão vira uma linha permanente, e ninguém poda. Durante esta
+própria sessão ele subiu de 290 para 298.
+
+Resultado: **31 locais + 53 versionadas**, com três destinos.
+
+| Destino | O quê |
+|---|---|
+| `settings.json` (versionado) | Comandos canônicos do projeto: `dotnet`, `npm`/`npx`, e o MCP do Trello. São a definição operacional do projeto e valem para qualquer clone. |
+| `settings.local.json` (máquina) | O que depende desta máquina: caminho do `psql.exe`, Docker, `gh`, portas locais, `git` amplo. |
+| Removido | Lixo de sessão morta. |
+
+O que saiu, e por quê:
+
+- **Vazamento de escopo** — `Read(//c/Projetos/SISLAB/**)` e
+  `Read(//c/Projetos/Lumen/**)` davam leitura a **outros projetos** a partir da
+  sessão deste repositório. Esses dois são a razão de a faxina não ser cosmética.
+- Caminhos de `tool-results` de sessões que não existem mais.
+- `sed -i` de correções pontuais já aplicadas, `kill 349`, `echo "exit=$?"` e
+  variantes, `rm` de arquivos temporários específicos.
+- Mensagens de commit inteiras coladas como permissão de `printf`.
+- Polling de GitHub Actions com SHA fixo de branch já mesclada.
+
+Backup do arquivo original antes de sobrescrever (ele é gitignored — não há
+histórico para recuperar):
+`%TEMP%\settings.local.json.bak-2026-09-11`.
+
+Commit: ver `chore(claude): faxina das permissoes`.
+
 ---
 
 ## Decisões tomadas — e onde desviamos do template
@@ -97,9 +128,6 @@ Commit: `ad01451`.
    estilo não são medidas hoje. O `TreatWarningsAsErrors` já é o *fim* da
    migração warn→error, não o começo dela. Frontend: oxlint já em
    `--max-warnings=0`; falta escrever como uma regra nova entra.
-2. **Faxina do `.claude/settings.local.json`** — 290 entradas, com lixo de
-   sessões mortas (caminhos de `tool-results`, `kill 349`, `sed` pontual). O que
-   sobreviver e for genérico sobe para o `settings.json` versionado.
-3. **Parte 4 — fluxo completo ponta a ponta.** Brainstorm → plano → ondas
+2. **Parte 4 — fluxo completo ponta a ponta.** Brainstorm → plano → ondas
    paralelas → revisão multi-agente → commit. Só fecha sobre um card real; é o
    último item, por construção.
