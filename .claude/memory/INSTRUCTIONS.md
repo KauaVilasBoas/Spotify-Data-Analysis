@@ -75,10 +75,28 @@ se uma entrada ainda merece o lugar dela, deixe — migrar depois não custa nad
 
 ## Camada 2 — armazenamento de longo prazo
 
-**Não existe ainda.** Este projeto não tem vault, wiki nem base de notas de longo
-prazo. `docs/PLANO.md` e `docs/PENDENCIAS.md` são memória de trabalho do
-planejamento (e `docs/` é gitignored), não um destino de migração.
+**Vault dedicado em `C:\Projetos\SpotifyDataAnalysis-vault`** (fora do repositório e
+fora do OneDrive), acessado **exclusivamente** pelas ferramentas MCP do servidor
+`vault` (`mcpvault`). Estrutura PARA: `01-projetos/`, `02-areas/`,
+`03-conhecimento/`, `04-referencia/`, `daily/`, `templates/`.
 
-Enquanto isso não existir, a política de crescimento não tem para onde migrar —
-então, ao bater o teto, **pare e peça a decisão** em vez de apagar entrada. Não
-invente um destino.
+**Nunca leia nem escreva esses arquivos direto.** Um hook de `PreToolUse`
+(`vault-guard.mjs`) bloqueia `Read`, `Grep`, `Glob`, `Write` e `Edit` apontados
+para lá — a única exceção é **leitura** de `daily/`. Escrita direta pularia a
+validação de frontmatter, que é a razão de o vault existir em vez de uma pasta
+solta de notas.
+
+Se faltar uma ferramenta MCP para o que você precisa, isso é um pedido de
+ferramenta — não motivo para contornar o bloqueio.
+
+**Destino por tipo, ao migrar da camada 1:**
+
+| `type` da camada 1 | Pasta de destino |
+|---|---|
+| `architecture`, `business-rule`, `feedback` | `03-conhecimento/` |
+| `reference` | `04-referencia/` |
+
+Antes de criar, leia o template da pasta de destino (`templates/<pasta>.md`) e
+siga as seções na ordem. **Ressalva:** o `mcpvault` valida frontmatter, mas **não**
+impõe as seções do template — isso é convenção que você cumpre, não regra que a
+ferramenta garante.

@@ -26,7 +26,7 @@ Iniciado em **2026-09-11**, na branch `feature/vibe-coding-toolkit-setup`.
 | 9 | Quality gates configurados, divisão decidida | ✅ |
 | 10 | Ao menos uma regra nova em warn→error | ✅ |
 | 11 | Sistema de memória leve configurado | ✅ |
-| 12 | (Opcional) Vault Obsidian + MCP | ⬜ adiado |
+| 12 | (Opcional) Vault Obsidian + MCP | ✅ |
 | 13 | (Opcional) Graphify | ✅ |
 | 14 | (Opcional) agent-browser | ✅ |
 
@@ -68,8 +68,8 @@ As 6 entradas que viviam em `~/.claude/projects/` foram passadas pelo teste
 estreito e viraram 7 — encolhendo, não crescendo. A memória global agora é um
 ponteiro de uma linha.
 
-**Camada 2 não existe** e não foi inventada: o projeto não tem vault nem wiki.
-Ao bater o teto de 130 linhas, a sessão deve parar e pedir decisão.
+**Camada 2 não existia na Etapa 3** e não foi inventada. Passou a existir na
+Etapa 7 — o `INSTRUCTIONS.md` foi corrigido junto, porque ele afirmava o contrário.
 
 Commit: `ad01451`.
 
@@ -193,8 +193,48 @@ rendeu dois achados sem que ninguém procurasse:
    Leitor de tela lê "Modelsoon". **Não corrigido** (fora de escopo), registrado
    como backlog.
 
-**Obsidian** — não instalado, e **não adotado por ora**. Decisão registrada
-abaixo.
+**Obsidian** — ver Etapa 7.
+
+### Etapa 7 — Parte 6, camada 2: vault de longo prazo
+
+**Vault dedicado em `C:\Projetos\SpotifyDataAnalysis-vault`** — fora do OneDrive
+e fora do repositório.
+
+Por que dedicado, e não o vault pessoal que já existe: o vault pessoal
+(`OneDrive\Documentos\Obsidian Vault`) tem `Contratos`, `Cursos` e material
+pessoal, e **sincroniza para a nuvem**. Um servidor MCP com escrita em filesystem
+apontado para a raiz dele teria acesso a tudo isso — a mesma classe de problema
+do `Read(//c/Projetos/SISLAB/**)` removido na Etapa 4, em escala maior.
+
+**Servidor MCP: `mcpvault`** (`npx @bitbonsai/mcpvault`), escolhido porque roda em
+Node 20+ — o `mcp-fs-obsidian` exigiria instalar o runtime Bun. Não precisa do app
+Obsidian aberto nem de plugin. Smoke test antes de confiar na config: servidor
+`mcpvault 0.16.0` respondeu ao `initialize` e expôs **18 ferramentas**.
+
+> **Limitação honesta:** o toolkit pede um servidor que imponha **template por
+> pasta**. Nenhum servidor disponível hoje faz isso — os que existem validam
+> frontmatter (tipo e sintaxe), não a presença das seções obrigatórias. O template
+> fica como convenção documentada no vault e no `INSTRUCTIONS.md`. É o mesmo tipo
+> de lacuna entre doc e ecossistema do `graphify claude install`.
+
+**O hook é o que torna isso real.** Sem ele, "sempre use MCP" é convenção de boa
+vontade. `vault-guard.mjs` roda em `PreToolUse` e bloqueia `Read`/`Grep`/`Glob`/
+`Write`/`Edit` no vault, com exceção estreita de **leitura** em `daily/`.
+
+Adaptação em relação ao doc: lá o vault mora dentro do projeto e o teste é
+`path.includes("vault/")`. Aqui ele mora fora e em caminho Windows, então o hook
+normaliza separador (`\` → `/`) e caixa antes de comparar.
+
+**Verificado com 12 casos** — 8 de bloqueio (barra invertida, barra normal, caixa
+trocada, escrita em `daily/`, `Glob` por `pattern`, arquivo chamado `daily-notes`
+fora da pasta) e 4 de liberação. **Um bug real apareceu no teste:** `Grep` apontado
+para o diretório `.../daily` (sem barra final) era bloqueado, porque o teste era
+`includes("/daily/")`. Corrigido para `/\/daily(\/|$)/`. Sem esse teste, a exceção
+teria nascido quebrada.
+
+O caminho do vault vive em `SPOTIFY_VAULT_PATH` no `settings.local.json`
+(máquina), e o `.mcp.json` versionado só referencia a variável — mesma separação
+projeto/máquina da Etapa 4.
 
 ---
 
