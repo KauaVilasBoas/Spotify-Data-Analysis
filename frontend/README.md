@@ -37,10 +37,10 @@ cp .env.example .env.local
 # edite VITE_API_BASE_URL
 ```
 
-| Variável              | Obrigatória | Default | Papel                                                                                                        |
-| --------------------- | ----------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `VITE_API_BASE_URL`   | sim         | —       | Origem da API, sem barra final. Sem ela a tela mostra um erro de configuração explícito, não uma tela branca. |
-| `VITE_API_TIMEOUT_MS` | não         | `20000` | Corte de tempo por requisição. Hospedagem gratuita acorda devagar.                                            |
+| Variável              | Obrigatória | Default        | Papel                                                                                                                                                                    |
+| --------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_API_BASE_URL`   | não         | mesma origem   | Origem da API, sem barra final. Vazio ou omitido significa mesma origem (útil com proxy reverso). Valor presente e malformado exibe erro de configuração em cada tela.   |
+| `VITE_API_TIMEOUT_MS` | não         | `20000`        | Corte de tempo por requisição. Hospedagem gratuita acorda devagar.                                                                                                       |
 
 Variáveis `VITE_*` são embutidas no bundle em tempo de build. Trocar de API depois do build exige
 rebuild — é o comportamento esperado de host estático, e o motivo de nada aqui depender de arquivo
