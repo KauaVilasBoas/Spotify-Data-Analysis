@@ -33,7 +33,7 @@ Use exatamente estes — não chute.
 - **Install:** `npm ci`
 - **Lint:** `npm run lint` (`oxlint --max-warnings=0` — zero é o gate)
 - **Typecheck:** `npm run typecheck`
-- **Test:** não existe suíte de teste de frontend hoje. Se uma tarefa exigir, isso é uma decisão a tomar, não algo a improvisar.
+- **Test:** `npm test`
 - **Build:** `npm run build`
 - **Dev:** `npm run dev` → `http://localhost:5173`
 
@@ -93,7 +93,7 @@ As lições que já custaram caro — e que não se descobrem lendo o código �
 - Versionamento **SemVer**, derivado dos tipos de Conventional Commit (`fix:` → patch, `feat:` → minor, `BREAKING CHANGE` → major).
 - Trabalhe em branch de tarefa (`feature/...`). **Não faça `push` nem abra PR** sem pedido explícito.
 - **Definition of Done do backend:** `dotnet build` com **0 erro / 0 warning** (warnings-as-errors ligado) **e** `dotnet test` verde, incluindo os ArchitectureTests. Rode de verdade e **reporte a saída real** — nunca "deveria passar".
-- **Definition of Done do frontend:** `npm run typecheck`, `npm run lint` e `npm run build`, os três verdes, com saída reportada.
+- **Definition of Done do frontend:** `npm run typecheck`, `npm run lint`, `npm test` e `npm run build`, os quatro verdes, com saída reportada.
 - Teste que precisa de Postgres real usa `[PostgresFact]` — é pulado no CI de propósito, e o skip aparece nomeado no summary. Verde nunca pode significar "não rodou".
 - Segredos vão para User Secrets ou variável de ambiente. Nunca no repositório.
 - Não invente escopo. O que sair do pedido, proponha como próximo passo.
