@@ -1,4 +1,5 @@
 import { GitCompare, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { TrackDetail } from '@/api/catalog'
 import { AudioFeatureBars } from '@/components/catalog/AudioFeatureBars'
 import { TrackArt } from '@/components/data/TrackArt'
@@ -173,29 +174,29 @@ export function TrackDetailPanel({ track }: TrackDetailPanelProps) {
           into recommendations and popularity prediction, instead of pasting an id by hand.
         </p>
         <div className="flex flex-wrap gap-3">
+          {/* Navega para a tela de recomendações com esta faixa como semente */}
           <Button
-            type="button"
+            asChild
             size="sm"
             variant="outline"
-            disabled
-            title="Arrives with the recommendations screen (E5.4)"
             className="border-line-strong bg-transparent"
           >
-            <GitCompare aria-hidden="true" />
-            Find similar tracks
-            {' '}<span className="label-micro ml-1 text-text-faint">soon</span>
+            <Link to={`/recommendations?seed=${track.trackId}`}>
+              <GitCompare aria-hidden="true" />
+              Find similar tracks
+            </Link>
           </Button>
+          {/* Navega para a tela de modelo com esta faixa como entrada */}
           <Button
-            type="button"
+            asChild
             size="sm"
             variant="outline"
-            disabled
-            title="Arrives with the model screen (E5.3)"
             className="border-line-strong bg-transparent"
           >
-            <Sparkles aria-hidden="true" />
-            Predict popularity
-            {' '}<span className="label-micro ml-1 text-text-faint">soon</span>
+            <Link to={`/model?track=${track.trackId}`}>
+              <Sparkles aria-hidden="true" />
+              Predict popularity
+            </Link>
           </Button>
         </div>
       </Panel>
