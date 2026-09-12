@@ -32,7 +32,13 @@ export const navSections: readonly NavSection[] = [
     path: '/model',
     label: 'Model',
     summary: 'Popularity regression, feature importance and dataset splits.',
-    status: 'planned',
+    status: 'available',
+  },
+  {
+    path: '/recommendations',
+    label: 'Recommendations',
+    summary: 'Find tracks similar to a seed using content-based and collaborative signals.',
+    status: 'available',
   },
 ]
 

@@ -10,7 +10,12 @@ export interface ApiRequest {
   signal?: AbortSignal
 }
 
+export interface ApiPostRequest<B = unknown> extends ApiRequest {
+  body: B
+}
+
 const JSON_ACCEPT = 'application/json, application/problem+json'
+const JSON_CONTENT = 'application/json'
 
 function buildUrl(baseUrl: string, path: string, query: Record<string, QueryValue> | undefined): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
@@ -57,38 +62,7 @@ function linkSignals(external: AbortSignal | undefined, timeoutMs: number): [Abo
   ]
 }
 
-/**
- * The single HTTP egress point of the SPA. Unwraps the API `ApiResult<T>` and translates any
- * failure (ProblemDetails, broken envelope or no response at all) into `ApiError`.
- * No screen should ever read `.data.data` or inspect `response.status`.
- */
-export async function getResource<T>({ path, query, signal }: ApiRequest): Promise<T> {
-  let baseUrl: string
-  try {
-    baseUrl = resolveBaseUrl(apiConfig.rawBaseUrl)
-  } catch (err) {
-    throw apiErrorFromKind(
-      'configuration',
-      err instanceof Error ? err.message : String(err),
-    )
-  }
-
-  const [requestSignal, dispose] = linkSignals(signal, apiConfig.timeoutMs)
-
-  let response: Response
-
-  try {
-    response = await fetch(buildUrl(baseUrl, path, query), {
-      method: 'GET',
-      headers: { Accept: JSON_ACCEPT },
-      signal: requestSignal,
-    })
-  } catch (error) {
-    throw toApiError(error)
-  } finally {
-    dispose()
-  }
-
+async function unwrapEnvelope<T>(path: string, response: Response): Promise<T> {
   const payload = await readJson(response)
 
   if (!response.ok) {
@@ -117,4 +91,60 @@ export async function getResource<T>({ path, query, signal }: ApiRequest): Promi
   }
 
   return envelope.data
+}
+
+function resolveBase(): string {
+  try {
+    return resolveBaseUrl(apiConfig.rawBaseUrl)
+  } catch (err) {
+    throw apiErrorFromKind('configuration', err instanceof Error ? err.message : String(err))
+  }
+}
+
+/**
+ * The two HTTP egress points of the SPA. Both unwrap the API `ApiResult<T>` and translate any
+ * failure (ProblemDetails, broken envelope or no response at all) into `ApiError`.
+ * No screen should ever read `.data.data` or inspect `response.status`.
+ */
+export async function getResource<T>({ path, query, signal }: ApiRequest): Promise<T> {
+  const baseUrl = resolveBase()
+  const [requestSignal, dispose] = linkSignals(signal, apiConfig.timeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(buildUrl(baseUrl, path, query), {
+      method: 'GET',
+      headers: { Accept: JSON_ACCEPT },
+      signal: requestSignal,
+    })
+  } catch (error) {
+    throw toApiError(error)
+  } finally {
+    dispose()
+  }
+
+  return unwrapEnvelope<T>(path, response)
+}
+
+export async function postResource<T>({ path, query, body, signal }: ApiPostRequest): Promise<T> {
+  const baseUrl = resolveBase()
+  const [requestSignal, dispose] = linkSignals(signal, apiConfig.timeoutMs)
+
+  let response: Response
+
+  try {
+    response = await fetch(buildUrl(baseUrl, path, query), {
+      method: 'POST',
+      headers: { Accept: JSON_ACCEPT, 'Content-Type': JSON_CONTENT },
+      body: JSON.stringify(body),
+      signal: requestSignal,
+    })
+  } catch (error) {
+    throw toApiError(error)
+  } finally {
+    dispose()
+  }
+
+  return unwrapEnvelope<T>(path, response)
 }

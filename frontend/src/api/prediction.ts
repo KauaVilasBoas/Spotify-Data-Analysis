@@ -1,4 +1,4 @@
-import { getResource } from './http-client'
+import { getResource, postResource } from './http-client'
 
 export interface RegressionMetrics {
   rSquared: number
@@ -80,6 +80,7 @@ export interface TrackRecommendations {
   seedGenre: string | null
   seedIsImputed: boolean
   indexedTrackCount: number
+  requestedGenreMode: string
   effectiveGenreMode: string
   effectiveStrategy: string
   genreFellBackToCosineOnly: boolean
@@ -87,6 +88,16 @@ export interface TrackRecommendations {
   dedupeApplied: boolean
   totalDuplicatesCollapsed: number
   recommendations: RecommendationItem[]
+  warnings: string[]
+}
+
+export interface PopularityPredictionResponse {
+  predictedPopularity: number
+  rawScore: number
+  wasClamped: boolean
+  modelVersion: number
+  mode: string
+  warnings: string[]
 }
 
 export function getCurrentModel(signal?: AbortSignal): Promise<ModelVersion> {
@@ -97,14 +108,35 @@ export function getDatasetStats(signal?: AbortSignal): Promise<DatasetStats> {
   return getResource<DatasetStats>({ path: '/api/predictions/dataset/stats', signal })
 }
 
+export interface RecommendationParams {
+  limit?: number
+  explainTopK?: number
+  genreMode?: 'boost' | 'off' | 'sameGenreOnly'
+  dedupe?: boolean
+  strategy?: 'content' | 'blend'
+  blendWeight?: number
+}
+
 export function getTrackRecommendations(
   trackId: string,
-  limit: number,
+  params: RecommendationParams = {},
   signal?: AbortSignal,
 ): Promise<TrackRecommendations> {
+  const { limit = 10, explainTopK = 3, genreMode = 'boost', dedupe = true, strategy = 'content', blendWeight = 0.35 } = params
   return getResource<TrackRecommendations>({
     path: `/api/recommendations/track/${encodeURIComponent(trackId)}`,
-    query: { limit },
+    query: { limit, explainTopK, genreMode, dedupe, strategy, blendWeight },
+    signal,
+  })
+}
+
+export function predictPopularity(
+  trackId: string,
+  signal?: AbortSignal,
+): Promise<PopularityPredictionResponse> {
+  return postResource<PopularityPredictionResponse>({
+    path: '/api/predictions/popularity',
+    body: { trackId },
     signal,
   })
 }
