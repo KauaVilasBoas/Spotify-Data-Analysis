@@ -29,6 +29,14 @@ public sealed record RecommenderQualityMeasurement(
 /// <param name="MeanCoherence">Média por semente da fração do top-N com o mesmo gênero. Em [0, 1].</param>
 /// <param name="SaturatedSeeds">Sementes cujo top-N inteiro é do mesmo gênero — o sintoma de saturação do card.</param>
 /// <param name="MeanImputedNeighbors">Média de vizinhos imputados por top-N; o sinal da DP-F no resultado.</param>
+/// <param name="CoherenceStandardDeviation">
+/// Desvio-padrão da coerência ENTRE as sementes avaliadas.
+///
+/// <para><b>Não é enfeite:</b> comparar duas configurações por médias nuas não distingue efeito de sorteio da
+/// amostra. Com o desvio e o <paramref name="SeedsEvaluated"/> na mão, quem lê calcula o erro padrão e decide se um
+/// delta de 0,05 é sinal ou ruído — que é exatamente a pergunta que a tabela de calibração do boost e a comparação
+/// content × blend levantam.</para>
+/// </param>
 public sealed record GenreCoherenceProxy(
     int SeedsEvaluated,
     int SeedsWithoutUsableGenre,
@@ -36,10 +44,17 @@ public sealed record GenreCoherenceProxy(
     int ImputedSeeds,
     double MeanCoherence,
     int SaturatedSeeds,
-    double MeanImputedNeighbors)
+    double MeanImputedNeighbors,
+    double CoherenceStandardDeviation = 0.0)
 {
     /// <summary>A fração de sementes cujo top-N é 100% do mesmo gênero — a leitura direta da saturação.</summary>
     public double SaturationRate => SeedsEvaluated == 0 ? 0.0 : (double)SaturatedSeeds / SeedsEvaluated;
+
+    /// <summary>
+    /// Erro padrão da média (<c>σ/√n</c>) — a régua com que dois valores de coerência devem ser comparados.
+    /// </summary>
+    public double CoherenceStandardError =>
+        SeedsEvaluated == 0 ? 0.0 : CoherenceStandardDeviation / Math.Sqrt(SeedsEvaluated);
 }
 
 /// <summary>
@@ -71,6 +86,22 @@ public sealed record SelfExclusionProxy(int SeedsEvaluated, int Violations)
 /// <param name="MeanFirstSiblingRank">Posição média (1-based) do primeiro irmão, entre as sementes que acertaram.</param>
 /// <param name="MeanSiblingCosine">Cosseno médio dos irmãos reencontrados — quão idênticas as duplicatas de fato são.</param>
 /// <param name="SeedsWithFullyDuplicatedTopK">Sementes cujo top-K inteiro é irmão. Dimensiona a dor que o E4.7 resolve.</param>
+/// <param name="SeedsWithRedundantSiblings">
+/// Sementes cujo top-K traz DUAS ou mais versões da mesma obra — a repetição que o dedup do E4.7 promete eliminar.
+/// Com <c>dedupe=false</c> mede a dor; com <c>dedupe=true</c> o alvo é zero (DP-2 do E4.8).
+/// </param>
+/// <param name="SeedsWithIncompleteTopK">
+/// Sementes que pediram <c>topK</c> recomendações e receberam MENOS.
+///
+/// <para><b>Existe porque "top-K 100% duplicado" é ambíguo sozinho:</b> o indicador pode significar "a lista repete
+/// a mesma obra" (a dor que o dedup resolve) ou "a lista encolheu" (um efeito colateral do dedup). São leituras
+/// opostas, e distingui-las por raciocínio seria adivinhar — este contador as separa por medição.</para>
+/// </param>
+/// <param name="Setting">
+/// A configuração que produziu estes números. É campo obrigatório, e não documentação: o gate do E4.8 RECUSA
+/// medições cujo <c>dedupe</c> não corresponda ao limiar que está prestes a aplicar — foi medir sem saber a
+/// configuração que tornou os números do E4.4 obsoletos sem ninguém perceber.
+/// </param>
 public sealed record DuplicateProximityProxy(
     int GroupsEvaluated,
     int SeedsEvaluated,
@@ -78,4 +109,7 @@ public sealed record DuplicateProximityProxy(
     double HitRate,
     double MeanFirstSiblingRank,
     double MeanSiblingCosine,
-    int SeedsWithFullyDuplicatedTopK);
+    int SeedsWithFullyDuplicatedTopK,
+    int SeedsWithRedundantSiblings,
+    int SeedsWithIncompleteTopK,
+    RecommenderEvaluationSetting Setting);

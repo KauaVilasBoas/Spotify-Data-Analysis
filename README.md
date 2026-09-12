@@ -290,22 +290,58 @@ unrelated to popularity"*.
 ### Recommender: three verifiable proxies
 
 There is no user ground truth, so quality is measured by proxies over the real catalogue. Fixed,
-seeded sample: **300 seeds, top-10**.
+seeded sample (`e4.4-proxies-v1`): **300 seeds, top-10**.
 
-| Proxy | Cosine only | With the elected boost | Reads as |
-|---|---:|---:|---|
-| Genre coherence | 0.1347 | **0.5833** | 4.33x lift, the boost is actually breaking ties |
-| Genre saturation (top-N all one genre) | n/a | **0.3100** | minority, so still a boost and not a filter |
-| Self-exclusion violations | 0 / 300 | 0 / 300 | the seed never recommends itself |
-| Duplicate recall | n/a | 0.6108 | near-duplicates land in the top-K |
-| Duplicate hit rate | n/a | 0.6745 | share of seeds with at least one sibling found |
-| Mean sibling cosine | n/a | 0.998244 | the most sensitive break detector in the suite |
+**Every number below carries the configuration that produced it.** The first measurement, taken
+2026-08-13, predated two things that are now on by default: the near-duplicate collapse (`dedupe=true`)
+and the collaborative blend. Numbers without their configuration described, for two epics, a system the
+endpoint no longer served. The re-measurement below was taken 2026-09-12 on the same seeded sample.
+
+| Proxy | Config | 2026-08-13 | 2026-09-12 | Reads as |
+|---|---|---:|---:|---|
+| Genre coherence | `off \| dedupe=on \| content` | 0.1347 *(dedupe=off)* | **0.1140 ± 0.1734** | the floor the boost is measured against |
+| Genre coherence | `boost 0.050 \| dedupe=on \| content` | 0.5833 *(dedupe=off)* | **0.5563 ± 0.3608** | 4.88x lift, the boost is actually breaking ties |
+| Genre saturation | `boost 0.050 \| dedupe=on \| content` | 0.3100 | **0.2800** | minority, so still a boost and not a filter |
+| Self-exclusion violations | both of the above | 0 / 300 | **0 / 300** | the seed never recommends itself |
+| Duplicate recall | `off \| dedupe=off \| content` | 0.6108 *(8-member cap)* | **0.6464** *(no cap)* | near-duplicates land in the top-K |
+| Duplicate hit rate | `off \| dedupe=off \| content` | 0.6745 *(8-member cap)* | **0.7037** *(no cap)* | share of seeds with at least one sibling found |
+| Mean sibling cosine | `off \| dedupe=off \| content` | 0.998244 | **0.999028** | the most sensitive break detector in the suite |
+| Same work twice in one top-N | `off \| dedupe=off \| content` | not measured | **1,768 / 1,895** | the pain the collapse exists to remove |
+| Same work twice in one top-N | `off \| dedupe=on \| content` | not measured | **0 / 1,895** | the collapse's proof of value, finally a number |
+
+Coherence carries its **standard deviation** because comparing two configurations by bare means cannot
+tell an effect from a draw of the sample. With σ and n, the reader computes the standard error and
+decides whether a delta is signal.
 
 Proxy 3 (duplicate proximity) is **always measured with genre switched off**, because it is the only
 non-circular guard. Genre coherence measured over a genre-boosted ranking partly measures the boost
 itself; duplicate proximity does not use genre at all, so if normalisation or the cosine break, it is
 the first to fall. It is anchored on `catalog.tracks.match_key`, verified by SQL before use: **7,015
 groups, 19,388 tracks, 36,940 pairs, largest group 54**, the same number that sized the dedup work.
+
+The 2026-08-13 run capped groups at **8 members**, which made "top-10 entirely duplicates" *arithmetically*
+impossible: with top-10, a seed needs 10 siblings to saturate its own list. Removing the cap and measuring
+the **111 groups of 11+ tracks** (1,895 seeds, 18,892 of the 36,940 pairs) is what turned that indicator
+from a structural zero into a real reading.
+
+#### Two findings from the re-measurement, both open
+
+**The blend drops the genre boost from the final ordering.** The blender re-ranks by min-max rescaled
+*cosine*, not by the hybrid score, so `genreMode=boost` shapes which candidates are fetched but no longer
+orders them. On the 37 of 300 seeds that actually have co-occurrence — the only ones where the blend
+changes anything — coherence falls from **0.5324 ± 0.3480** (content) to **0.1676 ± 0.2537** at
+`blendWeight=0.35`, close to the pure-cosine floor, which is exactly what dropping the boost predicts.
+A 0.365 gap against a 0.071 standard error of the difference is an effect, not sampling noise. At
+`blendWeight=0.60` it recovers to **0.2432 ± 0.2766**. The blend is measured and reported but **not
+gated**: it is opt-in, and its default weight has no validated calibration yet.
+
+**Near-duplicate collapse can return fewer results than requested.** A seed inside a large duplicate
+group has an over-fetch (3x the limit) made almost entirely of its own siblings, which collapse into a
+single entry. Measured on the live endpoint, not only in the harness: at
+`genreMode=boost&dedupe=true&limit=10`, **679 of the 1,895 seeds in 11+ groups get fewer than 10
+recommendations and 227 get exactly one**. The fix is an over-fetch that adapts to group size; it is not
+in the gate yet, because pinning the threshold at today's measured value would ratify the defect as a
+baseline.
 
 ### Free-tier footprint
 
@@ -319,8 +355,22 @@ Container `spotifydataanalysis-api` against Postgres with the full dataset. Full
 | 512 MB, 0.1 vCPU | 142.9 MiB | 51.1 s | 32.4 s | 1,915 ms | 2,479 ms | no |
 | 256 MB, 0.1 vCPU | 138.4 MiB | 31.9 s | 25.5 s | 2,614 ms | 2,337 ms | no |
 
-Database on disk: **388 MB**, of which `prediction.track_cooccurrence` is **254 MB (65%)**. Image:
-349 MB. Worst measured cold start with spin-down at 0.1 vCPU: **83 s** (51 s of boot plus 32 s of
+Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
+
+| Relation | Rows | On disk |
+|---|---:|---:|
+| `prediction.track_cooccurrence` | 1,481,511 | **254 MB** |
+| `catalog.tracks` | 89,740 | 95 MB |
+| `catalog.playlists` | 37,121 | 15 MB |
+| **database total** | | **388 MB** |
+
+**Verdict on the ~0.5 GB free-tier budget: it fits, with 124 MB of headroom (76% used).** The blend is
+what consumes it — the co-occurrence matrix alone is 65% of the database and half the budget, to serve
+a signal that covers **9,664 of 89,740 tracks (10.8%)**, and only **37 of the 300 sampled seeds**. That
+ratio, not the absolute size, is the argument for pruning the matrix by a minimum `co_playlists` before
+the catalogue grows again.
+
+Image: 349 MB. Worst measured cold start with spin-down at 0.1 vCPU: **83 s** (51 s of boot plus 32 s of
 similarity-index build). The conclusion, *CPU and disk rather than RAM*, is what drives the roadmap
 item to warm the index in the background at startup.
 
@@ -351,16 +401,28 @@ percentage to extract from zero, and passing there would mean passing by divisio
 
 ### Recommender gate: `RecommenderQualityGate`
 
-Six thresholds, all pinned to measured values, with coherence charged from **both sides**:
+Seven thresholds, all pinned to measured values, each bound to the configuration that validates it,
+with coherence charged from **both sides**:
 
-| Threshold | Value | Why this side exists |
-|---|---:|---|
-| `MinimumGenreCoherence` | 0.40 | floor, detects the space collapsing, with slack for sample noise |
-| `MinimumCoherenceLiftOverCosineOnly` | 2.0x | the boost must still break ties, so too small a weight fails here |
-| `MaximumGenreSaturation` | 0.50 | **ceiling**: above this the boost decides the list for most seeds and becomes indistinguishable from a hard filter (a weight of 0.08 already fails here) |
-| `MinimumDuplicateRecall` | 0.45 | non-circular guard |
-| `MinimumDuplicateHitRate` | 0.50 | non-circular guard |
-| `MinimumSiblingCosine` | 0.98 | moves only if normalisation or the cosine break |
+| Threshold | Value | Validating config | Measured | Why this side exists |
+|---|---:|---|---:|---|
+| `MinimumGenreCoherence` | 0.40 | `boost 0.050 \| dedupe=on \| content` | 0.5563 | floor, detects the space collapsing, with slack for sample noise |
+| `MinimumCoherenceLiftOverCosineOnly` | 2.0x | both sides at the same `dedupe` | 4.88x | the boost must still break ties, so too small a weight fails here |
+| `MaximumGenreSaturation` | 0.50 | `boost 0.050 \| dedupe=on \| content` | 0.2800 | **ceiling**: above this the boost decides the list for most seeds and becomes indistinguishable from a hard filter (a weight of 0.08 already fails here) |
+| `MinimumDuplicateRecall` | 0.45 | `off \| dedupe=off \| content` | 0.6464 | non-circular guard |
+| `MinimumDuplicateHitRate` | 0.50 | `off \| dedupe=off \| content` | 0.7037 | non-circular guard |
+| `MinimumSiblingCosine` | 0.98 | `off \| dedupe=off \| content` | 0.999028 | moves only if normalisation or the cosine break |
+| `MaximumSeedsWithRedundantSiblings` | 0 | `off \| dedupe=on \| content` | 0 / 1,895 | the collapse's own promise: the same work never takes two slots |
+
+The 2026-09-12 re-measurement **changed no threshold value**. All six original thresholds still hold on
+today's default configuration, with room to spare; what changed is that each one now names the config
+that validates it, and a seventh was added for the collapse.
+
+The gate **refuses**, with an exception rather than a verdict, to be handed the wrong configuration:
+recall and hit-rate measured on an already-deduplicated ranking, a redundancy indicator measured without
+the collapse, a lift compared across different `dedupe` settings, or a blended measurement. A
+mis-wired gate does not get the number wrong, it gets the *question* wrong, and would return a confident
+pass about a different quantity.
 
 > Self-exclusion is not a threshold. Any violation in any run is a failure, because the acceptable
 > value is zero.
