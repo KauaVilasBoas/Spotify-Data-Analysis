@@ -19,8 +19,10 @@ React 19 · Vite · TypeScript · Tailwind v4 · shadcn/ui · ECharts · TanStac
 2. **Contrato da API é espelhado por nome**, nunca por ordinal (`src/api/contracts.ts`).
 3. **Toda saída HTTP passa pelo cliente único** (`src/api/http-client.ts`). Nada de `fetch` solto na tela.
 4. **Nenhuma URL hardcoded** — vem de `VITE_API_BASE_URL`.
-5. **Acentuação correta em texto visível.** O projeto já pagou por isso: "não", "visão", "árvore", "três" — revise o que você escreveu na UI antes de reportar.
-6. Respeite o `frontend/DESIGN.md`. Se a tarefa exigir desviar dele, pare e reporte.
+5. **Idioma: a interface é em INGLÊS.** Copy, label, mensagem de erro, estado vazio, `aria-label` — tudo em inglês (`frontend/DESIGN.md`, seção Idioma). **Comentário de código e mensagem de commit seguem em português.** Escrever a UI em português é o erro que mais se repete aqui.
+6. **Número passa por `lib/format.ts`**, que formata em `en-US` (`89,740`, `100.0%`). Nada de `toLocaleString('pt-BR')` na tela.
+7. **Sem travessão (`—`) na interface.** Foi removido de propósito; use `·`, vírgula ou quebra de linha. Placeholder de dado ausente é `n/a`.
+8. Respeite o `frontend/DESIGN.md`. Se a tarefa exigir desviar dele, pare e reporte.
 
 ## Verificação por navegador — `agent-browser`
 
