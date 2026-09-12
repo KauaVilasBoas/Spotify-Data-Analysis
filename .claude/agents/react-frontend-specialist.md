@@ -22,13 +22,37 @@ React 19 · Vite · TypeScript · Tailwind v4 · shadcn/ui · ECharts · TanStac
 5. **Acentuação correta em texto visível.** O projeto já pagou por isso: "não", "visão", "árvore", "três" — revise o que você escreveu na UI antes de reportar.
 6. Respeite o `frontend/DESIGN.md`. Se a tarefa exigir desviar dele, pare e reporte.
 
+## Verificação por navegador — `agent-browser`
+
+Está instalado nesta máquina (`agent-browser`, no PATH) com Chrome for Testing próprio,
+e é a ferramenta de prova para qualquer coisa que o usuário **vê** ou que o leitor de
+tela **lê**. `npm run build` verde não prova rótulo, foco, ordem de leitura nem estado
+de recurso.
+
+```
+agent-browser open http://localhost:5173
+agent-browser snapshot          # árvore de acessibilidade com refs, não screenshot
+agent-browser click "@e16"      # @ref vem do snapshot
+```
+
+O `snapshot` é o que expõe o rótulo acessível de verdade. Foi assim que apareceu
+`link "Modelsoon"`: o badge separado por margem CSS colava no rótulo, porque a árvore
+de acessibilidade ignora margem.
+
+Telas que leem dados precisam da API no ar:
+`dotnet run --project src/Host/SpotifyDataAnalysis.Api --launch-profile http` (porta 5140).
+
+Se a verificação por navegador não for possível, **reporte o que ficou sem prova, com
+o erro exato**. Nunca descreva como verificado o que você não viu.
+
 ## Definition of done
 
-Os três comandos, de verdade, com a saída real reportada:
+Os quatro comandos, de verdade, com a saída real reportada:
 
 ```
 npm run typecheck
 npm run lint        # oxlint --max-warnings=0 — zero é o gate
+npm test            # vitest run
 npm run build
 ```
 
