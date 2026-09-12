@@ -1,5 +1,5 @@
 import { apiErrorFromKind, apiErrorFromProblem, toApiError } from './api-error'
-import { apiConfig } from './config'
+import { apiConfig, resolveBaseUrl } from './config'
 import { isApiResult, isProblemDetails, type ApiResult, type ProblemDetails } from './contracts'
 
 export type QueryValue = string | number | boolean | undefined | null
@@ -12,7 +12,7 @@ export interface ApiRequest {
 
 const JSON_ACCEPT = 'application/json, application/problem+json'
 
-function buildUrl(path: string, query: Record<string, QueryValue> | undefined): string {
+function buildUrl(baseUrl: string, path: string, query: Record<string, QueryValue> | undefined): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   const search = new URLSearchParams()
 
@@ -24,7 +24,7 @@ function buildUrl(path: string, query: Record<string, QueryValue> | undefined): 
 
   const queryString = search.toString()
 
-  return `${apiConfig.baseUrl}${normalizedPath}${queryString.length > 0 ? `?${queryString}` : ''}`
+  return `${baseUrl}${normalizedPath}${queryString.length > 0 ? `?${queryString}` : ''}`
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -63,10 +63,13 @@ function linkSignals(external: AbortSignal | undefined, timeoutMs: number): [Abo
  * No screen should ever read `.data.data` or inspect `response.status`.
  */
 export async function getResource<T>({ path, query, signal }: ApiRequest): Promise<T> {
-  if (!apiConfig.isConfigured) {
+  let baseUrl: string
+  try {
+    baseUrl = resolveBaseUrl(apiConfig.rawBaseUrl)
+  } catch (err) {
     throw apiErrorFromKind(
       'configuration',
-      'VITE_API_BASE_URL is not set. Copy frontend/.env.example to frontend/.env.local and point it at the API.',
+      err instanceof Error ? err.message : String(err),
     )
   }
 
@@ -75,7 +78,7 @@ export async function getResource<T>({ path, query, signal }: ApiRequest): Promi
   let response: Response
 
   try {
-    response = await fetch(buildUrl(path, query), {
+    response = await fetch(buildUrl(baseUrl, path, query), {
       method: 'GET',
       headers: { Accept: JSON_ACCEPT },
       signal: requestSignal,

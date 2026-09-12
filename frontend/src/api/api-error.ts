@@ -33,7 +33,7 @@ const HEADLINE: Readonly<Record<ApiErrorKind, string>> = {
   forbidden: 'Access denied',
   server: 'Internal API error',
   malformed: 'Response broke the contract',
-  configuration: 'Missing configuration',
+  configuration: 'Invalid configuration',
 }
 
 const FALLBACK_DETAIL: Readonly<Record<ApiErrorKind, string>> = {
@@ -63,7 +63,7 @@ const NEXT_STEP: Readonly<Record<ApiErrorKind, string>> = {
   server: 'Check the API logs using the trace id above.',
   malformed: 'This is a backend defect, not a frontend one: the published contract was not honoured.',
   configuration:
-    'Set VITE_API_BASE_URL in frontend/.env.local and restart the dev server.',
+    'Fix VITE_API_BASE_URL in frontend/.env.local (http://, https://, a relative path starting with /, or empty for same-origin) and restart the dev server.',
 }
 
 const RECOVERABLE_KINDS: ReadonlySet<ApiErrorKind> = new Set<ApiErrorKind>([

@@ -183,7 +183,7 @@ export function TrackDetailPanel({ track }: TrackDetailPanelProps) {
           >
             <GitCompare aria-hidden="true" />
             Find similar tracks
-            <span className="label-micro ml-1 text-text-faint">soon</span>
+            {' '}<span className="label-micro ml-1 text-text-faint">soon</span>
           </Button>
           <Button
             type="button"
@@ -195,7 +195,7 @@ export function TrackDetailPanel({ track }: TrackDetailPanelProps) {
           >
             <Sparkles aria-hidden="true" />
             Predict popularity
-            <span className="label-micro ml-1 text-text-faint">soon</span>
+            {' '}<span className="label-micro ml-1 text-text-faint">soon</span>
           </Button>
         </div>
       </Panel>

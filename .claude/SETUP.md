@@ -1,0 +1,318 @@
+# Adoção do vibe-coding-toolkit — registro de progresso
+
+> Fonte: [soumatheusgomes/vibe-coding-toolkit](https://github.com/soumatheusgomes/vibe-coding-toolkit),
+> seguindo `docs/02-playbook-onboarding.md`.
+>
+> Este arquivo é o **único** registro de acompanhamento da adoção — atualizado por
+> quem orquestra, ao fim de cada etapa. Não é changelog (isso é o `git log`); é o
+> estado do setup e o porquê de cada desvio do template.
+
+Iniciado em **2026-09-11**, na branch `feature/vibe-coding-toolkit-setup`.
+
+---
+
+## Checklist final do Playbook
+
+| # | Item | Estado |
+|---|---|---|
+| 1 | Claude Code instalado e autenticado | ✅ |
+| 2 | Superpowers instalado | ✅ |
+| 3 | Ponytail instalado | ✅ |
+| 4 | Caveman instalado | ✅ |
+| 5 | `CLAUDE.md` preenchido — stack, comandos canônicos, tabela de agentes | ✅ |
+| 6 | `.claude/settings.json` + hooks reais | ✅ |
+| 7 | Regra de ondas paralelas copiada e referenciada | ✅ |
+| 8 | Fluxo completo ponta a ponta rodado ao menos uma vez | ✅ |
+| 9 | Quality gates configurados, divisão decidida | ✅ |
+| 10 | Ao menos uma regra nova em warn→error | ✅ |
+| 11 | Sistema de memória leve configurado | ✅ |
+| 12 | (Opcional) Vault Obsidian + MCP | ✅ |
+| 13 | (Opcional) Graphify | ✅ |
+| 14 | (Opcional) agent-browser | ✅ |
+
+**Verificação pendente de humano** — os checkpoints "Veja funcionando" do Playbook
+exigem uma sessão interativa, não são automatizáveis a partir daqui:
+
+- [ ] Superpowers: pedido ambíguo dispara a skill `brainstorming` antes de qualquer código.
+- [ ] Ponytail: pedido que convida over-engineering volta com a escada de decisão.
+- [ ] Caveman: `/caveman-stats` mostra economia acumulada — e `Est. net` não está negativo.
+
+---
+
+## Etapas concluídas
+
+### Etapa 1 — Parte 2: os três pilares
+
+Instalados por comando `/plugin` na sessão. `enabledPlugins` foi gravado no
+`settings.json` **do projeto**, não no do usuário — mantido assim de propósito:
+os pilares viajam junto do repositório.
+
+Commit: `108b865`.
+
+### Etapa 2 — Parte 3: configuração do projeto
+
+| Commit | O quê |
+|---|---|
+| `1767a48` | `.gitignore`: `.claude/` sai do ignore total |
+| `7d215b8` | `CLAUDE.md` + 12 especialistas; `spotify-dev` aposentado |
+| `f491def` | Regra de ondas paralelas + referência no `CLAUDE.md` |
+| `834b1c7` | `settings.json` + hook de SessionStart |
+
+### Etapa 3 — Parte 6: memória
+
+Camada 1 montada em `.claude/memory/` via o prompt `06-memory-bootstrap`
+(`MEMORY_DIR=.claude/memory`, `CONFIG_FILE=CLAUDE.md`, `LINE_CAP=130`).
+Carregada por `@import` no `CLAUDE.md`.
+
+As 6 entradas que viviam em `~/.claude/projects/` foram passadas pelo teste
+estreito e viraram 7 — encolhendo, não crescendo. A memória global agora é um
+ponteiro de uma linha.
+
+**Camada 2 não existia na Etapa 3** e não foi inventada. Passou a existir na
+Etapa 7 — o `INSTRUCTIONS.md` foi corrigido junto, porque ele afirmava o contrário.
+
+Commit: `ad01451`.
+
+### Etapa 4 — faxina das permissões
+
+O `settings.local.json` tinha **298 entradas** e crescia sozinho: cada comando
+aprovado numa sessão vira uma linha permanente, e ninguém poda. Durante esta
+própria sessão ele subiu de 290 para 298.
+
+Resultado: **31 locais + 53 versionadas**, com três destinos.
+
+| Destino | O quê |
+|---|---|
+| `settings.json` (versionado) | Comandos canônicos do projeto: `dotnet`, `npm`/`npx`, e o MCP do Trello. São a definição operacional do projeto e valem para qualquer clone. |
+| `settings.local.json` (máquina) | O que depende desta máquina: caminho do `psql.exe`, Docker, `gh`, portas locais, `git` amplo. |
+| Removido | Lixo de sessão morta. |
+
+O que saiu, e por quê:
+
+- **Vazamento de escopo** — `Read(//c/Projetos/SISLAB/**)` e
+  `Read(//c/Projetos/Lumen/**)` davam leitura a **outros projetos** a partir da
+  sessão deste repositório. Esses dois são a razão de a faxina não ser cosmética.
+- Caminhos de `tool-results` de sessões que não existem mais.
+- `sed -i` de correções pontuais já aplicadas, `kill 349`, `echo "exit=$?"` e
+  variantes, `rm` de arquivos temporários específicos.
+- Mensagens de commit inteiras coladas como permissão de `printf`.
+- Polling de GitHub Actions com SHA fixo de branch já mesclada.
+
+Backup do arquivo original antes de sobrescrever (ele é gitignored — não há
+histórico para recuperar):
+`%TEMP%\settings.local.json.bak-2026-09-11`.
+
+Commit: `18b8e75`.
+
+### Etapa 5 — Parte 5: quality gates
+
+Adaptada, não copiada. O toolkit pressupõe ESLint + Biome em JS/TS; aqui a
+divisão em dois linters sem sobreposição vira **Roslyn analyzers no backend** e
+**oxlint no frontend** — dois analisadores, domínios disjuntos, zero regra
+duplicada.
+
+**Medido antes de configurar** (o prompt `08` é explícito: instalar e medir, não
+consertar):
+
+| Medição | Resultado |
+|---|---|
+| Avisos de analisador na solução | **694 distintos** |
+| Concentração | **604 (87%) são `CA1707`** — todos em `tests/`, zero em `src/` |
+| Backlog real | **90 avisos em 13 regras** |
+| Arquivos > 350 linhas (backend) | **4** |
+| Arquivos > 350 linhas (frontend) | **0** |
+| Média de linhas por arquivo | backend 87 · frontend 76 |
+
+**`CA1707` foi desligada em `tests/`** — decisão de escopo, não dívida. Nome de
+teste `Metodo_Deve_X_Quando_Y` é idiomático em xUnit e é o que o
+`test-engineer` exige. "Corrigir" destruiria legibilidade para satisfazer uma
+regra escrita para API pública. Em `src/` ela continua valendo — e lá já está em
+zero, ou seja, **bloqueia**.
+
+**O tier de migração warn→error** existia como problema real aqui: com
+`TreatWarningsAsErrors=true`, qualquer regra nova nasceria bloqueando. O
+equivalente .NET do tier "warn" do toolkit é `WarningsNotAsErrors` no
+`Directory.Build.props` — a regra fica ligada e visível, sem travar o build,
+enquanto a contagem for maior que zero.
+
+> **Como promover uma regra:** zere a contagem dela, remova o ID de
+> `WarningsNotAsErrors`, e ela passa a bloquear para sempre. A contagem de cada
+> uma está registrada como comentário ao lado da lista, com data — é o que torna
+> a dívida visível em vez de virar "depois a gente aperta isso".
+
+**Teto de 350 linhas:** ativado no frontend (`eslint/max-lines` no oxlint), onde
+a contagem já era zero — nasce bloqueando de forma legítima, que é exatamente o
+critério de promoção do toolkit. Verificado que a regra realmente dispara
+(baixando o teto para 50 temporariamente): nome de regra errado no oxlint é
+ignorado em silêncio, e um gate silencioso é pior que gate nenhum. No backend
+não existe analisador equivalente — os 4 arquivos estão registrados abaixo como
+backlog medido.
+
+**Verificação, com saída real:**
+
+- `dotnet build -c Release`: **0 erros, 90 avisos**, `CA1707` zerado.
+- `dotnet test -c Release`: **721 aprovados, 2 ignorados, 0 falhas** (723 total).
+  Os 2 ignorados são os `[PostgresFact]`, nomeados no log.
+- `npm run lint` e `npm run typecheck`: verdes.
+
+Commit: `72f9ddf`.
+
+### Etapa 6 — Parte 7: extras opcionais
+
+**Graphify** — a CLI já estava instalada (0.9.56, via `uv`) e a skill já estava
+no diretório global; faltava só construir o grafo deste repositório.
+
+> **Desvio do doc:** o Playbook manda `graphify claude install`. Esse comando
+> **não existe** na 0.9.56 — a sintaxe atual é `graphify install --platform claude`,
+> e ele só copia a skill, não reescreve o `CLAUDE.md` como o doc sugere. O próprio
+> toolkit avisa: "esse ecossistema muda em semanas, não em anos".
+
+Grafo: **4.548 nós, 9.872 arestas, 232 comunidades**, de 504 arquivos. Extração
+por AST, local, sem API key. Reconstruir com `graphify update .`.
+`graphify-out/` é gitignored — artefato derivado, não fonte.
+
+Consultas que já valeram o custo:
+
+- `graphify god-nodes` — os hubs reais são `SharedKernel.Messaging` (78 arestas),
+  `DomainException` (67), `Track` (52), `PagedResult` (41). Confirma que o
+  acoplamento se concentra onde deveria: no SharedKernel.
+- `graphify affected "Track" --depth 2` — tudo que depende de `Track` fica
+  **dentro de Catalog e seus testes**. Zero vazamento cross-módulo, verificado por
+  um caminho independente do ArchUnitNET.
+
+**agent-browser** — instalado (0.37.1) com o próprio Chrome for Testing
+(153.0.8010.36, isolado do Chrome do usuário). Testado contra o frontend real.
+
+O `snapshot` (árvore de acessibilidade com refs, não screenshot) funcionou e
+rendeu dois achados sem que ninguém procurasse:
+
+1. O estado de erro da SPA está correto — "NO RESPONSE" com detalhe acionável e
+   botão de retry quando a API não está no ar.
+2. **Possível bug de acessibilidade:** o link de navegação sai como
+   `link "Modelsoon"` — o rótulo "Model" e o badge "soon" colam sem separação.
+   Leitor de tela lê "Modelsoon". **Não corrigido** (fora de escopo), registrado
+   como backlog.
+
+**Obsidian** — ver Etapa 7.
+
+### Etapa 7 — Parte 6, camada 2: vault de longo prazo
+
+**Vault dedicado em `C:\Projetos\SpotifyDataAnalysis-vault`** — fora do OneDrive
+e fora do repositório.
+
+Por que dedicado, e não o vault pessoal que já existe: o vault pessoal
+(`OneDrive\Documentos\Obsidian Vault`) tem `Contratos`, `Cursos` e material
+pessoal, e **sincroniza para a nuvem**. Um servidor MCP com escrita em filesystem
+apontado para a raiz dele teria acesso a tudo isso — a mesma classe de problema
+do `Read(//c/Projetos/SISLAB/**)` removido na Etapa 4, em escala maior.
+
+**Servidor MCP: `mcpvault`** (`npx @bitbonsai/mcpvault`), escolhido porque roda em
+Node 20+ — o `mcp-fs-obsidian` exigiria instalar o runtime Bun. Não precisa do app
+Obsidian aberto nem de plugin. Smoke test antes de confiar na config: servidor
+`mcpvault 0.16.0` respondeu ao `initialize` e expôs **18 ferramentas**.
+
+> **Limitação honesta:** o toolkit pede um servidor que imponha **template por
+> pasta**. Nenhum servidor disponível hoje faz isso — os que existem validam
+> frontmatter (tipo e sintaxe), não a presença das seções obrigatórias. O template
+> fica como convenção documentada no vault e no `INSTRUCTIONS.md`. É o mesmo tipo
+> de lacuna entre doc e ecossistema do `graphify claude install`.
+
+**O hook é o que torna isso real.** Sem ele, "sempre use MCP" é convenção de boa
+vontade. `vault-guard.mjs` roda em `PreToolUse` e bloqueia `Read`/`Grep`/`Glob`/
+`Write`/`Edit` no vault, com exceção estreita de **leitura** em `daily/`.
+
+Adaptação em relação ao doc: lá o vault mora dentro do projeto e o teste é
+`path.includes("vault/")`. Aqui ele mora fora e em caminho Windows, então o hook
+normaliza separador (`\` → `/`) e caixa antes de comparar.
+
+**Verificado com 12 casos** — 8 de bloqueio (barra invertida, barra normal, caixa
+trocada, escrita em `daily/`, `Glob` por `pattern`, arquivo chamado `daily-notes`
+fora da pasta) e 4 de liberação. **Um bug real apareceu no teste:** `Grep` apontado
+para o diretório `.../daily` (sem barra final) era bloqueado, porque o teste era
+`includes("/daily/")`. Corrigido para `/\/daily(\/|$)/`. Sem esse teste, a exceção
+teria nascido quebrada.
+
+O caminho do vault vive em `SPOTIFY_VAULT_PATH` no `settings.local.json`
+(máquina), e o `.mcp.json` versionado só referencia a variável — mesma separação
+projeto/máquina da Etapa 4.
+
+### Etapa 8 — Parte 4: o fluxo completo, sobre trabalho real
+
+Rodado na branch `feature/e6.2-front-base-relativa-e-a11y`, a partir da branch de
+setup — de propósito, para que o exercício acontecesse **com** os quality gates,
+os hooks e o elenco de especialistas ligados. Rodar a partir da `main` teria
+provado o fluxo sem o que ele deveria provar.
+
+**O trabalho:** o item `6a83ce4d` do checklist "Critérios de aceite — VPS (v2)" do
+card #58, mais o bug de acessibilidade achado na Etapa 6.
+
+| Onda | Tarefas | Especialista |
+|---|---|---|
+| 1 | T1 `frontend/src/api/**` ‖ T2 `frontend/src/components/**` | `react-frontend-specialist` ×2, em paralelo |
+| 2 | T3 `.github/workflows/ci.yml` + `CLAUDE.md` | `devops-engineer` |
+
+Implementador nunca commitou; quem orquestrou commitou por tarefa, capturando o
+`HEAD` na hora. Revisores (`code-reviewer` + `security-reviewer`) despachados
+juntos depois dos commits, cada um escopado à faixa `902fb94..5ab5dc2`.
+
+**O que a revisão multi-agente pegou — e que os 4 gates verdes não pegaram.**
+`code-reviewer` e `security-reviewer` acharam, por caminhos independentes, o mesmo
+buraco na validação nova: `startsWith('/')` aceitava `//evil.com`, que no browser
+é URL protocol-relative e manda todo `fetch` da SPA para host externo. Variantes
+`//` e `https:evil.com` escapavam pelo mesmo raciocínio. Os 11 testes, o
+typecheck, o lint e o build ficaram verdes o tempo todo — a revisão é que era o
+gate. Corrigido em `89ab491`.
+
+**Duas lições operacionais do próprio fluxo:**
+
+1. **Especialista não herda a ferramenta que quem orquestra tem.** O implementador
+   da T2 não tinha `agent-browser` e reportou honestamente "sem prova" em vez de
+   inventar verificação. Quem orquestrou rodou o snapshot e fechou a prova:
+   `link "Model soon"` no lugar de `link "Modelsoon"`. O contrato "não invente que
+   verificou" funcionou — mas o brief tinha pedido uma prova que o agente não
+   tinha como produzir.
+2. **Onda paralela em monorepo de front compartilha `node_modules`.** A T1
+   instalava `vitest` enquanto a T2 rodava `npm run dev`. Conjunto de arquivos
+   disjunto não significa ambiente disjunto: o build da T2 falhou no meio, por
+   estado transitório da tarefa vizinha. Nenhum dano — o gate foi rodado de novo
+   com a onda inteira fechada — mas é o tipo de colisão que a regra de arquivos
+   disjuntos não cobre sozinha.
+
+Commits: `5a65029`, `5ab5dc2`, `1769f7e`, `89ab491`.
+
+---
+
+## Decisões tomadas — e onde desviamos do template
+
+| Decisão | Escolha | Racional |
+|---|---|---|
+| Trailer `Co-Authored-By` | **Nunca usar** | Regra pré-existente do projeto, confirmada. Commits saem só como o autor do `git config`. |
+| `spotify-dev` monolítico | **Aposentado** | Um agente que pode tocar qualquer arquivo nunca tem escopo disjunto de outro — bloqueia ondas paralelas na estrutura. |
+| Elenco de especialistas | **12 + `spotify-po`** | Derivado dos domínios reais do repo, não copiado do roster genérico do toolkit. |
+| `.claude/` no `.gitignore` | **Versionado seletivamente** | O setup precisa sobreviver a clone limpo — o mesmo gate que o E6.1 defende. Só `settings.local.json` e estado de sessão ficam fora. |
+| Idioma do `CLAUDE.md` | **Português**, estrutura 1:1 com o template | Instrução interna de trabalho. O `README.md` do portfólio segue em inglês. |
+| Hook `example-command-proxy` | **Não escrito** | Era placeholder. O Playbook permite remover hook não usado; escrevemos um que resolve problema real daqui. |
+| Bloco `env` do template | **Removido** | Chave de API inventada em arquivo versionado é ruído, não configuração. |
+| Memória: global vs repo | **Repo é canônico** | Versionada, sobrevive a troca de máquina. A global virou ponteiro para evitar duas fontes da verdade. |
+| Quality gates ESLint/Biome | **Adaptado, não copiado** | O toolkit pressupõe JS/TS. O backend é .NET (sem ESLint) e o frontend usa oxlint. Copiar `templates/eslint/` seria seguir a letra e trair a ideia. |
+
+---
+
+## Pendente
+
+1. **Backlog medido, deliberadamente não corrigido** (medir e consertar são
+   trabalhos separados):
+   - 90 avisos de analisador em 13 regras, cada um no tier de migração.
+     `CA1001` (tipo com campo `IDisposable` que não implementa `IDisposable`,
+     3 ocorrências) é a de maior valor: é classe de bug, não estilo.
+   - 4 arquivos de backend acima de 350 linhas:
+     `GetTrackRecommendationsQueryHandlerTests.cs` (612),
+     `GetTrackRecommendationsQuery.cs` (476),
+     `SpotifyApiClientTests.cs` (394),
+     `ImportKaggleAudioFeaturesTests.cs` (384).
+     O prompt `09-file-size-refactor` é o segundo tempo disso — corta por
+     responsabilidade, nunca por contagem de linha.
+   - Link de navegação lido como `"Modelsoon"` pela árvore de acessibilidade
+     (achado do agent-browser).
+2. **Merge da branch de setup em `main`**, e primeira tag SemVer — o repositório
+   não tem nenhuma tag até hoje. Decisão do Kauã.
