@@ -34,4 +34,25 @@ describe('resolveBaseUrl', () => {
     expect(() => resolveBaseUrl('ftp://host')).toThrow('ftp://host')
     expect(() => resolveBaseUrl('localhost:')).toThrow('localhost:')
   })
+
+  it('protocol-relative //evil.com é rejeitado', () => {
+    expect(() => resolveBaseUrl('//evil.com')).toThrow('//evil.com')
+  })
+
+  it('//-sozinho é rejeitado', () => {
+    expect(() => resolveBaseUrl('//')).toThrow('//')
+  })
+
+  it('https:evil.com (sem barras duplas) é rejeitado', () => {
+    expect(() => resolveBaseUrl('https:evil.com')).toThrow('https:evil.com')
+  })
+
+  it('esquema em maiúscula HTTP:// é aceito', () => {
+    expect(resolveBaseUrl('HTTP://api.example.com')).toBe('HTTP://api.example.com')
+  })
+
+  it('/api e /api/ continuam aceitos (regressão)', () => {
+    expect(resolveBaseUrl('/api')).toBe('/api')
+    expect(resolveBaseUrl('/api/')).toBe('/api')
+  })
 })

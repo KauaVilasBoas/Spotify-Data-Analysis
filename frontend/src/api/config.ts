@@ -22,21 +22,24 @@ export function resolveBaseUrl(raw: string | undefined): string {
     return ''
   }
 
-  if (trimmed.startsWith('/')) {
+  // Accept relative path only when it starts with exactly one '/'.
+  // '//' is a protocol-relative URL in browsers and must not be allowed.
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
   }
 
-  // Check protocol explicitly — new URL('localhost:5140') parses with protocol
-  // 'localhost:', so checking whether URL is valid is not sufficient.
+  // Check literal prefix case-insensitively — URL constructor infers the
+  // protocol from the string, so new URL('https:evil.com') succeeds (opaque
+  // path) even though the value is not a valid absolute URL for fetching.
   const invalid = `Invalid VITE_API_BASE_URL: "${trimmed}". Use http://, https://, a relative path starting with /, or leave it empty for same-origin.`
-  let parsed: URL
-  try {
-    parsed = new URL(trimmed)
-  } catch {
+  const lower = trimmed.toLowerCase()
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
     throw new Error(invalid)
   }
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+  try {
+    new URL(trimmed)
+  } catch {
     throw new Error(invalid)
   }
 

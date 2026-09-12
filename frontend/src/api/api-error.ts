@@ -33,7 +33,7 @@ const HEADLINE: Readonly<Record<ApiErrorKind, string>> = {
   forbidden: 'Access denied',
   server: 'Internal API error',
   malformed: 'Response broke the contract',
-  configuration: 'Missing configuration',
+  configuration: 'Invalid configuration',
 }
 
 const FALLBACK_DETAIL: Readonly<Record<ApiErrorKind, string>> = {
