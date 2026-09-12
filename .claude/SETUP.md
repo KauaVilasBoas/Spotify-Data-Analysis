@@ -22,7 +22,7 @@ Iniciado em **2026-09-11**, na branch `feature/vibe-coding-toolkit-setup`.
 | 5 | `CLAUDE.md` preenchido — stack, comandos canônicos, tabela de agentes | ✅ |
 | 6 | `.claude/settings.json` + hooks reais | ✅ |
 | 7 | Regra de ondas paralelas copiada e referenciada | ✅ |
-| 8 | Fluxo completo ponta a ponta rodado ao menos uma vez | ⬜ |
+| 8 | Fluxo completo ponta a ponta rodado ao menos uma vez | ✅ |
 | 9 | Quality gates configurados, divisão decidida | ✅ |
 | 10 | Ao menos uma regra nova em warn→error | ✅ |
 | 11 | Sistema de memória leve configurado | ✅ |
@@ -236,6 +236,50 @@ O caminho do vault vive em `SPOTIFY_VAULT_PATH` no `settings.local.json`
 (máquina), e o `.mcp.json` versionado só referencia a variável — mesma separação
 projeto/máquina da Etapa 4.
 
+### Etapa 8 — Parte 4: o fluxo completo, sobre trabalho real
+
+Rodado na branch `feature/e6.2-front-base-relativa-e-a11y`, a partir da branch de
+setup — de propósito, para que o exercício acontecesse **com** os quality gates,
+os hooks e o elenco de especialistas ligados. Rodar a partir da `main` teria
+provado o fluxo sem o que ele deveria provar.
+
+**O trabalho:** o item `6a83ce4d` do checklist "Critérios de aceite — VPS (v2)" do
+card #58, mais o bug de acessibilidade achado na Etapa 6.
+
+| Onda | Tarefas | Especialista |
+|---|---|---|
+| 1 | T1 `frontend/src/api/**` ‖ T2 `frontend/src/components/**` | `react-frontend-specialist` ×2, em paralelo |
+| 2 | T3 `.github/workflows/ci.yml` + `CLAUDE.md` | `devops-engineer` |
+
+Implementador nunca commitou; quem orquestrou commitou por tarefa, capturando o
+`HEAD` na hora. Revisores (`code-reviewer` + `security-reviewer`) despachados
+juntos depois dos commits, cada um escopado à faixa `902fb94..5ab5dc2`.
+
+**O que a revisão multi-agente pegou — e que os 4 gates verdes não pegaram.**
+`code-reviewer` e `security-reviewer` acharam, por caminhos independentes, o mesmo
+buraco na validação nova: `startsWith('/')` aceitava `//evil.com`, que no browser
+é URL protocol-relative e manda todo `fetch` da SPA para host externo. Variantes
+`//` e `https:evil.com` escapavam pelo mesmo raciocínio. Os 11 testes, o
+typecheck, o lint e o build ficaram verdes o tempo todo — a revisão é que era o
+gate. Corrigido em `89ab491`.
+
+**Duas lições operacionais do próprio fluxo:**
+
+1. **Especialista não herda a ferramenta que quem orquestra tem.** O implementador
+   da T2 não tinha `agent-browser` e reportou honestamente "sem prova" em vez de
+   inventar verificação. Quem orquestrou rodou o snapshot e fechou a prova:
+   `link "Model soon"` no lugar de `link "Modelsoon"`. O contrato "não invente que
+   verificou" funcionou — mas o brief tinha pedido uma prova que o agente não
+   tinha como produzir.
+2. **Onda paralela em monorepo de front compartilha `node_modules`.** A T1
+   instalava `vitest` enquanto a T2 rodava `npm run dev`. Conjunto de arquivos
+   disjunto não significa ambiente disjunto: o build da T2 falhou no meio, por
+   estado transitório da tarefa vizinha. Nenhum dano — o gate foi rodado de novo
+   com a onda inteira fechada — mas é o tipo de colisão que a regra de arquivos
+   disjuntos não cobre sozinha.
+
+Commits: `5a65029`, `5ab5dc2`, `1769f7e`, `89ab491`.
+
 ---
 
 ## Decisões tomadas — e onde desviamos do template
@@ -270,6 +314,5 @@ projeto/máquina da Etapa 4.
      responsabilidade, nunca por contagem de linha.
    - Link de navegação lido como `"Modelsoon"` pela árvore de acessibilidade
      (achado do agent-browser).
-2. **Parte 4 — fluxo completo ponta a ponta.** Brainstorm → plano → ondas
-   paralelas → revisão multi-agente → commit. Só fecha sobre um card real; é o
-   último item, por construção.
+2. **Merge da branch de setup em `main`**, e primeira tag SemVer — o repositório
+   não tem nenhuma tag até hoje. Decisão do Kauã.
