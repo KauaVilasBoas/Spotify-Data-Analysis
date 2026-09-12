@@ -12,13 +12,13 @@ import { PredictionPanel } from '@/components/model/PredictionPanel'
 export function ModelPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Parâmetro de URL: ?track=<spotifyTrackId>
-  const trackIdFromUrl = searchParams.get('track')
+  // URL é a fonte da verdade da faixa selecionada — derivado direto, sem useState,
+  // para que navegar de volta/avançar ou chegar via link já traga a faixa certa.
+  const selectedTrackId = searchParams.get('track')
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<TrackSort>('PopularityDesc')
   const [page, setPage] = useState(1)
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(trackIdFromUrl)
 
   const modelResource = useCurrentModel()
   const statsResource = useDatasetStats()
@@ -26,7 +26,6 @@ export function ModelPage() {
   const predictionResource = usePopularityPrediction(selectedTrackId)
 
   function handleSelectTrack(trackId: string) {
-    setSelectedTrackId(trackId)
     // Reflete no URL para a tela ser compartilhável
     setSearchParams({ track: trackId }, { replace: true })
   }

@@ -33,6 +33,7 @@ import {
   getDatasetStats,
   getTrackRecommendations,
   predictPopularity,
+  resolveRecommendationParams,
   type DatasetStats,
   type ModelVersion,
   type PopularityPredictionResponse,
@@ -197,9 +198,12 @@ export function useTrackRecommendations(
   trackId: string | null,
   params: RecommendationParams = {},
 ): ApiResource<TrackRecommendations> {
+  // Defaults resolvidos aqui, antes de montar a chave, para que {} e os defaults
+  // explícitos gerem a mesma entrada de cache.
+  const resolved = resolveRecommendationParams(params)
   return useApiQuery(
-    queryKeys.recommendations(trackId ?? '', params),
-    (signal) => getTrackRecommendations(trackId as string, params, signal),
+    queryKeys.recommendations(trackId ?? '', resolved),
+    (signal) => getTrackRecommendations(trackId as string, resolved, signal),
     { enabled: trackId !== null },
   )
 }

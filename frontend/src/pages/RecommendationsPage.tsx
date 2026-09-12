@@ -101,7 +101,6 @@ export function RecommendationsPage() {
                       <RecommendationHonesty
                         rec={rec}
                         requestedStrategy={params.strategy}
-                        requestedGenreMode={params.genreMode}
                       />
                     </Panel>
 

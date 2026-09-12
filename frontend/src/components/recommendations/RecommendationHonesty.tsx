@@ -28,7 +28,8 @@ function genreModeLabel(raw: string): string {
 interface HonestyProps {
   rec: TrackRecommendations
   requestedStrategy: 'content' | 'blend'
-  requestedGenreMode: 'boost' | 'off' | 'sameGenreOnly'
+  // requestedGenreMode vem do echo da API (rec.requestedGenreMode), não de prop,
+  // para que uma requisição ainda em voo não afirme o modo de uma resposta anterior.
 }
 
 interface AlertRowProps {
@@ -62,9 +63,13 @@ function AlertRow({ children, severity = 'warn' }: AlertRowProps) {
  * Painel de honestidade: exibe warnings, fallbacks e divergências entre o que
  * foi pedido e o que a API efetivamente aplicou. É o coração da tela.
  */
-export function RecommendationHonesty({ rec, requestedStrategy, requestedGenreMode }: HonestyProps) {
+export function RecommendationHonesty({ rec, requestedStrategy }: HonestyProps) {
   const effectiveStrategyNorm = normalizeEnum(rec.effectiveStrategy)
   const effectiveGenreModeNorm = normalizeEnum(rec.effectiveGenreMode)
+  // requestedGenreMode: lido do echo da API porque não há campo equivalente para
+  // estratégia — a API só devolve effectiveStrategy, não requestedStrategy.
+  // Estratégia continua comparada via prop para não introduzir assimetria falsa.
+  const requestedGenreMode = normalizeEnum(rec.requestedGenreMode)
 
   const strategyDiverged = effectiveStrategyNorm !== requestedStrategy
   const genreModeDiverged = effectiveGenreModeNorm !== requestedGenreMode
@@ -81,7 +86,6 @@ export function RecommendationHonesty({ rec, requestedStrategy, requestedGenreMo
     <div className="space-y-4">
       {/* Warnings do servidor — sempre visíveis, sem "ver mais" */}
       {rec.warnings.map((w, i) => (
-        // eslint-disable-next-line react/no-array-index-key
         <AlertRow key={i} severity="warn">
           {w}
         </AlertRow>

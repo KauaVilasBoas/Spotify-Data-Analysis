@@ -34,8 +34,8 @@ vi.mock('./config', () => ({
   },
 }))
 
-// Importar postResource DEPOIS do mock
-const { postResource } = await import('./http-client')
+// Importar DEPOIS do mock
+const { postResource, getResource } = await import('./http-client')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +127,61 @@ describe('postResource', () => {
 
     await expect(
       postResource({ path: '/api/predictions/popularity', body: { trackId: 'abc' } }),
+    ).rejects.toSatisfy((e: ApiError) => e instanceof ApiError && e.kind === 'configuration')
+
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('getResource', () => {
+  it('emite GET sem corpo e com Accept correto', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValueOnce(makeResponse(makeEnvelope({ version: 1 })))
+
+    await getResource({ path: '/api/model/current' })
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+
+    expect(url).toBe(`${VALID_BASE}/api/model/current`)
+    expect(init.method).toBe('GET')
+    expect(init.body).toBeUndefined()
+
+    const headers = init.headers as Record<string, string>
+    expect(headers['Accept']).toContain('application/json')
+  })
+
+  it('resposta 200 com envelope válido → devolve data desembrulhado', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(makeResponse(makeEnvelope({ version: 1 })))
+
+    const result = await getResource<{ version: number }>({ path: '/api/model/current' })
+
+    expect(result).toEqual({ version: 1 })
+  })
+
+  it('resposta 404 com ProblemDetails → lança ApiError notFound', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      makeResponse(makeProblem(404, 'Not Found', 'Model not found'), 404),
+    )
+
+    await expect(
+      getResource({ path: '/api/model/current' }),
+    ).rejects.toSatisfy((e: ApiError) => e instanceof ApiError && e.kind === 'notFound')
+  })
+
+  it('resposta 200 com envelope quebrado → lança ApiError malformed', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(makeResponse(JSON.stringify({ wrong: 'shape' })))
+
+    await expect(
+      getResource({ path: '/api/model/current' }),
+    ).rejects.toSatisfy((e: ApiError) => e instanceof ApiError && e.kind === 'malformed')
+  })
+
+  it('VITE_API_BASE_URL malformada → lança ApiError configuration antes do fetch', async () => {
+    mockConfig.rawBaseUrl = 'not-a-valid-url'
+
+    await expect(
+      getResource({ path: '/api/model/current' }),
     ).rejects.toSatisfy((e: ApiError) => e instanceof ApiError && e.kind === 'configuration')
 
     expect(fetch).not.toHaveBeenCalled()
