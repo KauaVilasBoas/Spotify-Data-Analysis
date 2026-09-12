@@ -26,9 +26,9 @@ Iniciado em **2026-09-11**, na branch `feature/vibe-coding-toolkit-setup`.
 | 9 | Quality gates configurados, divisão decidida | ✅ |
 | 10 | Ao menos uma regra nova em warn→error | ✅ |
 | 11 | Sistema de memória leve configurado | ✅ |
-| 12 | (Opcional) Vault Obsidian + MCP | ⬜ |
-| 13 | (Opcional) Graphify | ⬜ |
-| 14 | (Opcional) agent-browser | ⬜ |
+| 12 | (Opcional) Vault Obsidian + MCP | ⬜ adiado |
+| 13 | (Opcional) Graphify | ✅ |
+| 14 | (Opcional) agent-browser | ✅ |
 
 **Verificação pendente de humano** — os checkpoints "Veja funcionando" do Playbook
 exigem uma sessão interativa, não são automatizáveis a partir daqui:
@@ -155,7 +155,46 @@ backlog medido.
   Os 2 ignorados são os `[PostgresFact]`, nomeados no log.
 - `npm run lint` e `npm run typecheck`: verdes.
 
-Commit: ver `build(quality)`.
+Commit: `72f9ddf`.
+
+### Etapa 6 — Parte 7: extras opcionais
+
+**Graphify** — a CLI já estava instalada (0.9.56, via `uv`) e a skill já estava
+no diretório global; faltava só construir o grafo deste repositório.
+
+> **Desvio do doc:** o Playbook manda `graphify claude install`. Esse comando
+> **não existe** na 0.9.56 — a sintaxe atual é `graphify install --platform claude`,
+> e ele só copia a skill, não reescreve o `CLAUDE.md` como o doc sugere. O próprio
+> toolkit avisa: "esse ecossistema muda em semanas, não em anos".
+
+Grafo: **4.548 nós, 9.872 arestas, 232 comunidades**, de 504 arquivos. Extração
+por AST, local, sem API key. Reconstruir com `graphify update .`.
+`graphify-out/` é gitignored — artefato derivado, não fonte.
+
+Consultas que já valeram o custo:
+
+- `graphify god-nodes` — os hubs reais são `SharedKernel.Messaging` (78 arestas),
+  `DomainException` (67), `Track` (52), `PagedResult` (41). Confirma que o
+  acoplamento se concentra onde deveria: no SharedKernel.
+- `graphify affected "Track" --depth 2` — tudo que depende de `Track` fica
+  **dentro de Catalog e seus testes**. Zero vazamento cross-módulo, verificado por
+  um caminho independente do ArchUnitNET.
+
+**agent-browser** — instalado (0.37.1) com o próprio Chrome for Testing
+(153.0.8010.36, isolado do Chrome do usuário). Testado contra o frontend real.
+
+O `snapshot` (árvore de acessibilidade com refs, não screenshot) funcionou e
+rendeu dois achados sem que ninguém procurasse:
+
+1. O estado de erro da SPA está correto — "NO RESPONSE" com detalhe acionável e
+   botão de retry quando a API não está no ar.
+2. **Possível bug de acessibilidade:** o link de navegação sai como
+   `link "Modelsoon"` — o rótulo "Model" e o badge "soon" colam sem separação.
+   Leitor de tela lê "Modelsoon". **Não corrigido** (fora de escopo), registrado
+   como backlog.
+
+**Obsidian** — não instalado, e **não adotado por ora**. Decisão registrada
+abaixo.
 
 ---
 
@@ -189,6 +228,8 @@ Commit: ver `build(quality)`.
      `ImportKaggleAudioFeaturesTests.cs` (384).
      O prompt `09-file-size-refactor` é o segundo tempo disso — corta por
      responsabilidade, nunca por contagem de linha.
+   - Link de navegação lido como `"Modelsoon"` pela árvore de acessibilidade
+     (achado do agent-browser).
 2. **Parte 4 — fluxo completo ponta a ponta.** Brainstorm → plano → ondas
    paralelas → revisão multi-agente → commit. Só fecha sobre um card real; é o
    último item, por construção.

@@ -53,6 +53,11 @@ secrets.json
 /.claude/statsig/
 /.claude/history.jsonl
 
+## Graphify (grafo de conhecimento — artefato DERIVADO, nunca fonte)
+# ANCORADO: o grafo é reconstruível a qualquer momento com `graphify update .`, e versionar
+# um JSON grande que muda a cada commit de código só geraria conflito sem informação nova.
+/graphify-out/
+
 ## Dataset / modelos de ML (dados locais e artefatos — nunca versionar)
 # O CSV do Kaggle (~20 MB) e os modelos treinados (.zip/.mlnet) ficam no disco, fora do git.
 /dataset.csv
