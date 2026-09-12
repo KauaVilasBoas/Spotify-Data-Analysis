@@ -35,7 +35,7 @@ export function TopNav({ onOpenCommandPalette }: TopNavProps) {
             >
               {section.label}
               {section.status === 'planned' && (
-                <span className="ml-1.5 align-middle text-[0.6rem] text-text-faint">soon</span>
+                <>{' '}<span className="ml-1.5 align-middle text-[0.6rem] text-text-faint">soon</span></>
               )}
             </NavLink>
           ))}
