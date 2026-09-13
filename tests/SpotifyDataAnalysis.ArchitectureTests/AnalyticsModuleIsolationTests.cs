@@ -108,10 +108,13 @@ public sealed class AnalyticsModuleIsolationTests
     [Fact]
     public void AnalyticsDomain_ShouldNotDependOn_AspNetCore()
     {
+        // ResideInNamespace faz correspondência exata de namespace. Como os tipos do ASP.NET Core residem
+        // em sub-namespaces (Microsoft.AspNetCore.Http, Microsoft.AspNetCore.Mvc, etc.) e nunca no
+        // namespace raiz "Microsoft.AspNetCore", é necessário usar ResideInNamespaceMatching com regex.
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(AnalyticsDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.AspNetCore");
+            .ResideInNamespaceMatching(@"Microsoft\.AspNetCore(\..+)?");
 
         rule.Check(Architecture);
     }
