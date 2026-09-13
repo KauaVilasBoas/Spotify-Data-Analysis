@@ -12,4 +12,5 @@
 - [Teste verde do read-side não prova nada](read-side-count-over-bigint.md) — 18 testes passando com o endpoint dando 500 em 100% das chamadas; o teste de contrato só afirma o texto do SQL.
 - [Gênero domina; artista está zerado](genero-domina-artista-zerado.md) — `artists.popularity`/`followers` são colunas de zeros, e treinar contra elas queima um ciclo inteiro.
 - [Playlist não está no dataset.csv](dados-de-playlist-fora-do-csv.md) — co-ocorrência é zero no CSV, o MPD saiu do ar, e a fonte adotada casa faixa por nome+artista que o catálogo hoje não guarda.
+- [Regra de arquitetura verde por vacuidade](arch-rules-verdes-por-vacuidade.md) — 4 das 42 regras avaliavam zero tipos; o que segurava o SharedKernel era o `.csproj`, não o teste.
 - [Planejamento mora fora do git](planejamento-mora-fora-do-git.md) — `docs/` é gitignored de propósito; plano, pendências e backlog vivem em PLANO.md, PENDENCIAS.md e no Trello.

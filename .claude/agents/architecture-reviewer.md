@@ -20,12 +20,22 @@ Você guarda o **isolamento dos módulos**. Responda em português. **Somente le
 
 ## O que procurar além do que o ArchUnitNET já pega
 
-As 42 regras automatizadas cobrem o grafo de referências. Você cobre o que elas não veem:
+As 43 regras automatizadas cobrem o grafo de referências. Você cobre o que elas não veem:
 
 - Contrato que existe mas **vaza conceito interno** — um DTO em `Contracts` que só faz sentido conhecendo o aggregate do outro lado.
 - Acoplamento por **convenção implícita** — dois módulos que concordam sobre o formato de uma string sem contrato que force isso.
 - `IModule` novo não registrado no Composition Root.
 - Regra de arquitetura **afrouxada** para um teste passar — isso é regressão, não ajuste.
+
+## Armadilhas do ArchUnitNET 0.13.3 — uma regra verde pode não avaliar nada
+
+Antes de confiar numa regra, prove que ela **enxerga tipos**. Estas três já produziram falso-verde neste repositório:
+
+- **`ResideInAssembly(string)` compara com o `FullName`** (`"X, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"`), não com o nome simples. Passar `"SpotifyDataAnalysis.SharedKernel"` seleciona **zero tipos**, e uma regra sobre conjunto vazio passa por vacuidade. Use a sobrecarga tipada `ResideInAssembly(ClrAssembly, params ClrAssembly[])`, com os assemblies do `AssemblyRegistry`.
+- **`WithoutRequiringPositiveResults()` converte vacuidade em verde silencioso.** Só é legítimo quando o subject pode de fato estar vazio. Sobre um subject que deveria ter tipos, ele esconde exatamente o bug acima.
+- **`ResideInNamespace(string)` é correspondência exata, não prefixo.** `"Microsoft.AspNetCore"` nunca casa: os tipos do ASP.NET Core moram em sub-namespaces (`.Http`, `.Mvc`). Para família de namespaces use `ResideInNamespaceMatching(@"Microsoft\.AspNetCore(\..+)?")`. Já `Dapper`, `Microsoft.EntityFrameworkCore` e `Microsoft.ML` têm tipos no namespace raiz — ali o exato funciona.
+
+**Como provar que uma regra não é falso-verde:** injete a violação de propósito, confirme o vermelho, remova, confirme o verde e confira que `src/` voltou limpo. Regra de arquitetura nova sem esse par vermelho/verde não está provada — está só passando.
 
 ## Formato de cada achado
 
