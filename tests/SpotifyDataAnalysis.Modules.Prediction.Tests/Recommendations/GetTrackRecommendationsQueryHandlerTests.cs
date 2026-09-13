@@ -654,6 +654,35 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         return Environment.NewLine + string.Join(Environment.NewLine, lines);
     }
 
+    // --- E4.11: over-fetch unificado em RecommendationOverFetch ---
+
+    /// <summary>
+    /// O handler passa exatamente <see cref="RecommendationOverFetch.CountFor"/> para a fonte colaborativa quando
+    /// strategy=blend. Testado para dois valores de <c>limit</c>: um acima do piso (20) e um abaixo (1). Se a
+    /// fórmula divergir em qualquer call site, qualquer mudança futura na fórmula (card #77) quebra aqui — e não em
+    /// produção silenciosamente.
+    /// </summary>
+    [Theory]
+    [InlineData(20)]
+    [InlineData(1)]
+    public async Task Handle_Blend_PassesOverFetchCountFor_ToCoOccurrenceSource(int limit)
+    {
+        var metadata = new StubMetadataSource();
+        foreach (string id in new[] { "seed", "near", "mid", "far", "imp" })
+            metadata.Add(Meta(id));
+
+        var capturingSource = new CapturingCoOccurrenceSource();
+        capturingSource.Add("seed", new CoOccurringTrack("far", CoPlaylists: 5, Jaccard: 0.5));
+
+        var handler = Handler(IndexOf(SampleCatalog()), metadata, capturingSource);
+
+        await handler.HandleAsync(Query("seed", limit: limit,
+            genreMode: GenreRankingModeContract.Off,
+            strategy: RecommendationStrategyContract.Blend));
+
+        Assert.Equal(RecommendationOverFetch.CountFor(limit), capturingSource.LastLimit);
+    }
+
     /// <summary>Handler com um sinal colaborativo VAZIO por default — os testes de content/E4.3/E4.7 não usam blend.</summary>
     private static GetTrackRecommendationsQueryHandler Handler(
         ITrackSimilarityIndexProvider index, ITrackMetadataSource metadata,
@@ -700,6 +729,26 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         public Task<IReadOnlyList<CoOccurringTrack>> FindCoOccurringAsync(
             string seedTrackId, int limit, CancellationToken cancellationToken = default)
         {
+            IReadOnlyList<CoOccurringTrack> found = _bySeed.TryGetValue(seedTrackId, out List<CoOccurringTrack>? list)
+                ? list.Take(limit).ToArray()
+                : [];
+
+            return Task.FromResult(found);
+        }
+    }
+
+    private sealed class CapturingCoOccurrenceSource : ITrackCoOccurrenceSource
+    {
+        private readonly Dictionary<string, List<CoOccurringTrack>> _bySeed = new(StringComparer.Ordinal);
+
+        public int LastLimit { get; private set; }
+
+        public void Add(string seed, params CoOccurringTrack[] neighbors) => _bySeed[seed] = neighbors.ToList();
+
+        public Task<IReadOnlyList<CoOccurringTrack>> FindCoOccurringAsync(
+            string seedTrackId, int limit, CancellationToken cancellationToken = default)
+        {
+            LastLimit = limit;
             IReadOnlyList<CoOccurringTrack> found = _bySeed.TryGetValue(seedTrackId, out List<CoOccurringTrack>? list)
                 ? list.Take(limit).ToArray()
                 : [];

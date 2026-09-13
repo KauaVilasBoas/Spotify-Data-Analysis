@@ -20,21 +20,6 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluati
 public sealed class RecommenderQualityEvaluator
 {
     /// <summary>
-    /// Fator de over-fetch quando há pós-processamento (dedup e/ou blend), espelhando
-    /// <c>GetTrackRecommendationsQueryHandler.DedupeOverFetchFactor</c>.
-    ///
-    /// <para><b>Por que a constante é duplicada aqui:</b> a de produção é <c>private</c> dentro do handler da
-    /// Application, e o Domain não referencia a Application. Medir com um over-fetch diferente do de produção
-    /// mediria outro sistema — o dedup colapsaria a partir de um conjunto de candidatas diferente e o top-N
-    /// resultante não seria o que o endpoint devolve. A duplicação é o custo consciente de não inverter a
-    /// dependência; se o handler mudar o fator, este número precisa mudar junto.</para>
-    /// </summary>
-    public const int OverFetchFactor = 3;
-
-    /// <summary>Piso do over-fetch, espelhando <c>GetTrackRecommendationsQueryHandler.MinimumDedupeOverFetch</c>.</summary>
-    public const int MinimumOverFetch = 10;
-
-    /// <summary>
     /// Mede os proxies 1 e 2 sobre a amostra, sob uma configuração de ranking. Uma varredura por semente serve aos
     /// dois proxies — o top-N é calculado uma vez e lido duas.
     /// </summary>
@@ -298,7 +283,7 @@ public sealed class RecommenderQualityEvaluator
         RecommenderEvaluationContext context)
     {
         bool postProcesses = setting.Dedupe || setting.IsBlended;
-        int fetchCount = postProcesses ? Math.Max(topN * OverFetchFactor, MinimumOverFetch) : topN;
+        int fetchCount = postProcesses ? RecommendationOverFetch.CountFor(topN) : topN;
 
         IReadOnlyList<TrackSimilarity>? neighbors = index.FindNearestTo(seedTrackId, fetchCount, policy);
         if (neighbors is null || !postProcesses)

@@ -76,17 +76,6 @@ internal sealed class GetTrackRecommendationsQueryHandler
         "matriz nunca foi construída): as recomendações caíram no content-based puro. O colaborativo não foi " +
         "ignorado em silêncio.";
 
-    /// <summary>
-    /// Fator de over-fetch do dedup (E4.7): para entregar <c>limit</c> itens DISTINTOS após colapsar
-    /// quase-duplicatas, é preciso pedir mais candidatas do que o limite. 3× cobre com folga o cenário medido no
-    /// E4.4 (maior grupo de duplicatas = 54, mas raríssimo no topo de uma semente típica), sem varrer o catálogo
-    /// além do necessário — a varredura kNN é O(n) no tamanho do índice, não no over-fetch.
-    /// </summary>
-    private const int DedupeOverFetchFactor = 3;
-
-    /// <summary>Piso do over-fetch, para limites pequenos ainda terem margem de colapso (ex.: limit=1 pede 10).</summary>
-    private const int MinimumDedupeOverFetch = 10;
-
     private readonly ITrackSimilarityIndexProvider _indexProvider;
     private readonly ITrackMetadataSource _metadataSource;
     private readonly ITrackCoOccurrenceSource _coOccurrenceSource;
@@ -129,7 +118,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
         // dos dois, pede-se exatamente `limit` (o comportamento do E4.2/E4.3 permanece intacto).
         bool overFetches = request.Dedupe || request.Strategy == RecommendationStrategyContract.Blend;
         int fetchCount = overFetches
-            ? Math.Max(limit * DedupeOverFetchFactor, MinimumDedupeOverFetch)
+            ? RecommendationOverFetch.CountFor(limit)
             : limit;
 
         IReadOnlyList<ExplainedTrackSimilarity>? neighbors =

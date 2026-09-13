@@ -58,11 +58,10 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
     private const string ConnectionStringVariable = "ConnectionStrings__SpotifyDb";
 
     /// <summary>
-    /// Quantos vizinhos colaborativos carregar por semente: o MESMO over-fetch que o handler de produção pede
-    /// (<c>max(limit × 3, 10)</c>), senão o blend medido partiria de um conjunto de candidatas menor que o real.
+    /// Quantos vizinhos colaborativos carregar por semente: o MESMO over-fetch que o handler de produção pede,
+    /// senão o blend medido partiria de um conjunto de candidatas menor que o real.
     /// </summary>
-    private static readonly int CollaborativeFetchCount = Math.Max(
-        TopN * RecommenderQualityEvaluator.OverFetchFactor, RecommenderQualityEvaluator.MinimumOverFetch);
+    private static readonly int CollaborativeFetchCount = RecommendationOverFetch.CountFor(TopN);
 
     /// <summary>Nome, artista principal e popularidade de cada faixa — o insumo da chave de dedup do E4.7.</summary>
     private const string TrackAttributesSql =
