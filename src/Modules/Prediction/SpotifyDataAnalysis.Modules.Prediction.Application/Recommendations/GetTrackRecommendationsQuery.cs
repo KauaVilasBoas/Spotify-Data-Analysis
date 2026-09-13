@@ -198,9 +198,15 @@ internal sealed class GetTrackRecommendationsQueryHandler
     /// Um candidato já rankeado, no formato que o dedup e a montagem consomem — o denominador comum entre o content
     /// puro e o blend. Carrega a vizinha rica (quando há sinal de áudio) e os campos colaborativos (quando há
     /// co-ocorrência), para a montagem do item saber qual "porquê" exibir sem reconsultar nada.
+    ///
+    /// <para><b><see cref="Score"/> é o ÚNICO score (E4.10, DP-2):</b> é a chave pela qual este candidato foi
+    /// ordenado e é o número que a resposta expõe. Ordenar por um número e mostrar outro foi a causa raiz do bug em
+    /// que o boost de gênero do E4.3 era calculado e depois descartado na ordenação final do blend — por isso não
+    /// existe aqui um segundo score de ranking.</para>
     /// </summary>
     private sealed record RankedCandidate(
         string TrackId,
+        double Score,
         ExplainedTrackSimilarity? Neighbor,
         RecommendationSignal Signal,
         int CoPlaylists,
@@ -216,7 +222,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
         {
             ExplainedTrackSimilarity neighbor = neighbors[i];
             candidates[i] = new RankedCandidate(
-                neighbor.TrackId, neighbor, RecommendationSignal.ContentOnly,
+                neighbor.TrackId, neighbor.Similarity, neighbor, RecommendationSignal.ContentOnly,
                 CoPlaylists: 0, CoOccurrenceScore: 0.0, neighbor.IsImputed, neighbor.CosineSimilarity);
         }
 
@@ -227,6 +233,11 @@ internal sealed class GetTrackRecommendationsQueryHandler
     /// Blenda o content-based com o colaborativo (E4.6) via <see cref="RecommendationBlender"/> e traduz o ranking
     /// blendado em candidatos. Faixas só-colaborativas entram sem vizinha rica; o cosseno de dedup delas é 0 (não
     /// têm vetor comparável no top-N de áudio), então só colapsam por chave textual — o que é correto.
+    ///
+    /// <para><b>A parcela de content é o score HÍBRIDO do E4.3 (E4.10), não o cosseno nu:</b> é
+    /// <see cref="ExplainedTrackSimilarity.Similarity"/> que entra no blender, então o boost de gênero continua
+    /// pesando na chave de ordenação final. Passar <see cref="ExplainedTrackSimilarity.CosineSimilarity"/> aqui
+    /// descartava o boost silenciosamente e devolvia ao usuário uma ordem que o blend não havia calculado.</para>
     /// </summary>
     private static RankedCandidate[] BlendCandidates(
         string seedTrackId,
@@ -236,7 +247,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
     {
         var contentCandidates = new List<BlendContentCandidate>(neighbors.Count);
         foreach (ExplainedTrackSimilarity neighbor in neighbors)
-            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.CosineSimilarity, neighbor));
+            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, neighbor));
 
         var collaborativeCandidates = new List<BlendCollaborativeCandidate>(coOccurring.Count);
         foreach (CoOccurringTrack track in coOccurring)
@@ -252,6 +263,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
             BlendedRecommendation item = blended[i];
             candidates[i] = new RankedCandidate(
                 item.TrackId,
+                item.FinalScore,
                 item.Neighbor,
                 item.Signal,
                 item.CoPlaylists,
@@ -383,9 +395,9 @@ internal sealed class GetTrackRecommendationsQueryHandler
                 Artist = row?.Artist,
                 Album = row?.Album,
                 Genre = row?.Genre,
-                // Faixa só-colaborativa não tem score de áudio: o Score exibido é o Jaccard (o único sinal que a
-                // sustentou), e cosine/genreBoost ficam zerados — coerente com signal=collaborative.
-                Score = neighbor?.Similarity ?? candidate.CoOccurrenceScore,
+                // E4.10, DP-2: o score exposto é EXATAMENTE a chave pela qual o candidato foi ordenado — no content
+                // puro o híbrido do E4.3, no blend o score final do blender. Nunca um número recomposto aqui.
+                Score = candidate.Score,
                 CosineScore = neighbor?.CosineSimilarity ?? 0.0,
                 GenreBoost = neighbor?.GenreBonus ?? 0.0,
                 IsImputed = candidate.IsImputed,

@@ -305,9 +305,8 @@ public sealed class RecommenderQualityEvaluator
             return neighbors;
 
         // Cobertura colaborativa ZERO cai no content puro, exatamente como o handler (`coOccurring.Count > 0`).
-        // Sem esta guarda a avaliação blendaria mesmo sem sinal — e, como o blender reordena pelo cosseno
-        // RESCALADO em vez do score híbrido, o bônus de gênero sumiria do ranking de sementes que em produção
-        // nunca chegam a blendar. Mediria um sistema que o endpoint não entrega.
+        // Sem esta guarda a avaliação blendaria sementes que em produção nunca chegam a blendar, e mediria um
+        // sistema que o endpoint não entrega.
         IReadOnlyList<BlendCollaborativeCandidate> collaborative = context.CollaborativeFor(seedTrackId);
 
         IReadOnlyList<TrackSimilarity> ranked = setting.BlendWeight is double blendWeight && collaborative.Count > 0
@@ -324,6 +323,10 @@ public sealed class RecommenderQualityEvaluator
     /// Reordena as candidatas pelo <see cref="RecommendationBlender"/> de produção (E4.6). Faixas só-colaborativas
     /// entram no ranking sem cosseno de áudio: o score delas é o próprio Jaccard, e a marca de imputação sai do
     /// índice quando elas estão indexadas. É o mesmo que o handler faz ao montar os <c>RankedCandidate</c>.
+    ///
+    /// <para><b>A parcela de content é o score HÍBRIDO (E4.10):</b> entra <see cref="TrackSimilarity.Similarity"/>,
+    /// não o cosseno nu, senão a medição descreveria um ranking em que o boost de gênero foi descartado — e o gate
+    /// defenderia um sistema diferente do que o endpoint entrega.</para>
     /// </summary>
     private static List<TrackSimilarity> BlendRanking(
         SimilarityIndex index,
@@ -339,7 +342,7 @@ public sealed class RecommenderQualityEvaluator
         {
             // Neighbor null de propósito: o blender só o repassa adiante, e a avaliação não lê explicabilidade —
             // montar a decomposição por feature aqui seria custo puro sem efeito no ranking medido.
-            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.CosineSimilarity, null));
+            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, null));
             byTrackId[neighbor.TrackId] = neighbor;
         }
 

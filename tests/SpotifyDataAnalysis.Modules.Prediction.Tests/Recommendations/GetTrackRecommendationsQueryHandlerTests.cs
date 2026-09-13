@@ -1,3 +1,4 @@
+using System.Globalization;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Contracts.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
@@ -554,6 +555,103 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         Assert.Equal(RecommendationStrategyContract.Content, response.EffectiveStrategy);
         Assert.All(response.Recommendations, r => Assert.Null(r.Signal));
         Assert.All(response.Recommendations, r => Assert.Equal(0, r.CoPlaylists));
+    }
+
+    // --- E4.10: o boost de gênero entra na chave de ordenação do blend, e o score exposto é o que ordenou ---
+
+    /// <summary>
+    /// O par que inverte: <c>rockA</c> tem cosseno MAIOR que <c>popA</c>, mas só <c>popA</c> compartilha o gênero da
+    /// semente, e o boost default (0,05) a coloca à frente no ranking content. Dando aos dois o MESMO Jaccard, o
+    /// sinal colaborativo não desempata nada — a única coisa que pode separá-los no blend é o score de content. Se o
+    /// blend ordenar pelo cosseno em vez do score híbrido, <c>rockA</c> volta à frente e a ordem entregue ao usuário
+    /// deixa de ser a que o blend pretendia produzir.
+    /// </summary>
+    [Fact]
+    public async Task Handle_Blend_KeepsTheGenreBoostInTheFinalOrderingKey()
+    {
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add(
+            "seed",
+            new CoOccurringTrack("rockA", CoPlaylists: 10, Jaccard: 0.5),
+            new CoOccurringTrack("popA", CoPlaylists: 10, Jaccard: 0.5));
+
+        var handler = Handler(IndexOf(GenreCatalog()), GenreMetadata(), coOccurrence);
+
+        TrackRecommendationsResponse content = await handler.HandleAsync(
+            Query("seed", limit: 11, genreMode: GenreRankingModeContract.Boost));
+
+        Assert.True(
+            RankOf(content, "popA") < RankOf(content, "rockA"),
+            $"Premissa do cenário: no content o boost já põe popA à frente de rockA.{Describe(content)}");
+
+        TrackRecommendationsResponse blended = await handler.HandleAsync(
+            Query("seed", limit: 11, genreMode: GenreRankingModeContract.Boost,
+                strategy: RecommendationStrategyContract.Blend));
+
+        Assert.True(
+            RankOf(blended, "popA") < RankOf(blended, "rockA"),
+            "O boost de gênero foi descartado na ordenação final do blend: com Jaccard idêntico, rockA só pode " +
+            $"passar popA se a chave de ordenação tiver ignorado o boost.{Describe(blended)}");
+
+        // E4.2 coerente (E4.10): popA exibe "gênero compartilhado" como porquê E o gênero de fato a promoveu acima
+        // de rockA. Antes da correção o porquê aparecia descrevendo um cálculo sem efeito na ordem entregue.
+        TrackRecommendationItem popA = blended.Recommendations.Single(item => item.TrackId == "popA");
+        Assert.Equal("pop", popA.SharedGenre);
+        Assert.True(popA.GenreBoost > 0);
+
+        TrackRecommendationItem rockA = blended.Recommendations.Single(item => item.TrackId == "rockA");
+        Assert.Null(rockA.SharedGenre);
+        Assert.Equal(0.0, rockA.GenreBoost);
+    }
+
+    /// <summary>
+    /// DP-2 do E4.10: um único score. O número exposto em <c>Score</c> tem de ser o MESMO que ordenou o ranking, logo
+    /// a lista entregue é não-crescente nele. Ordenar por um número e mostrar outro é a causa raiz do bug, e este
+    /// teste falha no instante em que os dois se separarem de novo.
+    /// </summary>
+    [Fact]
+    public async Task Handle_Blend_ExposesTheSameScoreThatOrdered()
+    {
+        var metadata = new StubMetadataSource();
+        foreach (string id in new[] { "seed", "near", "mid", "far", "imp" })
+            metadata.Add(Meta(id, genre: "pop"));
+
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add("seed", new CoOccurringTrack("far", CoPlaylists: 40, Jaccard: 0.9));
+
+        var handler = Handler(IndexOf(SampleCatalog()), metadata, coOccurrence);
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", limit: 4, genreMode: GenreRankingModeContract.Off,
+                strategy: RecommendationStrategyContract.Blend, blendWeight: 0.6));
+
+        for (int i = 1; i < response.Recommendations.Count; i++)
+        {
+            Assert.True(
+                response.Recommendations[i - 1].Score >= response.Recommendations[i].Score,
+                $"O score exposto não é o que ordenou o ranking do blend.{Describe(response)}");
+        }
+    }
+
+    private static int RankOf(TrackRecommendationsResponse response, string trackId)
+    {
+        for (int i = 0; i < response.Recommendations.Count; i++)
+        {
+            if (response.Recommendations[i].TrackId == trackId)
+                return i;
+        }
+
+        return int.MaxValue;
+    }
+
+    private static string Describe(TrackRecommendationsResponse response)
+    {
+        IEnumerable<string> lines = response.Recommendations.Select((item, rank) => string.Format(
+            CultureInfo.InvariantCulture,
+            "  #{0} {1,-6} score={2:0.0000} cosine={3:0.0000} boost={4:0.0000} jaccard={5:0.0000}",
+            rank, item.TrackId, item.Score, item.CosineScore, item.GenreBoost, item.CoOccurrenceScore));
+
+        return Environment.NewLine + string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>Handler com um sinal colaborativo VAZIO por default — os testes de content/E4.3/E4.7 não usam blend.</summary>

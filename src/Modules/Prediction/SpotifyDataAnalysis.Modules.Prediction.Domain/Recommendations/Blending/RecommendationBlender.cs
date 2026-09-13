@@ -16,11 +16,14 @@ public enum RecommendationSignal
 }
 
 /// <summary>
-/// Um candidato do content-based visto pelo blend: identidade, o cosseno de áudio (o eixo a normalizar) e a
+/// Um candidato do content-based visto pelo blend: identidade, o score content-based (o eixo a normalizar) e a
 /// vizinha rica original, para o representante blendado herdar a explicabilidade sem recalculá-la.
 /// </summary>
 /// <param name="TrackId">Id da faixa.</param>
-/// <param name="ContentScore">O score content-based (cosseno de áudio; o híbrido de gênero fica no <see cref="Neighbor"/>).</param>
+/// <param name="ContentScore">
+/// O score content-based COMPLETO, isto é o híbrido do E4.3 (cosseno de áudio + bônus de gênero) — não o cosseno nu.
+/// Passar só o cosseno aqui descarta o boost de gênero da chave de ordenação final, que foi o defeito do E4.10.
+/// </param>
 /// <param name="Neighbor">A vizinha rica do content-based, ou <c>null</c> quando a faixa só tem sinal colaborativo.</param>
 public sealed record BlendContentCandidate(string TrackId, double ContentScore, ExplainedTrackSimilarity? Neighbor);
 
@@ -34,8 +37,11 @@ public sealed record BlendCollaborativeCandidate(string TrackId, int CoPlaylists
 /// Uma recomendação já blendada: a faixa, o score final, as duas parcelas que o compõem e qual sinal a sustentou.
 /// </summary>
 /// <param name="TrackId">Id da faixa recomendada.</param>
-/// <param name="FinalScore">O score que ordena o ranking blendado, em [0, 1].</param>
-/// <param name="NormalizedContentScore">A parcela de content (cosseno normalizado ao conjunto), em [0, 1] — 0 se só colaborativo.</param>
+/// <param name="FinalScore">
+/// O score que ordena o ranking blendado, em [0, 1]. É também o score que o consumidor EXPÕE (E4.10, DP-2): um só
+/// número ordena e aparece.
+/// </param>
+/// <param name="NormalizedContentScore">A parcela de content (o híbrido normalizado ao conjunto), em [0, 1] — 0 se só colaborativo.</param>
 /// <param name="Jaccard">A parcela colaborativa (Jaccard), em [0, 1] — 0 se só content.</param>
 /// <param name="CoPlaylists">Playlists compartilhadas com a semente (0 se só content).</param>
 /// <param name="Signal">Qual sinal sustentou a recomendação.</param>
@@ -55,9 +61,11 @@ public sealed record BlendedRecommendation(
 /// candidatos e o peso, e devolve o ranking blendado; não abre conexão, não conhece SQL.
 ///
 /// <para><b>A fórmula (DP-2):</b> <c>final = (1 − w)·contentNorm + w·jaccard</c>, ambas as parcelas em [0, 1]. O
-/// <c>contentNorm</c> é o cosseno reescalado por MIN-MAX ao conjunto de candidatos content (o cosseno bruto vive
-/// num intervalo estreito e alto no z-score — 0,95–0,99 —, e sem reescalar o content dominaria o blend por
-/// construção, não por mérito). O <c>jaccard</c> já vem normalizado por popularidade da própria métrica.</para>
+/// <c>contentNorm</c> é o <see cref="BlendContentCandidate.ContentScore"/> reescalado por MIN-MAX ao conjunto de
+/// candidatos content (o score bruto vive num intervalo estreito e alto no z-score — 0,95–0,99 —, e sem reescalar o
+/// content dominaria o blend por construção, não por mérito). Como o min-max é uma transformação afim crescente, ele
+/// PRESERVA a ordem do score de content recebido: o boost de gênero que vem embutido nele continua valendo dentro da
+/// parcela (E4.10). O <c>jaccard</c> já vem normalizado por popularidade da própria métrica.</para>
 ///
 /// <para><b>Cobertura parcial (o que o card pede explicitamente):</b> o conjunto blendado é a UNIÃO dos dois lados.
 /// Uma faixa só no content entra com <c>jaccard = 0</c> (<see cref="RecommendationSignal.ContentOnly"/>); uma faixa
