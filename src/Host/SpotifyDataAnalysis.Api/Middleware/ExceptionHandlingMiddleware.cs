@@ -18,6 +18,8 @@ namespace SpotifyDataAnalysis.Api.Middleware;
 ///   <item><see cref="ForbiddenException"/> → 403, type <c>forbidden</c></item>
 ///   <item><see cref="ValidationException"/> (FluentValidation) → 400, type <c>validation-error</c>,
 ///     with an <c>errors</c> map of field → messages</item>
+///   <item><see cref="ServiceUnavailableException"/> → 503, type <c>service-unavailable</c>;
+///     adds a <c>Retry-After</c> header when <see cref="ServiceUnavailableException.RetryAfterSeconds"/> is set</item>
 ///   <item>any other exception → 500, type <c>internal-error</c> (detail hidden outside development)</item>
 /// </list>
 ///
@@ -86,6 +88,18 @@ public sealed class ExceptionHandlingMiddleware
                 StatusCodes.Status403Forbidden,
                 ProblemDetailsTypes.Forbidden,
                 "Forbidden",
+                ex.Message);
+            await WriteAsync(context, problem, correlationIdAccessor);
+        }
+        catch (ServiceUnavailableException ex)
+        {
+            if (ex.RetryAfterSeconds.HasValue)
+                context.Response.Headers.RetryAfter = ex.RetryAfterSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            ProblemDetails problem = Build(
+                StatusCodes.Status503ServiceUnavailable,
+                ProblemDetailsTypes.ServiceUnavailable,
+                "Service Unavailable",
                 ex.Message);
             await WriteAsync(context, problem, correlationIdAccessor);
         }

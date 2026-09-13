@@ -100,10 +100,15 @@ public static class PredictionModuleServiceExtensions
         // (Dapper via BaseDataAccess), scoped porque depende do DbConnectionFactory per-request.
         services.AddScoped<ISimilarityFeatureSource, CatalogSimilarityFeatureSource>();
 
-        // Índice de similaridade em cache: SINGLETON, porque montar o espaço (varrer ~90k faixas e aprender μ/σ)
-        // é caro e o resultado é reusável entre requisições — o análogo do cache do modelo corrente do E3.5. Lê o
-        // source scoped abrindo um scope próprio via IServiceScopeFactory.
-        services.AddSingleton<ITrackSimilarityIndexProvider, CachedTrackSimilarityIndexProvider>();
+        // Índice de similaridade em cache: SINGLETON montado em background no arranque (E6.9). Registrado pelo
+        // tipo CONCRETO e pela porta: o warm-up service (BackgroundService) injeta o concreto para acessar
+        // WarmUpAsync (internal); a Application enxerga apenas a porta ITrackSimilarityIndexProvider.
+        services.AddSingleton<CachedTrackSimilarityIndexProvider>();
+        services.AddSingleton<ITrackSimilarityIndexProvider>(
+            sp => sp.GetRequiredService<CachedTrackSimilarityIndexProvider>());
+
+        // Warm-up service: monta o índice em background no arranque, sem bloquear o servidor (E6.9).
+        services.AddHostedService<SimilarityIndexWarmUpService>();
 
         // --- Recomendação pública com explicabilidade (E4.2): metadados de exibição da semente e das top-N ---
 

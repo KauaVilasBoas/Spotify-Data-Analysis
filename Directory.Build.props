@@ -26,14 +26,15 @@
          A contagem nao pode virar "depois a gente aperta isso": ela esta registrada em
          .claude/SETUP.md, com data, e e o que torna a divida visivel em vez de teorica.
 
-         Contagem medida em 2026-09-11 (dotnet build, solucao inteira):
-           CA1848  31  usar delegate de LoggerMessage no lugar de log interpolado
+         Contagem medida em 2026-09-11, e re-medida em 2026-09-12 apos o E6.9
+         (dotnet build, solucao inteira). Total: 88.
+           CA1848  30  usar delegate de LoggerMessage no lugar de log interpolado
            CA1861  22  array constante como argumento -> static readonly
            CA1859  12  usar tipo concreto para evitar despacho virtual
            CA1822   5  membro pode ser static
            CA1711   5  sufixo de identificador incorreto
            CA1305   4  faltou IFormatProvider (formatacao dependente de cultura)
-           CA1001   3  tipo com campo IDisposable nao implementa IDisposable
+           CA1001   2  tipo com campo IDisposable nao implementa IDisposable
            CA1716   2  identificador colide com palavra reservada
            CA1863   2  usar CompositeFormat
            CA1826   1  usar propriedade no lugar de metodo Enumerable
