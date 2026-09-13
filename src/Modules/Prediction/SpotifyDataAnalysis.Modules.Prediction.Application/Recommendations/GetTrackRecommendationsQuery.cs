@@ -116,9 +116,13 @@ internal sealed class GetTrackRecommendationsQueryHandler
         // Over-fetch: com dedup (E4.7) ou blend (E4.6), pede-se MAIS candidatas que o limite — colapsar ou blendar
         // reduziria o resultado abaixo do pedido, e o contrato exige entregar `limit` itens distintos. Sem nenhum
         // dos dois, pede-se exatamente `limit` (o comportamento do E4.2/E4.3 permanece intacto).
+        //
+        // A varredura é UMA, na janela da última rodada (E4.9): ela é O(n) no tamanho do índice, então refazê-la por
+        // rodada custaria uma nova passada por 89.740 faixas. As rodadas do laço adaptativo abaixo leem PREFIXOS
+        // desta varredura, que são exatamente os top-N que uma segunda varredura devolveria.
         bool overFetches = request.Dedupe || request.Strategy == RecommendationStrategyContract.Blend;
         int fetchCount = overFetches
-            ? RecommendationOverFetch.CountFor(limit)
+            ? RecommendationOverFetch.MaximumCountFor(limit)
             : limit;
 
         IReadOnlyList<ExplainedTrackSimilarity>? neighbors =
@@ -135,21 +139,31 @@ internal sealed class GetTrackRecommendationsQueryHandler
             ? await _coOccurrenceSource.FindCoOccurringAsync(request.SeedTrackId, fetchCount, cancellationToken)
             : [];
 
-        RankedCandidate[] ranked = request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count > 0
-            ? BlendCandidates(request.SeedTrackId, neighbors, coOccurring, request.BlendWeight)
-            : ContentCandidates(neighbors);
+        bool blends = request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count > 0;
 
         bool collaborativeUnavailable =
             request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count == 0;
 
-        // Metadata de TODOS os candidatos (inclui faixas só-colaborativas que não vêm do índice content).
-        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata =
-            await LoadMetadataAsync(ranked.Select(candidate => candidate.TrackId), cancellationToken);
+        // Metadata de TODOS os candidatos da varredura (inclui faixas só-colaborativas, que não vêm do índice
+        // content). UMA leitura serve a todas as rodadas: o dedup precisa da chave "artista|título" e da popularity
+        // de qualquer candidata que uma rodada posterior possa alcançar, e ir ao banco por rodada trocaria CPU
+        // reaproveitada por ida e volta de rede.
+        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata = await LoadMetadataAsync(
+            neighbors.Select(neighbor => neighbor.TrackId).Concat(coOccurring.Select(track => track.TrackId)),
+            cancellationToken);
 
-        (IReadOnlyList<RankedCandidate> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
-            request.Dedupe
-                ? Deduplicate(ranked, candidateMetadata, index, limit)
-                : (TakeLimit(ranked, limit), EmptyCollapsedCounts);
+        PostProcessedCandidates postProcessed = overFetches
+            ? RecommendationOverFetch.Resolve(
+                limit,
+                neighbors.Count,
+                window => PostProcess(
+                    request, neighbors, coOccurring, candidateMetadata, index, limit, window, blends),
+                result => result.Representatives.Count).Result
+            : PostProcess(
+                request, neighbors, coOccurring, candidateMetadata, index, limit, neighbors.Count, blends);
+
+        IReadOnlyList<RankedCandidate> representatives = postProcessed.Representatives;
+        IReadOnlyDictionary<string, int> collapsedCounts = postProcessed.CollapsedCounts;
 
         IReadOnlyList<TrackRecommendationItem> recommendations = BuildRecommendations(
             representatives, candidateMetadata, seedMetadata?.Genre, explainTopK, collapsedCounts);
@@ -202,6 +216,46 @@ internal sealed class GetTrackRecommendationsQueryHandler
         double CoOccurrenceScore,
         bool IsImputed,
         double DedupeCosine);
+
+    /// <summary>
+    /// O resultado de UMA rodada de pós-processamento: os representantes que irão para a resposta e quantas
+    /// quase-duplicatas cada um absorveu. Os dois viajam juntos porque a contagem de colapsadas só faz sentido em
+    /// relação aos representantes daquela mesma rodada.
+    /// </summary>
+    private sealed record PostProcessedCandidates(
+        IReadOnlyList<RankedCandidate> Representatives, IReadOnlyDictionary<string, int> CollapsedCounts);
+
+    /// <summary>
+    /// Pós-processa as primeiras <paramref name="window"/> candidatas da varredura: blend colaborativo (E4.6) quando
+    /// há sinal, depois dedup de quase-duplicatas (E4.7), cortando em <paramref name="limit"/>. É a função que o laço
+    /// adaptativo do <see cref="RecommendationOverFetch"/> repete com a janela dobrada quando o resultado sai curto.
+    /// </summary>
+    private static PostProcessedCandidates PostProcess(
+        GetTrackRecommendationsQuery request,
+        IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+        IReadOnlyList<CoOccurringTrack> coOccurring,
+        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata,
+        SimilarityIndex index,
+        int limit,
+        int window,
+        bool blends)
+    {
+        IReadOnlyList<ExplainedTrackSimilarity> candidates = window >= neighbors.Count
+            ? neighbors
+            : neighbors.Take(window).ToArray();
+
+        RankedCandidate[] ranked = blends
+            ? BlendCandidates(request.SeedTrackId, candidates, coOccurring, request.BlendWeight)
+            : ContentCandidates(candidates);
+
+        if (!request.Dedupe)
+            return new PostProcessedCandidates(TakeLimit(ranked, limit), EmptyCollapsedCounts);
+
+        (IReadOnlyList<RankedCandidate> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
+            Deduplicate(ranked, candidateMetadata, index, limit);
+
+        return new PostProcessedCandidates(representatives, collapsedCounts);
+    }
 
     /// <summary>Traduz o top-N content puro (E4.1–E4.3) em candidatos rankeados — sinal ContentOnly, sem colaborativo.</summary>
     private static RankedCandidate[] ContentCandidates(IReadOnlyList<ExplainedTrackSimilarity> neighbors)

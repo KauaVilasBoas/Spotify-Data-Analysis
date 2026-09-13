@@ -113,3 +113,73 @@ public sealed record DuplicateProximityProxy(
     int SeedsWithRedundantSiblings,
     int SeedsWithIncompleteTopK,
     RecommenderEvaluationSetting Setting);
+
+/// <summary>
+/// O top-N que o endpoint devolveria para UMA semente, com o custo que produzi-lo exigiu (E4.9).
+///
+/// <para><b>As duas contagens de custo não são enfeite:</b> o over-fetch adaptativo paga por rodada de
+/// pós-processamento, e sem elas a distribuição de tamanho melhoraria sem ninguém saber a que preço. São a única
+/// forma de distinguir "quase toda semente resolve na primeira rodada" de "o teto é atingido sempre".</para>
+/// </summary>
+/// <param name="Neighbors">O top-N final, já pós-processado (blend e/ou dedup, conforme a configuração).</param>
+/// <param name="RoundsUsed">Quantas rodadas de pós-processamento foram necessárias (1 quando a primeira bastou).</param>
+/// <param name="CandidatesConsidered">Quantas candidatas da varredura entraram na última rodada.</param>
+public sealed record EndpointTopN(
+    IReadOnlyList<TrackSimilarity> Neighbors, int RoundsUsed, int CandidatesConsidered);
+
+/// <summary>
+/// Proxy 4 — a DISTRIBUIÇÃO do tamanho do resultado (E4.9): de quantas sementes o endpoint entrega menos do que o
+/// top-N pedido, e quantas rodadas de over-fetch isso custou.
+///
+/// <para><b>Por que é um proxy próprio, e não um campo do proxy 3:</b> o proxy 3 mede o gênero SEMPRE desligado (é o
+/// único guarda não circular), e o defeito que este proxy persegue foi medido no default do endpoint —
+/// <c>boost | dedupe=on | content</c>. Medir a distribuição na configuração forçada do proxy 3 responderia sobre um
+/// ranking que o usuário não recebe, exatamente o erro que o E4.10 corrigiu neste módulo.</para>
+///
+/// <para><b>O critério é o TAMANHO do resultado, não o fator de over-fetch</b> (E4.9): o fator é implementação, a
+/// lista curta é o que o usuário vê.</para>
+/// </summary>
+/// <param name="SeedsEvaluated">Sementes que estavam no índice e produziram um top-N.</param>
+/// <param name="SeedsMissingFromIndex">Sementes fora do índice; contadas em vez de silenciadas.</param>
+/// <param name="SeedsBelowTopN">Sementes que pediram <paramref name="TopN"/> e receberam MENOS.</param>
+/// <param name="SeedsWithSingleResult">
+/// Sementes que receberam EXATAMENTE uma recomendação. Contado à parte do <paramref name="SeedsBelowTopN"/> porque é
+/// outro defeito: uma lista de nove itens é curta, uma lista de um item lê como recomendador quebrado.
+/// </param>
+/// <param name="SeedsWithEmptyResult">Sementes que receberam ZERO recomendações — o caso extremo, medido e não presumido.</param>
+/// <param name="MeanResultSize">Tamanho médio do resultado entre as sementes avaliadas.</param>
+/// <param name="SeedsByRound">
+/// Quantas sementes resolveram em cada rodada, da primeira à última — o custo do adaptativo, por semente. A posição
+/// 0 é a primeira rodada (o over-fetch de sempre); as seguintes só existem quando o funil derrubou candidatas.
+/// </param>
+/// <param name="Setting">A configuração que produziu estes números — obrigatória, pela mesma razão do proxy 3.</param>
+/// <param name="TopN">O top-N pedido, contra o qual "abaixo do pedido" é definido.</param>
+public sealed record RecommendationSizeProxy(
+    int SeedsEvaluated,
+    int SeedsMissingFromIndex,
+    int SeedsBelowTopN,
+    int SeedsWithSingleResult,
+    int SeedsWithEmptyResult,
+    double MeanResultSize,
+    IReadOnlyList<int> SeedsByRound,
+    RecommenderEvaluationSetting Setting,
+    int TopN)
+{
+    /// <summary>A fração de sementes que recebeu menos do que pediu — a leitura direta do defeito do E4.9.</summary>
+    public double ShortResultRate => SeedsEvaluated == 0 ? 0.0 : (double)SeedsBelowTopN / SeedsEvaluated;
+
+    /// <summary>Quantas rodadas a semente mais custosa precisou; 0 quando nenhuma semente foi avaliada.</summary>
+    public int MaximumRoundsUsed
+    {
+        get
+        {
+            for (int round = SeedsByRound.Count; round > 0; round--)
+            {
+                if (SeedsByRound[round - 1] > 0)
+                    return round;
+            }
+
+            return 0;
+        }
+    }
+}

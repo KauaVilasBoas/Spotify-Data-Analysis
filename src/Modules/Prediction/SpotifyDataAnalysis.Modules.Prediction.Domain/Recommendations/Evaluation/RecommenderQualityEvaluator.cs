@@ -75,7 +75,7 @@ public sealed class RecommenderQualityEvaluator
 
             GenreAffinityPolicy policy = setting.PolicyFor(seedGenre, seedIsImputed.Value);
             IReadOnlyList<TrackSimilarity> neighbors =
-                RankAsProduction(index, seedTrackId, topN, policy, setting, effectiveContext)
+                RankAsProduction(index, seedTrackId, topN, policy, setting, effectiveContext)?.Neighbors
                 ?? Array.Empty<TrackSimilarity>();
 
             selfExclusionSeeds++;
@@ -204,7 +204,7 @@ public sealed class RecommenderQualityEvaluator
             foreach (string seedTrackId in indexedMembers)
             {
                 IReadOnlyList<TrackSimilarity> neighbors =
-                    RankAsProduction(index, seedTrackId, topK, cosineOnly, effectiveSetting, effectiveContext)
+                    RankAsProduction(index, seedTrackId, topK, cosineOnly, effectiveSetting, effectiveContext)?.Neighbors
                     ?? Array.Empty<TrackSimilarity>();
 
                 seedsEvaluated++;
@@ -266,15 +266,135 @@ public sealed class RecommenderQualityEvaluator
     }
 
     /// <summary>
+    /// Mede o proxy 4 (E4.9) — a distribuição do TAMANHO do resultado sobre a amostra, sob uma configuração: quantas
+    /// sementes recebem menos do que pediram, quantas recebem exatamente uma, e em que rodada de over-fetch cada uma
+    /// resolveu.
+    ///
+    /// <para><b>Uma varredura por semente, como em produção:</b> o número sai do MESMO caminho que o endpoint
+    /// percorre (<see cref="RankAsEndpointWould"/>), e não de uma reimplementação do funil — foi exatamente a
+    /// divergência entre avaliador e endpoint que o E4.10 corrigiu neste módulo.</para>
+    /// </summary>
+    /// <param name="index">O índice já montado; nunca é reconstruído aqui.</param>
+    /// <param name="sample">A amostra fixa — as sementes cuja distribuição de tamanho se quer conhecer.</param>
+    /// <param name="setting">A configuração sob medição; deve ser a que o endpoint entrega.</param>
+    /// <param name="topN">O top-N pedido, contra o qual "abaixo do pedido" é definido.</param>
+    /// <param name="context">Insumos de dedup/blend; obrigatório quando <paramref name="setting"/> liga um dos dois.</param>
+    /// <exception cref="DomainException">Quando <paramref name="topN"/> não é positivo.</exception>
+    public static RecommendationSizeProxy MeasureResultSize(
+        SimilarityIndex index,
+        RecommenderEvaluationSample sample,
+        RecommenderEvaluationSetting setting,
+        int topN,
+        RecommenderEvaluationContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(sample);
+        ArgumentNullException.ThrowIfNull(setting);
+
+        if (topN <= 0)
+            throw new DomainException($"O top-N avaliado deve ser positivo. Recebido: {topN}.");
+
+        var seedsByRound = new int[RecommendationOverFetch.MaximumRounds];
+        int seedsMissingFromIndex = 0;
+        int seedsEvaluated = 0;
+        int seedsBelowTopN = 0;
+        int seedsWithSingleResult = 0;
+        int seedsWithEmptyResult = 0;
+        long resultSizeSum = 0;
+
+        foreach (string seedTrackId in sample.SeedTrackIds)
+        {
+            EndpointTopN? topNResult = RankAsEndpointWould(index, seedTrackId, topN, setting, context);
+            if (topNResult is null)
+            {
+                seedsMissingFromIndex++;
+                continue;
+            }
+
+            int size = topNResult.Neighbors.Count;
+
+            seedsEvaluated++;
+            resultSizeSum += size;
+            seedsByRound[topNResult.RoundsUsed - 1]++;
+
+            if (size < topN)
+                seedsBelowTopN++;
+
+            if (size == 1)
+                seedsWithSingleResult++;
+
+            if (size == 0)
+                seedsWithEmptyResult++;
+        }
+
+        return new RecommendationSizeProxy(
+            seedsEvaluated,
+            seedsMissingFromIndex,
+            seedsBelowTopN,
+            seedsWithSingleResult,
+            seedsWithEmptyResult,
+            seedsEvaluated == 0 ? 0.0 : (double)resultSizeSum / seedsEvaluated,
+            seedsByRound,
+            setting,
+            topN);
+    }
+
+    /// <summary>
+    /// O top-N que o ENDPOINT devolveria para UMA semente sob esta configuração, com o custo que isso exigiu. É a
+    /// entrada pública por semente: o instrumento de latência mede ela, e não uma aproximação do funil.
+    ///
+    /// <para>A política de gênero é derivada da <paramref name="setting"/> exatamente como o handler a deriva (com o
+    /// fallback gracioso do E4.3). Devolve <see langword="null"/> quando a semente não está no índice.</para>
+    ///
+    /// <para><b>Estático de propósito:</b> este serviço de domínio não tem estado, e um membro de instância que não
+    /// toca estado acenderia mais um CA1822 — a regra está no tier de migração do <c>Directory.Build.props</c> com
+    /// contagem registrada, e essa contagem só pode descer.</para>
+    /// </summary>
+    /// <param name="index">O índice já montado.</param>
+    /// <param name="seedTrackId">A semente.</param>
+    /// <param name="topN">O top-N pedido.</param>
+    /// <param name="setting">A configuração de ranking (gênero, dedup e estratégia).</param>
+    /// <param name="context">Insumos de dedup/blend; obrigatório quando <paramref name="setting"/> liga um dos dois.</param>
+    /// <exception cref="DomainException">Quando <paramref name="topN"/> não é positivo.</exception>
+    public static EndpointTopN? RankAsEndpointWould(
+        SimilarityIndex index,
+        string seedTrackId,
+        int topN,
+        RecommenderEvaluationSetting setting,
+        RecommenderEvaluationContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(setting);
+
+        if (topN <= 0)
+            throw new DomainException($"O top-N avaliado deve ser positivo. Recebido: {topN}.");
+
+        bool? seedIsImputed = index.IsImputedTrack(seedTrackId);
+        if (seedIsImputed is null)
+            return null;
+
+        GenreAffinityPolicy policy = setting.PolicyFor(index.GenreOf(seedTrackId), seedIsImputed.Value);
+
+        return RankAsProduction(
+            index, seedTrackId, topN, policy, setting, context ?? RecommenderEvaluationContext.Empty);
+    }
+
+    /// <summary>
     /// O top-N que o ENDPOINT devolveria para esta semente sob esta configuração: over-fetch, blend colaborativo e
     /// dedup, na mesma ordem do <c>GetTrackRecommendationsQueryHandler</c>. Sem dedup nem blend, é literalmente o
     /// <see cref="SimilarityIndex.FindNearestTo(string,int,GenreAffinityPolicy)"/> do E4.1/E4.3 — o caminho medido
     /// pelo E4.4 permanece bit a bit o mesmo.
     ///
+    /// <para><b>Over-fetch ADAPTATIVO (E4.9), pela MESMA fonte única do handler:</b> a varredura kNN é O(n) no
+    /// tamanho do índice, então ela é feita UMA vez na janela máxima e as rodadas reaproveitam prefixos dela — o
+    /// prefixo de tamanho <c>w</c> do top-máximo é, por construção do <see cref="TopNeighborHeap"/> (ordem total,
+    /// desempate por id), idêntico ao top-<c>w</c> que uma segunda varredura devolveria. Se o avaliador ficasse com a
+    /// contagem de rodada única enquanto o endpoint adapta, o gate defenderia um sistema que o endpoint não entrega.</para>
+    ///
     /// <para>Devolve <see langword="null"/> quando a semente não está no índice, preservando a distinção que o
     /// chamador conta a parte.</para>
     /// </summary>
-    private static IReadOnlyList<TrackSimilarity>? RankAsProduction(
+    private static EndpointTopN? RankAsProduction(
         SimilarityIndex index,
         string seedTrackId,
         int topN,
@@ -283,20 +403,54 @@ public sealed class RecommenderQualityEvaluator
         RecommenderEvaluationContext context)
     {
         bool postProcesses = setting.Dedupe || setting.IsBlended;
-        int fetchCount = postProcesses ? RecommendationOverFetch.CountFor(topN) : topN;
 
-        IReadOnlyList<TrackSimilarity>? neighbors = index.FindNearestTo(seedTrackId, fetchCount, policy);
-        if (neighbors is null || !postProcesses)
-            return neighbors;
+        if (!postProcesses)
+        {
+            IReadOnlyList<TrackSimilarity>? plain = index.FindNearestTo(seedTrackId, topN, policy);
+            return plain is null ? null : new EndpointTopN(plain, RoundsUsed: 1, plain.Count);
+        }
+
+        IReadOnlyList<TrackSimilarity>? scanned =
+            index.FindNearestTo(seedTrackId, RecommendationOverFetch.MaximumCountFor(topN), policy);
+
+        if (scanned is null)
+            return null;
 
         // Cobertura colaborativa ZERO cai no content puro, exatamente como o handler (`coOccurring.Count > 0`).
         // Sem esta guarda a avaliação blendaria sementes que em produção nunca chegam a blendar, e mediria um
         // sistema que o endpoint não entrega.
         IReadOnlyList<BlendCollaborativeCandidate> collaborative = context.CollaborativeFor(seedTrackId);
 
+        RecommendationOverFetchOutcome<IReadOnlyList<TrackSimilarity>> outcome = RecommendationOverFetch.Resolve(
+            topN,
+            scanned.Count,
+            window => PostProcess(index, seedTrackId, scanned, window, setting, collaborative, context, topN),
+            postProcessed => postProcessed.Count);
+
+        return new EndpointTopN(outcome.Result, outcome.RoundsUsed, outcome.CandidatesConsidered);
+    }
+
+    /// <summary>
+    /// Uma rodada de pós-processamento sobre as primeiras <paramref name="window"/> candidatas da varredura: blend
+    /// (quando há sinal colaborativo) e dedup, na ordem do handler, cortando em <paramref name="topN"/>.
+    /// </summary>
+    private static IReadOnlyList<TrackSimilarity> PostProcess(
+        SimilarityIndex index,
+        string seedTrackId,
+        IReadOnlyList<TrackSimilarity> scanned,
+        int window,
+        RecommenderEvaluationSetting setting,
+        IReadOnlyList<BlendCollaborativeCandidate> collaborative,
+        RecommenderEvaluationContext context,
+        int topN)
+    {
+        IReadOnlyList<TrackSimilarity> candidates = window >= scanned.Count
+            ? scanned
+            : scanned.Take(window).ToArray();
+
         IReadOnlyList<TrackSimilarity> ranked = setting.BlendWeight is double blendWeight && collaborative.Count > 0
-            ? BlendRanking(index, seedTrackId, neighbors, collaborative, blendWeight)
-            : neighbors;
+            ? BlendRanking(index, seedTrackId, candidates, collaborative, blendWeight)
+            : candidates;
 
         if (setting.Dedupe)
             ranked = DedupeRanking(index, ranked, context, topN);

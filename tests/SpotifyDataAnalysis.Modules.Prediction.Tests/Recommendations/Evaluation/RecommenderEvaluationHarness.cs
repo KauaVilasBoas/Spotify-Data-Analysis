@@ -58,10 +58,14 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
     private const string ConnectionStringVariable = "ConnectionStrings__SpotifyDb";
 
     /// <summary>
-    /// Quantos vizinhos colaborativos carregar por semente: o MESMO over-fetch que o handler de produção pede,
-    /// senão o blend medido partiria de um conjunto de candidatas menor que o real.
+    /// Quantos vizinhos colaborativos carregar por semente: o MESMO over-fetch que o handler de produção pede na
+    /// varredura, senão o blend medido partiria de um conjunto de candidatas menor que o real.
+    ///
+    /// <para>É a janela da ÚLTIMA rodada (E4.9), não a da primeira: o handler pede os colaborativos uma única vez, no
+    /// tamanho máximo, e as rodadas reaproveitam. Carregar aqui só a janela da rodada 1 faria a avaliação blendar com
+    /// menos sinal colaborativo do que o endpoint tem em mãos — a divergência avaliador/endpoint do E4.10.</para>
     /// </summary>
-    private static readonly int CollaborativeFetchCount = RecommendationOverFetch.CountFor(TopN);
+    private static readonly int CollaborativeFetchCount = RecommendationOverFetch.MaximumCountFor(TopN);
 
     /// <summary>Nome, artista principal e popularidade de cada faixa — o insumo da chave de dedup do E4.7.</summary>
     private const string TrackAttributesSql =
@@ -88,6 +92,17 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
 
     /// <summary>Todos os grupos com <see cref="LargeGroupMinimumMembers"/>+ faixas — onde a dor do dedup de fato mora.</summary>
     public RecommenderEvaluationSample LargeDuplicateGroupSample { get; private set; } = null!;
+
+    /// <summary>
+    /// Os MESMOS grupos de <see cref="LargeGroupMinimumMembers"/>+ faixas, mas com TODOS os membros indexados como
+    /// sementes — as 1.895 sementes sobre as quais o E4.9 mediu a distribuição de tamanho do resultado.
+    ///
+    /// <para><b>Por que é uma amostra à parte:</b> em <see cref="LargeDuplicateGroupSample"/> as sementes são o
+    /// primeiro membro de cada grupo (111 ids), e é o proxy 3 que varre os membros por dentro. O proxy 4 mede uma
+    /// semente por vez, então precisa dos 1.895 ids como sementes — e precisa que sejam EXATAMENTE os mesmos, senão a
+    /// comparação com o baseline do card deixa de ser pareada.</para>
+    /// </summary>
+    public RecommenderEvaluationSample LargeGroupMemberSample { get; private set; } = null!;
 
     /// <summary>Os insumos de dedup e blend que o top-N de produção consome.</summary>
     public RecommenderEvaluationContext Context { get; private set; } = null!;
@@ -176,6 +191,15 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
 
         LargeDuplicateGroupSample = RecommenderEvaluationSample.Create(
             largeGroups.Select(group => group.TrackIds[0]).ToArray(), largeGroups);
+
+        // A MESMA população que o proxy 3 varre por dentro dos grupos (cada membro que está no índice), agora exposta
+        // como lista de sementes. A ordem segue a dos grupos e a dos membros dentro deles — determinística.
+        LargeGroupMemberSample = RecommenderEvaluationSample.Create(
+            largeGroups
+                .SelectMany(group => group.TrackIds)
+                .Where(Index.ContainsTrack)
+                .ToArray(),
+            largeGroups);
 
         Census = await sampleSource.LoadCensusAsync();
 

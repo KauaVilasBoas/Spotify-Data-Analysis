@@ -26,6 +26,10 @@ public sealed class RecommenderQualityGate
     // do E4.4 foram medidos ANTES de o dedup virar default. A re-medição de 2026-09-12 manteve os SETE limiares
     // originais inalterados — todos continuam válidos na configuração de hoje, com folga —, então o que mudou aqui
     // foi a documentação do valor medido e do contexto, não a régua.
+    //
+    // O E4.9 (2026-09-13) acrescentou DOIS limiares novos (completude do resultado) e re-mediu os sete anteriores com
+    // o over-fetch adaptativo ligado: nenhum se moveu. Limiar novo nasce de medição; limiar antigo não se afrouxa
+    // para acomodar mudança.
 
     /// <summary>
     /// Piso absoluto da coerência sob o boost default. Medido em <c>boost 0.050 | dedupe=on | content</c>, amostra
@@ -80,20 +84,36 @@ public sealed class RecommenderQualityGate
     /// </summary>
     public const int MaximumSeedsWithRedundantSiblings = 0;
 
-    // BURACO CONHECIDO, deliberadamente NÃO gateado aqui — registrado para quem ler o gate não concluir que a
-    // ausência é descuido.
+    // O BURACO QUE O E4.8 DEIXOU REGISTRADO E O E4.9 FECHOU.
     //
-    // A medição do E4.8 encontrou um defeito NOVO que o E4.4 não tinha como ver: com dedup ligado, uma semente que
-    // pertence a um grupo grande de quase-duplicatas recebe MENOS recomendações do que pediu, porque as candidatas
-    // do over-fetch (3× o limite) são todas irmãs e colapsam num único item. Confirmado contra o endpoint em
-    // execução, não só pelo harness: em `genreMode=boost&dedupe=true&limit=10`, 679 das 1.895 faixas dos grupos de
-    // 11+ recebem menos de 10 itens e 227 recebem exatamente UM.
+    // A medição do E4.8 encontrou um defeito que o E4.4 não tinha como ver: com dedup ligado, uma semente que
+    // pertence a um grupo grande de quase-duplicatas recebia MENOS recomendações do que pediu, porque as candidatas
+    // do over-fetch FIXO (3× o limite) eram todas irmãs e colapsavam num único item. Confirmado contra o endpoint em
+    // execução: em `genreMode=boost&dedupe=true&limit=10`, 679 das 1.895 faixas dos grupos de 11+ recebiam menos de
+    // 10 itens e 227 recebiam exatamente UM. O E4.8 não gateou o número porque não podia consertá-lo, e cravar o
+    // limiar no valor medido seria aceitar o defeito como linha de base.
     //
-    // Não vira limiar neste card por duas razões, nesta ordem: (1) o card que mediu tem mandato explícito de não
-    // consertar algoritmo, e um gate em zero deixaria a suíte vermelha sem conserto possível aqui; (2) cravar o
-    // limiar no valor medido seria aceitar o defeito como linha de base — exatamente o que um gate não pode fazer.
-    // O número é medido e impresso em `SeedsWithIncompleteTopK`, e o conserto (over-fetch adaptativo ao tamanho do
-    // grupo) é card próprio. Quando ele existir, o limiar nasce em zero.
+    // O E4.9 tornou o over-fetch ADAPTATIVO e o número virou zero nas duas contagens. Agora ele é limiar — os dois
+    // logo abaixo.
+
+    /// <summary>
+    /// Teto da fração de sementes que recebe MENOS recomendações do que pediu (E4.9, DP-1). Medido em
+    /// <c>boost 0.050 | dedupe=on | content</c> sobre as 1.895 sementes dos grupos de 11+ quase-duplicatas:
+    /// <b>0,0000</b> (679 de 1.895, ou 0,3583, antes do over-fetch adaptativo).
+    ///
+    /// <para><b>Por que 5% e não zero, com o medido em zero:</b> 5% é o alvo decidido na DP-1, e a distância entre ele
+    /// e o valor medido é folga deliberada. Um limiar cravado no zero medido transformaria em build vermelho qualquer
+    /// semente patológica FUTURA (um grupo de quase-duplicatas maior que a janela de três rodadas) sem que houvesse
+    /// conserto possível dentro do teto de rodadas — e o teto existe porque rodada extra custa CPU por requisição.</para>
+    /// </summary>
+    public const double MaximumShortResultRate = 0.05;
+
+    /// <summary>
+    /// Teto de sementes que recebem EXATAMENTE uma recomendação (E4.9, DP-1). Alvo zero, e aqui o zero é literal:
+    /// medido <b>0</b> na mesma configuração e amostra (227 antes). Uma lista de nove itens é curta; uma lista de um
+    /// item não lê como escolha de projeto, lê como recomendador quebrado — por isso é contado à parte do teto acima.
+    /// </summary>
+    public const int MaximumSeedsWithSingleResult = 0;
 
     /// <summary>
     /// Avalia os proxies contra os limiares. Recebe as DUAS medições de coerência (cosine puro e boost) porque o
@@ -110,6 +130,11 @@ public sealed class RecommenderQualityGate
     /// <param name="boosted">Medição com o boost no peso default de produção.</param>
     /// <param name="similarityEngineDuplicates">Proxy 3 com <c>dedupe=false</c>: o motor de similaridade nu.</param>
     /// <param name="dedupedDuplicates">Proxy 3 com <c>dedupe=true</c>: o top-N que o endpoint realmente devolve.</param>
+    /// <param name="resultSize">
+    /// Proxy 4 (E4.9) — a distribuição do tamanho do resultado, medida na MESMA configuração de
+    /// <paramref name="boosted"/>. A exigência de configuração idêntica não é formalidade: gatear a qualidade de uma
+    /// configuração e a completude de outra devolveria um "aprovado" sobre duas grandezas que ninguém comparou.
+    /// </param>
     /// <exception cref="DomainException">
     /// Quando a configuração de alguma medição não é a que o limiar correspondente valida — gate mal ligado produz
     /// um veredito confiante e errado, que é pior que gate nenhum.
@@ -118,12 +143,14 @@ public sealed class RecommenderQualityGate
         RecommenderQualityMeasurement cosineOnly,
         RecommenderQualityMeasurement boosted,
         DuplicateProximityProxy similarityEngineDuplicates,
-        DuplicateProximityProxy dedupedDuplicates)
+        DuplicateProximityProxy dedupedDuplicates,
+        RecommendationSizeProxy resultSize)
     {
         ArgumentNullException.ThrowIfNull(cosineOnly);
         ArgumentNullException.ThrowIfNull(boosted);
         ArgumentNullException.ThrowIfNull(similarityEngineDuplicates);
         ArgumentNullException.ThrowIfNull(dedupedDuplicates);
+        ArgumentNullException.ThrowIfNull(resultSize);
 
         RequireConfiguration(
             !cosineOnly.Setting.IsBlended && !boosted.Setting.IsBlended,
@@ -144,6 +171,12 @@ public sealed class RecommenderQualityGate
             dedupedDuplicates.Setting.Dedupe,
             "O indicador de repetição no top-N só faz sentido depois do dedup: essa medição tem de vir com " +
             "dedupe=true (E4.8, DP-2).");
+
+        RequireConfiguration(
+            resultSize.Setting == boosted.Setting && resultSize.TopN == boosted.TopN,
+            "A distribuição de tamanho do resultado (E4.9) tem de ser medida na MESMA configuração e no mesmo top-N " +
+            $"da medição gateada: recebido '{resultSize.Setting.Label}' top-{resultSize.TopN} contra " +
+            $"'{boosted.Setting.Label}' top-{boosted.TopN}.");
 
         var failures = new List<string>();
 
@@ -195,6 +228,21 @@ public sealed class RecommenderQualityGate
                 dedupedDuplicates.SeedsWithRedundantSiblings,
                 MaximumSeedsWithRedundantSiblings,
                 $"sementes (de {dedupedDuplicates.SeedsEvaluated}) ainda receberam duas versões da mesma obra"));
+
+        if (resultSize.ShortResultRate > MaximumShortResultRate)
+            failures.Add(Describe(
+                "resultado abaixo do top-N pedido",
+                resultSize.ShortResultRate,
+                MaximumShortResultRate,
+                $"acima do teto — {resultSize.SeedsBelowTopN} de {resultSize.SeedsEvaluated} sementes recebem menos " +
+                $"de {resultSize.TopN} recomendações"));
+
+        if (resultSize.SeedsWithSingleResult > MaximumSeedsWithSingleResult)
+            failures.Add(Describe(
+                "resultado com uma única recomendação",
+                resultSize.SeedsWithSingleResult,
+                MaximumSeedsWithSingleResult,
+                $"sementes (de {resultSize.SeedsEvaluated}) receberam um item só"));
 
         return new RecommenderQualityVerdict(failures.Count == 0, failures);
     }

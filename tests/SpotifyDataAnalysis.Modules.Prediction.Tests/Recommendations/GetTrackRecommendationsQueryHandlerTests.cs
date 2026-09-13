@@ -654,13 +654,138 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         return Environment.NewLine + string.Join(Environment.NewLine, lines);
     }
 
+    // --- E4.9: over-fetch adaptativo ---
+
+    /// <summary>
+    /// A semente do card: um grupo de 25 quase-duplicatas ocupa TODA a janela da primeira rodada (30 candidatas), e o
+    /// dedup do E4.7 as colapsa num único item. Com over-fetch FIXO o usuário recebe 6 recomendações para um
+    /// <c>limit=10</c>; com o adaptativo, a janela dobra e as 15 faixas distintas que estavam fora da primeira janela
+    /// completam o top-10.
+    ///
+    /// <para><b>É o cenário exato que o E4.9 mediu em escala</b> (679 de 1.895 sementes de grupos de 11+ recebendo
+    /// menos de 10), reduzido ao menor catálogo que o reproduz de forma determinística.</para>
+    /// </summary>
+    [Fact]
+    public async Task Handle_SeedWhoseFirstWindowCollapses_StillReturnsTheRequestedLimit()
+    {
+        List<RawTrackFeatures> catalog = CollapsingCatalog();
+
+        var handler = Handler(IndexOf(catalog), CollapsingMetadata(catalog));
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", limit: 10, genreMode: GenreRankingModeContract.Off, dedupe: true));
+
+        Assert.Equal(10, response.Recommendations.Count);
+
+        // A lista tem de continuar SEM repetição: completar o top-N não pode ser "desligar o dedup na segunda
+        // rodada", que trocaria lista curta por lista repetida.
+        Assert.Equal(
+            response.Recommendations.Count,
+            response.Recommendations.Select(item => item.TrackId).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    /// <summary>
+    /// O outro lado do mesmo cenário: quando o catálogo INTEIRO é uma única obra repetida, nenhuma rodada resolve.
+    /// O handler devolve o único item honesto em vez de preencher com candidata pior (o risco registrado no card) e
+    /// sem girar até varrer o catálogo.
+    /// </summary>
+    [Fact]
+    public async Task Handle_PathologicalSeed_ReturnsWhatExistsInsteadOfPadding()
+    {
+        var catalog = new List<RawTrackFeatures> { DuplicateTrack("seed", 0) };
+        for (int i = 0; i < 40; i++)
+            catalog.Add(DuplicateTrack($"dup{i:00}", i + 1));
+
+        var handler = Handler(IndexOf(catalog), CollapsingMetadata(catalog));
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", limit: 10, genreMode: GenreRankingModeContract.Off, dedupe: true));
+
+        TrackRecommendationItem only = Assert.Single(response.Recommendations);
+        Assert.Equal(39, only.EquivalentVersionsCollapsed);
+        Assert.Equal(39, response.TotalDuplicatesCollapsed);
+    }
+
+    /// <summary>
+    /// Catálogo que reproduz o funil do card: 25 versões da MESMA obra (cosseno ≈ 1 entre si, e mais parecidas com a
+    /// semente que qualquer outra faixa) seguidas de 15 faixas distintas entre si. Com <c>limit=10</c> a primeira
+    /// janela (30) pega as 25 irmãs e só 5 das distintas.
+    /// </summary>
+    private static List<RawTrackFeatures> CollapsingCatalog()
+    {
+        var catalog = new List<RawTrackFeatures> { DuplicateTrack("seed", 0) };
+
+        for (int i = 0; i < 25; i++)
+            catalog.Add(DuplicateTrack($"dup{i:00}", i + 1));
+
+        for (int k = 0; k < 15; k++)
+            catalog.Add(new RawTrackFeatures($"far{k:00}", DistinctVector(k), Genre: null, IsImputed: false));
+
+        return catalog;
+    }
+
+    /// <summary>
+    /// Uma versão da obra duplicada: o vetor da semente com uma perturbação de 1e-5 em cada feature, grande o
+    /// bastante para os ids serem distintos e pequena o bastante para o cosseno ficar acima do limiar de 0,999 do
+    /// colapsador.
+    /// </summary>
+    private static RawTrackFeatures DuplicateTrack(string trackId, int ordinal) =>
+        new(
+            trackId,
+            Raw(0.80 + (ordinal * 1e-5), 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0),
+            Genre: null,
+            IsImputed: false);
+
+    /// <summary>
+    /// Vetores mutuamente distantes, gerados por uma rotação determinística das nove features. Precisam de duas
+    /// propriedades ao mesmo tempo: cosseno ENTRE eles abaixo do limiar do dedup (senão colapsariam e o top-10 não
+    /// existiria nem com janela dobrada) e cosseno com a semente abaixo do das irmãs (senão entrariam na primeira
+    /// janela e o cenário não reproduziria o defeito).
+    /// </summary>
+    private static SimilarityFeatureVector DistinctVector(int k)
+    {
+        static double Cycle(int k, int multiplier) => ((k * multiplier) % 15) / 14.0;
+
+        return Raw(
+            0.05 + (0.90 * Cycle(k, 7)),
+            0.05 + (0.90 * Cycle(k, 11)),
+            0.05 + (0.90 * Cycle(k, 13)),
+            60.0 + (120.0 * Cycle(k, 4)),
+            0.05 + (0.90 * Cycle(k, 8)),
+            0.05 + (0.90 * Cycle(k, 2)),
+            0.05 + (0.90 * Cycle(k, 14)),
+            0.02 + (0.50 * Cycle(k, 1)),
+            -30.0 + (28.0 * Cycle(k, 13)));
+    }
+
+    /// <summary>
+    /// Metadata do catálogo de colapso: toda faixa <c>dup*</c> compartilha "artista|título" (o segundo critério do
+    /// dedup, em OU com o cosseno), e cada <c>far*</c> tem obra própria.
+    /// </summary>
+    private static StubMetadataSource CollapsingMetadata(IReadOnlyList<RawTrackFeatures> catalog)
+    {
+        var metadata = new StubMetadataSource();
+
+        foreach (RawTrackFeatures track in catalog)
+        {
+            bool isDuplicate = !track.TrackId.StartsWith("far", StringComparison.Ordinal);
+
+            metadata.Add(Meta(
+                track.TrackId,
+                name: isDuplicate ? "A Mesma Obra" : $"Obra {track.TrackId}",
+                artist: isDuplicate ? "O Mesmo Artista" : $"Artista {track.TrackId}"));
+        }
+
+        return metadata;
+    }
+
     // --- E4.11: over-fetch unificado em RecommendationOverFetch ---
 
     /// <summary>
-    /// O handler passa exatamente <see cref="RecommendationOverFetch.CountFor"/> para a fonte colaborativa quando
-    /// strategy=blend. Testado para dois valores de <c>limit</c>: um acima do piso (20) e um abaixo (1). Se a
-    /// fórmula divergir em qualquer call site, qualquer mudança futura na fórmula (card #77) quebra aqui — e não em
-    /// produção silenciosamente.
+    /// O handler passa exatamente <see cref="RecommendationOverFetch.MaximumCountFor"/> para a fonte colaborativa
+    /// quando strategy=blend — a janela da ÚLTIMA rodada, porque a varredura é uma só e as rodadas leem prefixos
+    /// dela (E4.9). Testado para dois valores de <c>limit</c>: um acima do piso (20) e um abaixo (1). É também o teto
+    /// absoluto de candidatas que o handler admite pedir a uma fonte externa.
     /// </summary>
     [Theory]
     [InlineData(20)]
@@ -680,7 +805,7 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
             genreMode: GenreRankingModeContract.Off,
             strategy: RecommendationStrategyContract.Blend));
 
-        Assert.Equal(RecommendationOverFetch.CountFor(limit), capturingSource.LastLimit);
+        Assert.Equal(RecommendationOverFetch.MaximumCountFor(limit), capturingSource.LastLimit);
     }
 
     /// <summary>Handler com um sinal colaborativo VAZIO por default — os testes de content/E4.3/E4.7 não usam blend.</summary>

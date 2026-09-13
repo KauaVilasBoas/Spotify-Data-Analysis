@@ -35,6 +35,9 @@ public sealed class RecommenderQualityReportTests
     private const string DuplicateHeader =
         "amostra                    | config                          | grupos | sementes | recall | hit-rate | 1o_irmao | cos_irmaos | topK_100%_dup | repeticao_no_topK | topK_incompleto";
 
+    private const string SizeHeader =
+        "config                           | sementes | abaixo_de_K | %_abaixo | exatamente_1 | vazias | tamanho_medio | rodada_1 | rodada_2 | rodada_3 | p50_ms | p95_ms | p99_ms | max_ms";
+
     private readonly RecommenderEvaluationHarness _harness;
     private readonly ITestOutputHelper _output;
 
@@ -55,6 +58,7 @@ public sealed class RecommenderQualityReportTests
         AppendCensus(report);
         AppendCoherenceTable(report, evaluator);
         AppendDuplicateTable(report, evaluator);
+        AppendResultSizeTable(report, evaluator);
 
         TimeSpan evaluationDuration = Stopwatch.GetElapsedTime(startTimestamp);
         AppendCost(report, evaluationDuration);
@@ -184,6 +188,93 @@ public sealed class RecommenderQualityReportTests
         }
 
         report.AppendLine();
+    }
+
+    /// <summary>
+    /// Proxy 4 (E4.9) — a distribuição do TAMANHO do resultado sobre as 1.895 sementes dos grupos de 11+ faixas, a
+    /// mesma população em que o defeito foi medido. Sai nas duas configurações que importam: o default do endpoint
+    /// (<c>boost | dedupe=on</c>), que é onde o baseline de 679/227 foi levantado, e o <c>off | dedupe=on</c>, que é a
+    /// configuração que o gate cobra.
+    ///
+    /// <para>A latência por semente é medida no MESMO caminho (<c>RankAsEndpointWould</c>) e é só o ranking: exclui as
+    /// idas ao banco por metadata, que o endpoint faz uma vez por requisição e o harness já tem em memória.</para>
+    /// </summary>
+    private void AppendResultSizeTable(StringBuilder report, RecommenderQualityEvaluator evaluator)
+    {
+        RecommenderEvaluationSetting productionDefault = RecommenderEvaluationSetting
+            .BoostedBy(GenreAffinityPolicy.DefaultBoostWeight)
+            .WithDedupe();
+
+        RecommenderEvaluationSetting[] settings =
+        [
+            productionDefault,
+            RecommenderEvaluationSetting.CosineOnly().WithDedupe()
+        ];
+
+        report.AppendLine(CultureInfo.InvariantCulture,
+            $"PROXY 4 — tamanho do resultado nas {_harness.LargeGroupMemberSample.SeedTrackIds.Count} sementes dos " +
+            $"grupos de {RecommenderEvaluationHarness.LargeGroupMinimumMembers}+ faixas (top-" +
+            $"{RecommenderEvaluationHarness.TopN}; rodadas: teto {RecommendationOverFetch.MaximumRounds}, janela " +
+            $"{string.Join(" -> ", Enumerable.Range(1, RecommendationOverFetch.MaximumRounds).Select(round => RecommendationOverFetch.CountForRound(RecommenderEvaluationHarness.TopN, round)))})");
+        report.AppendLine(SizeHeader);
+
+        foreach (RecommenderEvaluationSetting setting in settings)
+        {
+            RecommendationSizeProxy size = RecommenderQualityEvaluator.MeasureResultSize(
+                _harness.Index,
+                _harness.LargeGroupMemberSample,
+                setting,
+                RecommenderEvaluationHarness.TopN,
+                _harness.Context);
+
+            double[] latencies = MeasurePerSeedLatency(setting);
+
+            report.AppendLine(CultureInfo.InvariantCulture,
+                $"{setting.Label,-32} | {size.SeedsEvaluated,8} | {size.SeedsBelowTopN,11} | " +
+                $"{size.ShortResultRate,8:0.0000} | {size.SeedsWithSingleResult,12} | {size.SeedsWithEmptyResult,6} | " +
+                $"{size.MeanResultSize,13:0.00} | {size.SeedsByRound[0],8} | {size.SeedsByRound[1],8} | " +
+                $"{size.SeedsByRound[2],8} | {Percentile(latencies, 0.50),6:0.00} | " +
+                $"{Percentile(latencies, 0.95),6:0.00} | {Percentile(latencies, 0.99),6:0.00} | " +
+                $"{latencies[^1],6:0.00}");
+        }
+
+        report.AppendLine();
+    }
+
+    /// <summary>
+    /// Cronometra o ranking de PRODUÇÃO semente a semente, na mesma ordem da amostra, e devolve as durações em
+    /// milissegundos já ORDENADAS — o insumo dos percentis. Uma passada de aquecimento antes descarta o custo de JIT,
+    /// que apareceria inteiro na primeira semente e envenenaria o máximo.
+    /// </summary>
+    private double[] MeasurePerSeedLatency(RecommenderEvaluationSetting setting)
+    {
+        IReadOnlyList<string> seeds = _harness.LargeGroupMemberSample.SeedTrackIds;
+
+        RecommenderQualityEvaluator.RankAsEndpointWould(
+            _harness.Index, seeds[0], RecommenderEvaluationHarness.TopN, setting, _harness.Context);
+
+        var latencies = new double[seeds.Count];
+        for (int i = 0; i < seeds.Count; i++)
+        {
+            long startTimestamp = Stopwatch.GetTimestamp();
+
+            RecommenderQualityEvaluator.RankAsEndpointWould(
+                _harness.Index, seeds[i], RecommenderEvaluationHarness.TopN, setting, _harness.Context);
+
+            latencies[i] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+        }
+
+        Array.Sort(latencies);
+
+        return latencies;
+    }
+
+    /// <summary>O percentil por interpolação do vizinho mais próximo sobre a amostra JÁ ordenada.</summary>
+    private static double Percentile(double[] sortedLatencies, double percentile)
+    {
+        int index = (int)Math.Ceiling(percentile * sortedLatencies.Length) - 1;
+
+        return sortedLatencies[Math.Clamp(index, 0, sortedLatencies.Length - 1)];
     }
 
     private void AppendCost(StringBuilder report, TimeSpan evaluationDuration)

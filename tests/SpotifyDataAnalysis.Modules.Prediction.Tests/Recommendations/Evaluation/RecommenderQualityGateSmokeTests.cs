@@ -67,8 +67,23 @@ public sealed class RecommenderQualityGateSmokeTests
             RecommenderEvaluationSetting.CosineOnly().WithDedupe(),
             _harness.Context);
 
+        // Proxy 4 (E4.9): a distribuição de tamanho do resultado, na MESMA configuração cuja qualidade é gateada, e
+        // sobre as 1.895 sementes dos grupos de 11+ — a população em que o defeito do over-fetch fixo foi medido.
+        RecommendationSizeProxy resultSize = RecommenderQualityEvaluator.MeasureResultSize(
+            _harness.Index,
+            _harness.LargeGroupMemberSample,
+            boostedSetting,
+            RecommenderEvaluationHarness.TopN,
+            _harness.Context);
+
         RecommenderQualityVerdict verdict = new RecommenderQualityGate()
-            .Evaluate(cosineOnly, boosted, similarityEngineDuplicates, dedupedDuplicates);
+            .Evaluate(cosineOnly, boosted, similarityEngineDuplicates, dedupedDuplicates, resultSize);
+
+        _output.WriteLine(
+            $"[{resultSize.Setting.Label}] tamanho do resultado: {resultSize.SeedsBelowTopN} de " +
+            $"{resultSize.SeedsEvaluated} sementes abaixo de {resultSize.TopN} " +
+            $"({resultSize.ShortResultRate:0.0000}), {resultSize.SeedsWithSingleResult} com um item so; " +
+            $"rodadas de over-fetch: {string.Join(" / ", resultSize.SeedsByRound)}.");
 
         _output.WriteLine(
             $"[{boosted.Setting.Label}] coerencia {cosineOnly.GenreCoherence.MeanCoherence:0.0000} -> " +

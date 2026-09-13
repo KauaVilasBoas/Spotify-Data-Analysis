@@ -1,4 +1,6 @@
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
@@ -255,6 +257,146 @@ public sealed class RecommenderQualityEvaluatorTests
 
         Assert.Throws<DomainException>(
             () => _evaluator.MeasureDuplicateProximity(index, SampleWithGroup("a", "b"), topK: 0));
+    }
+
+    // --- E4.9: o avaliador mede o over-fetch ADAPTATIVO, não a contagem de rodada única ---
+
+    /// <summary>
+    /// O teste anti-divergência do E4.9. O avaliador e o handler consomem o MESMO
+    /// <see cref="RecommendationOverFetch"/>: se o endpoint adaptar a janela e o avaliador continuar na rodada única,
+    /// o gate volta a defender um sistema que o endpoint não entrega — literalmente o bug que o E4.10 corrigiu neste
+    /// módulo, com tudo verde por dois épicos.
+    ///
+    /// <para>O cenário é o mesmo do handler: um grupo de quase-duplicatas ocupa a janela da primeira rodada inteira e
+    /// colapsa num item só. Com a rodada única o tamanho medido seria 1; com o adaptativo, a segunda rodada alcança as
+    /// faixas distintas e o top-N fecha em 3.</para>
+    /// </summary>
+    [Fact]
+    public void Tamanho_do_resultado_reflete_o_over_fetch_adaptativo_do_endpoint()
+    {
+        (SimilarityIndex index, RecommenderEvaluationContext context) = CollapsingWorld();
+
+        RecommendationSizeProxy size = RecommenderQualityEvaluator.MeasureResultSize(
+            index,
+            SampleOf("seed"),
+            RecommenderEvaluationSetting.CosineOnly().WithDedupe(),
+            topN: 3,
+            context);
+
+        Assert.Equal(1, size.SeedsEvaluated);
+        Assert.Equal(0, size.SeedsBelowTopN);
+        Assert.Equal(0, size.SeedsWithSingleResult);
+        Assert.Equal(3.0, size.MeanResultSize, precision: 10);
+        Assert.True(size.MaximumRoundsUsed > 1, "A semente só alcança o top-N pedido com mais de uma rodada.");
+    }
+
+    /// <summary>
+    /// O par do teste acima, pelo caminho por semente: o mesmo mundo, a mesma resposta, e o custo declarado. É este
+    /// método que o instrumento de latência cronometra — medir latência por um caminho diferente do que produz o
+    /// resultado seria medir outra coisa.
+    /// </summary>
+    [Fact]
+    public void Ranking_por_semente_declara_quantas_rodadas_custou()
+    {
+        (SimilarityIndex index, RecommenderEvaluationContext context) = CollapsingWorld();
+
+        EndpointTopN? ranked = RecommenderQualityEvaluator.RankAsEndpointWould(
+            index, "seed", topN: 3, RecommenderEvaluationSetting.CosineOnly().WithDedupe(), context);
+
+        Assert.NotNull(ranked);
+        Assert.Equal(3, ranked.Neighbors.Count);
+        Assert.Equal(2, ranked.RoundsUsed);
+
+        // A janela da rodada 2 pediria 20 candidatas, mas o catálogo do fixture só tem 16 além da semente: o que é
+        // reportado é a janela EFETIVA, não a pedida — senão o custo declarado seria maior que o trabalho feito.
+        Assert.Equal(16, ranked.CandidatesConsidered);
+        Assert.True(
+            ranked.CandidatesConsidered < RecommendationOverFetch.CountForRound(3, round: 2),
+            "O fixture precisa ser menor que a janela da rodada 2 para este ponto fazer sentido.");
+    }
+
+    [Fact]
+    public void Semente_fora_do_indice_nao_produz_ranking_nem_entra_na_distribuicao()
+    {
+        SimilarityIndex index = BuildIndex(Track("a", 0.80, "pop"), Track("b", 0.70, "pop"));
+
+        Assert.Null(RecommenderQualityEvaluator.RankAsEndpointWould(
+            index, "ausente", topN: 2, RecommenderEvaluationSetting.CosineOnly()));
+
+        RecommendationSizeProxy size = RecommenderQualityEvaluator.MeasureResultSize(
+            index, SampleOf("ausente"), RecommenderEvaluationSetting.CosineOnly(), topN: 2);
+
+        Assert.Equal(0, size.SeedsEvaluated);
+        Assert.Equal(1, size.SeedsMissingFromIndex);
+        Assert.Equal(0, size.MaximumRoundsUsed);
+    }
+
+    /// <summary>
+    /// Um mundo em que a primeira janela do over-fetch é toda de quase-duplicatas. Com <c>topN=3</c> a rodada 1 pede
+    /// 10 candidatas e encontra as 10 irmãs (que colapsam em 1); a rodada 2 pede 20 e alcança as faixas distintas.
+    ///
+    /// <para>O fixture colinear do E4.4 não serve aqui: nele TODO par tem cosseno 1 e o dedup colapsaria o catálogo
+    /// inteiro num item, tornando o cenário impossível de distinguir de uma semente patológica.</para>
+    /// </summary>
+    private static (SimilarityIndex Index, RecommenderEvaluationContext Context) CollapsingWorld()
+    {
+        var tracks = new List<RawTrackFeatures> { Sibling("seed", 0) };
+        var attributes = new Dictionary<string, EvaluationTrackAttributes>(StringComparer.Ordinal)
+        {
+            ["seed"] = new(RecommendationDuplicateKey.From("A Mesma Obra", "O Mesmo Artista"), Popularity: 50)
+        };
+
+        for (int i = 0; i < 10; i++)
+        {
+            string trackId = $"dup{i:00}";
+            tracks.Add(Sibling(trackId, i + 1));
+            attributes[trackId] = new EvaluationTrackAttributes(
+                RecommendationDuplicateKey.From("A Mesma Obra", "O Mesmo Artista"), Popularity: 50);
+        }
+
+        for (int k = 0; k < 6; k++)
+        {
+            string trackId = $"far{k:00}";
+            tracks.Add(new RawTrackFeatures(trackId, DistantVector(k), Genre: "pop", IsImputed: false));
+            attributes[trackId] = new EvaluationTrackAttributes(
+                RecommendationDuplicateKey.From($"Obra {trackId}", $"Artista {trackId}"), Popularity: 50);
+        }
+
+        return (
+            SimilarityIndex.Build(tracks),
+            new RecommenderEvaluationContext(
+                attributes,
+                new Dictionary<string, IReadOnlyList<BlendCollaborativeCandidate>>(StringComparer.Ordinal)));
+    }
+
+    /// <summary>Uma versão da mesma obra: o vetor da semente com perturbação de 1e-5, cosseno acima de 0,999.</summary>
+    private static RawTrackFeatures Sibling(string trackId, int ordinal) =>
+        new(
+            trackId,
+            SimilarityFeatureVector.Create(
+            [
+                0.80 + (ordinal * 1e-5), 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0
+            ]),
+            Genre: "pop",
+            IsImputed: false);
+
+    /// <summary>Vetores mutuamente distantes o bastante para NÃO colapsarem entre si, por rotação determinística.</summary>
+    private static SimilarityFeatureVector DistantVector(int k)
+    {
+        static double Cycle(int k, int multiplier) => ((k * multiplier) % 7) / 6.0;
+
+        return SimilarityFeatureVector.Create(
+        [
+            0.05 + (0.90 * Cycle(k, 3)),
+            0.05 + (0.90 * Cycle(k, 5)),
+            0.05 + (0.90 * Cycle(k, 6)),
+            60.0 + (120.0 * Cycle(k, 2)),
+            0.05 + (0.90 * Cycle(k, 4)),
+            0.05 + (0.90 * Cycle(k, 1)),
+            0.05 + (0.90 * Cycle(k, 5)),
+            0.02 + (0.50 * Cycle(k, 3)),
+            -30.0 + (28.0 * Cycle(k, 6))
+        ]);
     }
 
     private static RecommenderEvaluationSample SampleOf(params string[] seedTrackIds) =>
