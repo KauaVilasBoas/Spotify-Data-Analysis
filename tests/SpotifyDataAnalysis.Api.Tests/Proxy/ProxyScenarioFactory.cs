@@ -50,6 +50,11 @@ public sealed class ProxyScenarioFactory : WebApplicationFactory<Program>
             "ConnectionStrings:SpotifyDb",
             "Host=localhost;Port=5432;Database=spotify_test;Username=test;Password=test");
 
+        // Desliga o warm-up do índice de similaridade: estes testes sobem o Program real sem banco
+        // disponível e não exercitam o recomendador — a varredura dispararia e falharia em silêncio,
+        // tornando o teste dependente de uma exceção engolida pelo warm-up service.
+        builder.UseSetting("Prediction:Recommendations:WarmUpEnabled", "false");
+
         builder.UseSetting("ForwardedHeaders:Enabled", _behindProxy ? "true" : "false");
         builder.UseSetting("ForwardedHeaders:ForwardLimit", "1");
         builder.UseSetting("ForwardedHeaders:TrustAllProxies", "false");

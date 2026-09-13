@@ -108,7 +108,16 @@ public static class PredictionModuleServiceExtensions
             sp => sp.GetRequiredService<CachedTrackSimilarityIndexProvider>());
 
         // Warm-up service: monta o índice em background no arranque, sem bloquear o servidor (E6.9).
-        services.AddHostedService<SimilarityIndexWarmUpService>();
+        // Registrado APENAS quando habilitado: ambientes de teste (e.g. ProxyScenarioFactory) sobem o
+        // Program real sem banco disponível e não precisam — nem devem — disparar a varredura do catálogo.
+        // O default é true: produção não pode depender de alguém lembrar de ligar a flag.
+        // Mesma convenção de Jobs:PlaylistIngestion:Enabled e Jobs:CatalogEnrichment:Enabled.
+        bool warmUpEnabled = configuration
+            .GetSection("Prediction:Recommendations:WarmUpEnabled")
+            .Get<bool?>() ?? true;
+
+        if (warmUpEnabled)
+            services.AddHostedService<SimilarityIndexWarmUpService>();
 
         // --- Recomendação pública com explicabilidade (E4.2): metadados de exibição da semente e das top-N ---
 
