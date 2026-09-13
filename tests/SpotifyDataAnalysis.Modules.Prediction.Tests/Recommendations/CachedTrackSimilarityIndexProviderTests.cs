@@ -25,18 +25,35 @@ public sealed class CachedTrackSimilarityIndexProviderTests
 
     // --- stubs ---
 
-    /// <summary>Feature source que libera apenas após um semáforo externo ser sinalizado — controla o timing.</summary>
+    /// <summary>
+    /// Feature source que bloqueia até <paramref name="buildGate"/> ser liberado, e sinaliza
+    /// <paramref name="startedSignal"/> imediatamente antes de bloquear — permitindo que o
+    /// teste saiba de forma determinística quando a montagem do índice está em andamento,
+    /// sem depender de <c>Task.Delay</c>. Conta em <see cref="StreamCallCount"/> quantas
+    /// vezes o streaming foi iniciado, para que a asserção prove que a fonte foi varrida
+    /// exatamente uma vez mesmo com chamadas concorrentes.
+    /// </summary>
     private sealed class BlockingFeatureSource : ISimilarityFeatureSource
     {
-        private readonly SemaphoreSlim _gate;
+        private readonly SemaphoreSlim _buildGate;
+        private readonly TaskCompletionSource _startedSignal;
 
-        public BlockingFeatureSource(SemaphoreSlim gate) => _gate = gate;
+        public int StreamCallCount;
+
+        public BlockingFeatureSource(SemaphoreSlim buildGate, TaskCompletionSource startedSignal)
+        {
+            _buildGate = buildGate;
+            _startedSignal = startedSignal;
+        }
 
         public async IAsyncEnumerable<RawTrackFeatures> StreamEligibleTracksAsync(
             int batchSize,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await _gate.WaitAsync(cancellationToken);
+            System.Threading.Interlocked.Increment(ref StreamCallCount);
+            // Sinaliza que a montagem começou — o teste pode avançar de forma determinística.
+            _startedSignal.TrySetResult();
+            await _buildGate.WaitAsync(cancellationToken);
             yield return new RawTrackFeatures("a", Vec(0.0), null, false);
         }
     }
@@ -122,13 +139,17 @@ public sealed class CachedTrackSimilarityIndexProviderTests
     {
         // Garante o critério de aceite: requisição chegando DURANTE a montagem recebe 503 imediata.
         var buildGate = new SemaphoreSlim(0, 1);
-        using var provider = Build(new BlockingFeatureSource(buildGate));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockingSource = new BlockingFeatureSource(buildGate, started);
+        using var provider = Build(blockingSource);
 
-        // Inicia o warm-up mas não libera o build ainda.
+        // Inicia o warm-up mas não libera o buildGate ainda.
         Task warmUp = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
 
-        // Aguarda o warm-up estar segurando o gate de construção.
-        await Task.Delay(50);
+        // Espera de forma determinística: o sinal é publicado pela BlockingFeatureSource
+        // imediatamente antes de bloquear no buildGate, momento em que o _gate do provider
+        // já foi adquirido (CurrentCount == 0) — sem Task.Delay.
+        await started.Task;
 
         // Requisição chegando durante a montagem deve receber ServiceUnavailableException imediatamente.
         var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync());
@@ -138,6 +159,9 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         // Limpeza: libera o warm-up para terminar.
         buildGate.Release();
         await warmUp;
+
+        // Confirma que a montagem ocorreu exatamente uma vez — a 503 não disparou segunda varredura.
+        Assert.Equal(1, blockingSource.StreamCallCount);
     }
 
     [Fact]
@@ -157,17 +181,18 @@ public sealed class CachedTrackSimilarityIndexProviderTests
     [Fact]
     public async Task WarmUpAsync_CalledConcurrently_BuildsIndexOnlyOnce()
     {
-        // Arrange: dois gates — um bloqueia a varredura, o outro sincroniza o início das duas tarefas.
-        var buildGate = new SemaphoreSlim(0, 1);   // liberado para deixar o build terminar
-        var blockingSource = new BlockingFeatureSource(buildGate);
-
+        // Arrange: buildGate bloqueia a varredura; started sinaliza quando a montagem começou.
+        var buildGate = new SemaphoreSlim(0, 1);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockingSource = new BlockingFeatureSource(buildGate, started);
         using var provider = Build(blockingSource);
 
         // Dispara o primeiro warm-up (vai bloquear na BlockingFeatureSource).
         Task warmUp1 = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
 
-        // Aguarda um instante para que warmUp1 já esteja dentro do WaitAsync do gate.
-        await Task.Delay(50);
+        // Espera de forma determinística: o sinal é publicado quando o primeiro warm-up
+        // está dentro de BuildIndexAsync e retém o _gate do provider — sem Task.Delay.
+        await started.Task;
 
         // Dispara o segundo warm-up em paralelo — deve ser descartado pelo double-check do semáforo.
         Task warmUp2 = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
@@ -176,7 +201,8 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         buildGate.Release();
         await Task.WhenAll(warmUp1, warmUp2);
 
-        // Assert: índice com exatamente 1 faixa (BlockingFeatureSource), sem duplicata.
+        // Assert: source varrido exatamente uma vez (não duas), e índice com 1 faixa.
+        Assert.Equal(1, blockingSource.StreamCallCount);
         SimilarityIndex index = await provider.GetIndexAsync();
         Assert.Equal(1, index.Count);
     }
