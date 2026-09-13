@@ -105,6 +105,11 @@ public static class CatalogModuleServiceExtensions
         // pela CLI dev do Host (`seed-playlists`), em lotes pelo DbContext cru (sem Outbox).
         services.AddScoped<PichlPlaylistSeeder>();
 
+        // Seed de demonstração de imputação (E1.13): insere faixas sintéticas identificadas por 'imp_seed_*'
+        // sem audio-features e as processa pelo AudioFeatureMedianProfileBuilder + MedianAudioFeatureImputer
+        // reais — exercita o caminho de imputação de produção com dado real, sem fabricar evidência por UPDATE.
+        services.AddScoped<ImputationDemoSeeder>();
+
         // Estratégias de casamento CSV → catálogo (E1.4/E1.9). A ORDEM DE REGISTRO É a ordem da chain no
         // TrackMatcher — da mais confiável para a menos confiável — e é aqui, na composição, que essa
         // precedência fica registrada (não escondida no matcher):

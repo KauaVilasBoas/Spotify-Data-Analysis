@@ -235,6 +235,28 @@ if (args.Length >= 1 && args[0] == "seed-playlists")
 }
 
 // ---------------------------------------------------------------------------
+// Dev CLI (E1.13): `dotnet run -- seed-imputation-demo [csvPath]` insere as 6 faixas sintéticas imp_seed_*
+// sem audio-features e passa-as pelo caminho de imputação real (AudioFeatureMedianProfileBuilder +
+// MedianAudioFeatureImputer). Idempotente: segunda execução imprime zeros em "inseridas" e confirma
+// idempotência. ENCERRA sem subir o servidor.
+// ---------------------------------------------------------------------------
+if (args.Length >= 1 && args[0] == "seed-imputation-demo")
+{
+    string csvPath = args.Length >= 2 ? args[1] : "dataset.csv";
+    using IServiceScope imputationScope = app.Services.CreateScope();
+    ImputationDemoSeeder imputationSeeder =
+        imputationScope.ServiceProvider.GetRequiredService<ImputationDemoSeeder>();
+
+    ImputationDemoSeedResult imputation = await imputationSeeder.SeedAsync(csvPath);
+
+    Console.WriteLine(
+        $"[seed-imputation-demo] {imputation.TracksInserted} faixas inseridas, " +
+        $"{imputation.TracksAlreadyExisted} já existiam, " +
+        $"{imputation.TracksImputed} imputadas em {imputation.ElapsedMilliseconds} ms.");
+    return;
+}
+
+// ---------------------------------------------------------------------------
 // Dev CLI (E4.6): `dotnet run -- build-cooccurrence` materializa a matriz de co-ocorrência item-item em
 // prediction.track_cooccurrence a partir de catalog.playlists (Pichl, semeado no E4.5) e ENCERRA. Passo batch
 // que sustenta o blend colaborativo (DP-3): a recomendação lê da tabela, nunca do self-join sobre jsonb.
