@@ -95,59 +95,66 @@ public sealed class ImputationDemoSeederTests : IAsyncLifetime, IDisposable
     {
         await CleanupDemoTracksAsync();
 
-        // Captura o estado das faixas preexistentes ANTES do seed (não-regressão).
-        long preexistingTotal = await _db.Tracks
-            .LongCountAsync(t => !DemoTrackIds.Contains(t.Id));
-        long preexistingImputed = await _db.Tracks
-            .LongCountAsync(t => !DemoTrackIds.Contains(t.Id)
-                && t.AudioFeatures != null && t.AudioFeatures.IsImputed);
-
-        string csvPath = FindKaggleCsv();
-        var seeder = new ImputationDemoSeeder(_db, NullLogger<ImputationDemoSeeder>.Instance);
-
-        // --- Primeira execução ---
-        ImputationDemoSeedResult result1 = await seeder.SeedAsync(csvPath);
-
-        Assert.Equal(6, result1.TracksInserted);
-        Assert.Equal(0, result1.TracksAlreadyExisted);
-        // Todas as 6 faixas têm pelo menos uma feature ausente → todas devem ser imputadas.
-        Assert.Equal(6, result1.TracksImputed);
-
-        // Verifica no banco que as faixas têm audio_features e is_imputed = true.
-        List<Track> seedTracks = await _db.Tracks
-            .Where(t => DemoTrackIds.Contains(t.Id))
-            .OrderBy(t => t.Id)
-            .ToListAsync();
-
-        Assert.Equal(6, seedTracks.Count);
-
-        foreach (Track track in seedTracks)
+        try
         {
-            Assert.NotNull(track.AudioFeatures);
-            Assert.True(track.AudioFeatures!.IsImputed,
-                $"Faixa {track.Id.Value} deveria estar marcada como imputada.");
+            // Captura o estado das faixas preexistentes ANTES do seed (não-regressão).
+            long preexistingTotal = await _db.Tracks
+                .LongCountAsync(t => !DemoTrackIds.Contains(t.Id));
+            long preexistingImputed = await _db.Tracks
+                .LongCountAsync(t => !DemoTrackIds.Contains(t.Id)
+                    && t.AudioFeatures != null && t.AudioFeatures.IsImputed);
+
+            string csvPath = FindKaggleCsv();
+            var seeder = new ImputationDemoSeeder(_db, NullLogger<ImputationDemoSeeder>.Instance);
+
+            // --- Primeira execução ---
+            ImputationDemoSeedResult result1 = await seeder.SeedAsync(csvPath);
+
+            Assert.Equal(6, result1.TracksInserted);
+            Assert.Equal(0, result1.TracksAlreadyExisted);
+            // Todas as 6 faixas têm pelo menos uma feature ausente → todas devem ser imputadas.
+            Assert.Equal(6, result1.TracksProcessedByImputer);
+
+            // Verifica no banco que as faixas têm audio_features e is_imputed = true.
+            List<Track> seedTracks = await _db.Tracks
+                .Where(t => DemoTrackIds.Contains(t.Id))
+                .OrderBy(t => t.Id)
+                .ToListAsync();
+
+            Assert.Equal(6, seedTracks.Count);
+
+            foreach (Track track in seedTracks)
+            {
+                Assert.NotNull(track.AudioFeatures);
+                Assert.True(track.AudioFeatures!.IsImputed,
+                    $"Faixa {track.Id.Value} deveria estar marcada como imputada.");
+            }
+
+            // --- Não-regressão: faixas preexistentes não mudaram ---
+            long postTotal = await _db.Tracks
+                .LongCountAsync(t => !DemoTrackIds.Contains(t.Id));
+            long postImputed = await _db.Tracks
+                .LongCountAsync(t => !DemoTrackIds.Contains(t.Id)
+                    && t.AudioFeatures != null && t.AudioFeatures.IsImputed);
+
+            Assert.Equal(preexistingTotal, postTotal);
+            Assert.Equal(preexistingImputed, postImputed);
+
+            // --- Idempotência: segunda execução devolve as mesmas contagens ---
+            _db.ChangeTracker.Clear();
+            ImputationDemoSeedResult result2 = await seeder.SeedAsync(csvPath);
+
+            Assert.Equal(0, result2.TracksInserted);
+            Assert.Equal(6, result2.TracksAlreadyExisted);
+            // Na segunda execução o imputador re-processa as 6 existentes (comportamento idempotente);
+            // TracksInserted=0 confirma que não houve duplicação.
+            Assert.Equal(6, result2.TracksProcessedByImputer);
         }
-
-        // --- Não-regressão: faixas preexistentes não mudaram ---
-        long postTotal = await _db.Tracks
-            .LongCountAsync(t => !DemoTrackIds.Contains(t.Id));
-        long postImputed = await _db.Tracks
-            .LongCountAsync(t => !DemoTrackIds.Contains(t.Id)
-                && t.AudioFeatures != null && t.AudioFeatures.IsImputed);
-
-        Assert.Equal(preexistingTotal, postTotal);
-        Assert.Equal(preexistingImputed, postImputed);
-
-        // --- Idempotência: segunda execução devolve as mesmas contagens ---
-        _db.ChangeTracker.Clear();
-        ImputationDemoSeedResult result2 = await seeder.SeedAsync(csvPath);
-
-        Assert.Equal(0, result2.TracksInserted);
-        Assert.Equal(6, result2.TracksAlreadyExisted);
-        Assert.Equal(6, result2.TracksImputed); // re-imputa as existentes (idempotente)
-
-        // Limpa ao final para não deixar lixo no banco.
-        await CleanupDemoTracksAsync();
+        finally
+        {
+            // Garante limpeza mesmo em falha — nenhum caminho deixa dado para trás.
+            await CleanupDemoTracksAsync();
+        }
     }
 
     /// <summary>

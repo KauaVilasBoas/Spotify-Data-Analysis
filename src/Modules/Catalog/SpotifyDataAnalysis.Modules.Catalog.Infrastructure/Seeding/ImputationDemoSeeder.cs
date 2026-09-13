@@ -1,12 +1,11 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Common;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
@@ -15,7 +14,13 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
 public sealed record ImputationDemoSeedResult(
     long TracksInserted,
     long TracksAlreadyExisted,
-    long TracksImputed,
+    /// <summary>
+    /// Conta quantas faixas do conjunto demo (inseridas OU já existentes) tiveram pelo menos
+    /// uma feature imputada nesta execução. Na segunda execução idempotente este número é 6
+    /// porque o imputador re-processa as existentes — se quiser contar só as recém-inseridas,
+    /// use <see cref="TracksInserted"/>.
+    /// </summary>
+    long TracksProcessedByImputer,
     long ElapsedMilliseconds);
 
 /// <summary>
@@ -88,7 +93,8 @@ public sealed class ImputationDemoSeeder
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         // --- Passo 1: Construir o perfil de medianas a partir do dataset real -------------------------
-        // É exatamente o que ImportKaggleAudioFeaturesCommandHandler faz na primeira passada.
+        // Usa o KaggleAudioFeaturesCsvReader (CsvHelper) — mesmo leitor que a produção usa —
+        // para que as medianas sejam idênticas às que o ImportKaggleAudioFeaturesCommandHandler produziria.
         AudioFeatureMedianProfile medians = await BuildMedianProfileAsync(
             kaggleAudioFeaturesCsvPath, cancellationToken);
 
@@ -148,7 +154,7 @@ public sealed class ImputationDemoSeeder
         // Recarrega do banco para ter os agregados rastreados (EF precisa rastrear para detectar mudanças).
         // O ITrackRepository.GetByIdAsync seria a porta correta num handler, mas aqui usamos o DbContext
         // diretamente seguindo o padrão dos seeders vizinhos.
-        long imputed = 0;
+        long processedByImputer = 0;
 
         foreach (KaggleAudioFeaturesRow row in demoRows)
         {
@@ -182,7 +188,7 @@ public sealed class ImputationDemoSeeder
                 isImputed: result.IsImputed));
 
             if (result.IsImputed)
-                imputed++;
+                processedByImputer++;
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -193,105 +199,32 @@ public sealed class ImputationDemoSeeder
         var seedResult = new ImputationDemoSeedResult(
             TracksInserted: inserted,
             TracksAlreadyExisted: alreadyExisted,
-            TracksImputed: imputed,
+            TracksProcessedByImputer: processedByImputer,
             ElapsedMilliseconds: (long)stopwatch.Elapsed.TotalMilliseconds);
 
         LogSeedComplete(_logger,
             seedResult.TracksInserted, seedResult.TracksAlreadyExisted,
-            seedResult.TracksImputed, seedResult.ElapsedMilliseconds, null);
+            seedResult.TracksProcessedByImputer, seedResult.ElapsedMilliseconds, null);
 
         return seedResult;
     }
 
     /// <summary>
     /// Constrói o perfil de medianas a partir do CSV do Kaggle — a primeira passada do
-    /// <see cref="ImportKaggleAudioFeaturesCommandHandler"/>.
+    /// <see cref="ImportKaggleAudioFeaturesCommandHandler"/>. Usa o
+    /// <see cref="KaggleAudioFeaturesCsvReader"/> (CsvHelper) para garantir que as medianas sejam
+    /// idênticas às que a produção calcularia — inclusive em linhas com campos entre aspas.
     /// </summary>
     private static async Task<AudioFeatureMedianProfile> BuildMedianProfileAsync(
         string csvFilePath, CancellationToken cancellationToken)
     {
         var builder = new AudioFeatureMedianProfileBuilder();
 
-        await foreach (KaggleAudioFeaturesRow row in ReadCsvAsync(csvFilePath, cancellationToken))
+        using var reader = new StreamReader(csvFilePath);
+        await foreach (KaggleAudioFeaturesRow row in KaggleAudioFeaturesCsvReader.ParseAsync(reader, cancellationToken))
             builder.Observe(row);
 
         return builder.Build();
-    }
-
-    /// <summary>
-    /// Lê o CSV de audio-features do Kaggle linha a linha, sem materializar tudo em memória.
-    /// Replica o papel do <see cref="Application.Ingestion.IKaggleAudioFeaturesReader"/> sem depender
-    /// da implementação de Infrastructure (que não está visível neste assembly).
-    /// </summary>
-    private static async IAsyncEnumerable<KaggleAudioFeaturesRow> ReadCsvAsync(
-        string csvFilePath,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        using var reader = new StreamReader(csvFilePath, Encoding.UTF8);
-
-        string? header = await reader.ReadLineAsync(cancellationToken);
-        if (header is null)
-            yield break;
-
-        // Mapeia as colunas por nome (o dataset Kaggle tem a ordem documentada, mas casar por nome
-        // é mais robusto e o que o KaggleAudioFeaturesCsvReader faz via CsvHelper).
-        Dictionary<string, int> colIndex = BuildColumnIndex(header);
-
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            string[] cols = line.Split(',');
-
-            yield return new KaggleAudioFeaturesRow(
-                TrackId: Col(cols, colIndex, "track_id") ?? string.Empty,
-                TrackName: Col(cols, colIndex, "track_name"),
-                Artists: Col(cols, colIndex, "artists"),
-                Genre: Col(cols, colIndex, "track_genre"),
-                DurationMs: ColInt(cols, colIndex, "duration_ms"),
-                Danceability: ColDouble(cols, colIndex, "danceability"),
-                Energy: ColDouble(cols, colIndex, "energy"),
-                Valence: ColDouble(cols, colIndex, "valence"),
-                Tempo: ColDouble(cols, colIndex, "tempo"),
-                Acousticness: ColDouble(cols, colIndex, "acousticness"),
-                Instrumentalness: ColDouble(cols, colIndex, "instrumentalness"),
-                Liveness: ColDouble(cols, colIndex, "liveness"),
-                Speechiness: ColDouble(cols, colIndex, "speechiness"),
-                Loudness: ColDouble(cols, colIndex, "loudness"),
-                Key: ColInt(cols, colIndex, "key"),
-                Mode: ColInt(cols, colIndex, "mode"),
-                TimeSignature: ColInt(cols, colIndex, "time_signature"));
-        }
-    }
-
-    private static Dictionary<string, int> BuildColumnIndex(string headerLine)
-    {
-        string[] headers = headerLine.Split(',');
-        var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < headers.Length; i++)
-            index[headers[i].Trim('"').Trim()] = i;
-        return index;
-    }
-
-    private static string? Col(string[] cols, Dictionary<string, int> idx, string name)
-    {
-        if (!idx.TryGetValue(name, out int i) || i >= cols.Length)
-            return null;
-        string v = cols[i].Trim('"').Trim();
-        return string.IsNullOrWhiteSpace(v) ? null : v;
-    }
-
-    private static double? ColDouble(string[] cols, Dictionary<string, int> idx, string name)
-    {
-        string? v = Col(cols, idx, name);
-        return v is not null && double.TryParse(v, System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out double d) ? d : null;
-    }
-
-    private static int? ColInt(string[] cols, Dictionary<string, int> idx, string name)
-    {
-        string? v = Col(cols, idx, name);
-        return v is not null && int.TryParse(v, out int n) ? n : null;
     }
 
     /// <summary>
