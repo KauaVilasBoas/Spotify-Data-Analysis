@@ -9,6 +9,7 @@ export type ApiErrorKind =
   | 'conflict'
   | 'forbidden'
   | 'server'
+  | 'unavailable'
   | 'malformed'
   | 'configuration'
 
@@ -16,6 +17,7 @@ interface ApiErrorShape {
   kind: ApiErrorKind
   detail: string
   status?: number
+  retryAfterSeconds?: number
   apiTitle?: string
   problemType?: string
   traceId?: string
@@ -32,6 +34,7 @@ const HEADLINE: Readonly<Record<ApiErrorKind, string>> = {
   conflict: 'State conflict',
   forbidden: 'Access denied',
   server: 'Internal API error',
+  unavailable: 'The service is initializing',
   malformed: 'Response broke the contract',
   configuration: 'Invalid configuration',
 }
@@ -46,6 +49,8 @@ const FALLBACK_DETAIL: Readonly<Record<ApiErrorKind, string>> = {
   conflict: 'The current state of the resource does not allow this operation.',
   forbidden: 'The API refused access to this resource.',
   server: 'The API hit an unexpected error while processing the request.',
+  unavailable:
+    'The similarity index is warming up. This is temporary and happens on cold start. The request will be retried automatically.',
   malformed: 'The response did not follow the ApiResult<T> envelope published by the API.',
   configuration: 'The application has not been configured correctly.',
 }
@@ -61,6 +66,7 @@ const NEXT_STEP: Readonly<Record<ApiErrorKind, string>> = {
   conflict: 'Reload the data before trying again.',
   forbidden: 'This operation requires a permission the current session does not hold.',
   server: 'Check the API logs using the trace id above.',
+  unavailable: 'The page will retry automatically. If the issue persists, reload the page.',
   malformed: 'This is a backend defect, not a frontend one: the published contract was not honoured.',
   configuration:
     'Fix VITE_API_BASE_URL in frontend/.env.local (http://, https://, a relative path starting with /, or empty for same-origin) and restart the dev server.',
@@ -70,6 +76,7 @@ const RECOVERABLE_KINDS: ReadonlySet<ApiErrorKind> = new Set<ApiErrorKind>([
   'offline',
   'timeout',
   'server',
+  'unavailable',
 ])
 
 /**
@@ -85,6 +92,7 @@ export class ApiError extends Error {
   readonly kind: ApiErrorKind
   readonly detail: string
   readonly status: number | undefined
+  readonly retryAfterSeconds: number | undefined
   readonly apiTitle: string | undefined
   readonly problemType: string | undefined
   readonly traceId: string | undefined
@@ -97,6 +105,7 @@ export class ApiError extends Error {
     this.kind = shape.kind
     this.detail = shape.detail
     this.status = shape.status
+    this.retryAfterSeconds = shape.retryAfterSeconds
     this.apiTitle = shape.apiTitle
     this.problemType = shape.problemType
     this.traceId = shape.traceId
@@ -122,6 +131,7 @@ const KIND_BY_STATUS: Readonly<Record<number, ApiErrorKind>> = {
   404: 'notFound',
   409: 'conflict',
   422: 'validation',
+  503: 'unavailable',
 }
 
 function resolveKind(status: number, problem: ProblemDetails | undefined): ApiErrorKind {
@@ -142,12 +152,17 @@ function nonEmpty(value: string | undefined): string | undefined {
   return value !== undefined && value.trim().length > 0 ? value : undefined
 }
 
-export function apiErrorFromProblem(status: number, problem: ProblemDetails | undefined): ApiError {
+export function apiErrorFromProblem(
+  status: number,
+  problem: ProblemDetails | undefined,
+  retryAfterSeconds: number | undefined,
+): ApiError {
   const kind = resolveKind(status, problem)
 
   return new ApiError({
     kind,
     status,
+    retryAfterSeconds,
     apiTitle: nonEmpty(problem?.title),
     problemType: nonEmpty(problem?.type),
     traceId: typeof problem?.traceId === 'string' ? problem.traceId : undefined,

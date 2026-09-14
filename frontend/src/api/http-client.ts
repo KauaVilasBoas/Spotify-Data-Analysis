@@ -62,6 +62,13 @@ function linkSignals(external: AbortSignal | undefined, timeoutMs: number): [Abo
   ]
 }
 
+function parseRetryAfter(response: Response): number | undefined {
+  const header = response.headers.get('Retry-After')
+  if (header === null) return undefined
+  const seconds = Number(header)
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined
+}
+
 async function unwrapEnvelope<T>(path: string, response: Response): Promise<T> {
   const payload = await readJson(response)
 
@@ -69,6 +76,7 @@ async function unwrapEnvelope<T>(path: string, response: Response): Promise<T> {
     throw apiErrorFromProblem(
       response.status,
       isProblemDetails(payload) ? (payload as ProblemDetails) : undefined,
+      parseRetryAfter(response),
     )
   }
 
