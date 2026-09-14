@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>SpotifyDataAnalysis — Como a tecnologia funciona</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+
+  :root{
+    --tinta:#14181c; --fraco:#5b6770; --linha:#dfe4e8;
+    --verde:#1a7f4b; --verde-fraco:#e8f5ee;
+    --amarelo:#8a6100; --amarelo-fraco:#fdf6e3;
+    --vermelho:#a03030; --vermelho-fraco:#fbeeee;
+    --code-bg:#f6f8fa;
+  }
+
+  *{ box-sizing:border-box; }
+  body{
+    font-family:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+    color:var(--tinta); line-height:1.55; font-size:10.5pt; margin:0;
+  }
+  h1,h2,h3,h4{ line-height:1.25; margin:0 0 .5em; }
+  h1{ font-size:24pt; letter-spacing:-.4pt; }
+  h2{ font-size:15pt; margin-top:1.6em; padding-bottom:.25em; border-bottom:2px solid var(--verde); }
+  h3{ font-size:12pt; margin-top:1.3em; color:#0f3d26; }
+  h4{ font-size:10.5pt; margin-top:1em; color:var(--fraco); text-transform:uppercase; letter-spacing:.6pt; }
+  p{ margin:0 0 .7em; }
+  ul,ol{ margin:0 0 .8em; padding-left:1.25em; }
+  li{ margin-bottom:.3em; }
+  code{ font-family:"Cascadia Mono",Consolas,monospace; font-size:9pt; background:var(--code-bg);
+        padding:.1em .3em; border-radius:3px; }
+  pre{ background:var(--code-bg); border:1px solid var(--linha); border-left:3px solid var(--verde);
+       padding:.7em .9em; border-radius:4px; overflow-x:auto; font-size:8.6pt; line-height:1.45;
+       page-break-inside:avoid; }
+  pre code{ background:none; padding:0; font-size:inherit; }
+  table{ border-collapse:collapse; width:100%; margin:.5em 0 1em; font-size:9.2pt; page-break-inside:avoid; }
+  th,td{ border:1px solid var(--linha); padding:.4em .55em; text-align:left; vertical-align:top; }
+  th{ background:#eef2f5; font-weight:600; }
+  td.num,th.num{ text-align:right; font-variant-numeric:tabular-nums; }
+
+  .capa{ height:247mm; display:flex; flex-direction:column; justify-content:center; page-break-after:always; }
+  .capa h1{ font-size:32pt; margin-bottom:.15em; }
+  .capa .sub{ font-size:13pt; color:var(--fraco); margin-bottom:2em; }
+  .capa .meta{ font-size:9.5pt; color:var(--fraco); border-top:1px solid var(--linha); padding-top:1em; }
+  .selo{ display:inline-block; background:var(--verde); color:#fff; font-size:8.5pt; letter-spacing:1.2pt;
+         text-transform:uppercase; padding:.35em .8em; border-radius:3px; margin-bottom:1.5em; }
+
+  .secao{ page-break-before:always; }
+
+  .formula{ background:#fff; border:1px solid var(--linha); border-radius:5px; padding:.9em 1.1em;
+            margin:.8em 0; text-align:center; font-family:"Cambria",Georgia,serif; font-size:13pt;
+            page-break-inside:avoid; }
+  .formula .nota{ display:block; font-family:inherit; font-size:8.5pt; color:var(--fraco);
+                  margin-top:.55em; font-style:italic; }
+
+  .caixa{ border-radius:5px; padding:.7em .95em; margin:.8em 0; page-break-inside:avoid; font-size:9.6pt; }
+  .caixa .rot{ font-weight:700; font-size:8.5pt; text-transform:uppercase; letter-spacing:.8pt;
+               display:block; margin-bottom:.3em; }
+  .porque{ background:var(--verde-fraco); border-left:3px solid var(--verde); }
+  .porque .rot{ color:var(--verde); }
+  .cuidado{ background:var(--amarelo-fraco); border-left:3px solid var(--amarelo); }
+  .cuidado .rot{ color:var(--amarelo); }
+  .bug{ background:var(--vermelho-fraco); border-left:3px solid var(--vermelho); }
+  .bug .rot{ color:var(--vermelho); }
+
+  .mermaid{ text-align:center; margin:1em 0; page-break-inside:avoid; }
+
+  .sumario{ font-size:10pt; }
+  .sumario ol{ list-style:none; padding-left:0; counter-reset:s; }
+  .sumario > ol > li{ counter-increment:s; margin-bottom:.45em; border-bottom:1px dotted var(--linha);
+                      padding-bottom:.25em; }
+  .sumario > ol > li::before{ content:counter(s) ". "; font-weight:700; color:var(--verde); }
+  .sumario ul{ list-style:none; padding-left:1.4em; margin-top:.25em; font-size:9pt; color:var(--fraco); }
+
+  .kpi{ display:flex; gap:.7em; margin:1em 0; page-break-inside:avoid; }
+  .kpi div{ flex:1; border:1px solid var(--linha); border-top:3px solid var(--verde); border-radius:4px;
+            padding:.6em .5em; text-align:center; }
+  .kpi .v{ display:block; font-size:16pt; font-weight:700; line-height:1.1; }
+  .kpi .l{ display:block; font-size:7.8pt; color:var(--fraco); text-transform:uppercase; letter-spacing:.5pt; }
+
+  .rodape{ margin-top:2.5em; padding-top:.8em; border-top:1px solid var(--linha);
+           font-size:8.5pt; color:var(--fraco); }
+</style>
+</head>
+<body>
+
+<!-- ============================ CAPA ============================ -->
+<section class="capa">
+  <span class="selo">Documento técnico</span>
+  <h1>Como a tecnologia funciona</h1>
+  <p class="sub">SpotifyDataAnalysis: a matemática, as estruturas de dados e as
+  decisões de engenharia por trás do recomendador e do monólito modular que o hospeda.</p>
+
+  <div class="kpi">
+    <div><span class="v">89.740</span><span class="l">faixas no índice</span></div>
+    <div><span class="v">9</span><span class="l">features contínuas</span></div>
+    <div><span class="v">O(n)</span><span class="l">por recomendação</span></div>
+    <div><span class="v">43</span><span class="l">regras de fronteira</span></div>
+  </div>
+
+  <p class="meta">
+    .NET 8 · monólito modular (DDD + CQRS) · PostgreSQL (EF Core no write-side, Dapper no read-side) ·
+    ML.NET · React 19 + Vite + ECharts<br>
+    Companheiro de <code>ARQUITETURA.md</code>, que cobre o fluxo. Aqui o assunto é o <em>como</em>.
+  </p>
+</section>
+
+<!-- ============================ SUMÁRIO ============================ -->
+<section class="sumario">
+  <h2 style="margin-top:0">Sumário</h2>
+  <ol>
+    <li>O problema, em termos numéricos
+      <ul><li>Por que "parecido" precisa de definição formal</li></ul></li>
+    <li>Normalização: o passo sem o qual tudo desanda
+      <ul><li>Escalas heterogêneas · z-score contra min-max · o piso de σ</li></ul></li>
+    <li>Similaridade do cosseno
+      <ul><li>Direção contra magnitude · o caso degenerado · decomposição que soma o score</li></ul></li>
+    <li>Seleção parcial: top-K sem ordenar o catálogo
+      <ul><li>Heap mínimo de capacidade fixa · O(n log k) · determinismo por desempate</li></ul></li>
+    <li>Over-fetch adaptativo
+      <ul><li>Por que o dedup encurta a lista · janela que dobra · por que o prefixo é exato</li></ul></li>
+    <li>Blend com sinal colaborativo
+      <ul><li>Jaccard · reescala min-max · o caso degenerado</li></ul></li>
+    <li>Colapso de quase-duplicatas
+      <ul><li>Duas chaves independentes · por que nenhuma sozinha basta</li></ul></li>
+    <li>A engenharia ao redor do cálculo
+      <ul><li>Mediator e pipeline · concorrência do índice · Outbox · CQRS físico</li></ul></li>
+    <li>Como o projeto se defende de si mesmo
+      <ul><li>Regras de fronteira · gates medidos · a armadilha da vacuidade</li></ul></li>
+    <li>Apêndice: números medidos</li>
+  </ol>
+</section>
+
+<!-- ============================ 1 ============================ -->
+<section class="secao">
+<h2>1. O problema, em termos numéricos</h2>
+
+<p>O recomendador responde a uma pergunta que parece simples: <em>dada uma faixa, quais são
+as mais parecidas?</em> A dificuldade é que "parecido" não tem significado até você escolher
+um espaço, uma métrica e uma regra de desempate. Cada escolha dessas tem consequência
+observável no resultado.</p>
+
+<p>Cada faixa vira um ponto em <strong>ℝ⁹</strong>. As nove coordenadas são as features
+contínuas de áudio: danceability, energy, valence, tempo, acousticness, instrumentalness,
+liveness, speechiness e loudness. A partir daí o problema é geométrico.</p>
+
+<div class="formula">
+  faixa ↦ <strong>v</strong> = (x₁, x₂, …, x₉) ∈ ℝ⁹
+  <span class="nota">O recomendador inteiro é uma sequência de decisões sobre como comparar dois pontos deste espaço.</span>
+</div>
+
+<p>O restante deste documento percorre essas decisões na ordem em que o código as aplica.
+Cada seção responde três perguntas: <strong>o que faz</strong>, <strong>por que assim</strong>
+e <strong>o que quebra se fosse diferente</strong>.</p>
+</section>
+
+<!-- ============================ 2 ============================ -->
+<section class="secao">
+<h2>2. Normalização: o passo sem o qual tudo desanda</h2>
+
+<h3>2.1 O problema das escalas heterogêneas</h3>
+
+<p>As nove features não vivem na mesma escala, e a diferença é brutal:</p>
+
+<table>
+  <tr><th>Feature</th><th>Faixa de valores</th><th>Amplitude aproximada</th></tr>
+  <tr><td><code>tempo</code></td><td>0 a 243 BPM</td><td class="num">243</td></tr>
+  <tr><td><code>loudness</code></td><td>−50 a +5 dB</td><td class="num">55</td></tr>
+  <tr><td><code>energy</code>, <code>valence</code>, <code>danceability</code>, …</td><td>0 a 1</td><td class="num">1</td></tr>
+</table>
+
+<p>Qualquer métrica que envolva produto de coordenadas fica dominada pelas duas de maior
+amplitude. Uma diferença de 40 BPM no tempo pesa quarenta vezes mais que a diferença
+máxima possível em <em>energy</em>, e nada nisso reflete percepção musical: é só o acaso
+da unidade de medida.</p>
+
+<div class="bug">
+  <span class="rot">O que quebra sem normalizar</span>
+  O ranking vira, na prática, "faixas com BPM parecido", e as outras sete features viram
+  ruído decorativo. O projeto tem um teste de dominância que prova os dois lados disso.
+</div>
+
+<h3>2.2 z-score, e não min-max</h3>
+
+<p>A transformação escolhida é a padronização z-score, aplicada coordenada a coordenada:</p>
+
+<div class="formula">
+  z<sub>i</sub> = (x<sub>i</sub> − μ<sub>i</sub>) / σ<sub>i</sub>
+  <span class="nota">μ e σ são a média e o desvio-padrão <strong>populacionais</strong> daquela feature,
+  aprendidos numa passada única sobre o catálogo elegível.</span>
+</div>
+
+<p>Depois da transformação, cada coordenada tem média 0 e desvio 1. Nenhuma feature carrega
+mais peso por causa da unidade.</p>
+
+<div class="porque">
+  <span class="rot">Por que não min-max</span>
+  Min-max ancora nos extremos: <code>(x − min) / (max − min)</code>. Tempo e loudness têm
+  cauda longa, então um único outlier comprime todo o resto do intervalo. O z-score se apoia
+  em μ e σ, que são muito mais estáveis sob cauda. A decisão está registrada como DP-1 do
+  épico E4.1, com o teste de dominância como evidência.
+</div>
+
+<h3>2.3 O piso de σ, e por que ele existe</h3>
+
+<p>Se uma feature for praticamente constante no catálogo, σ ≈ 0, e dividir por ele estoura
+a coordenada ou produz <code>NaN</code>. O código trata isso explicitamente:</p>
+
+<pre><code>public const double MinimumStandardDeviation = 1e-9;
+
+standardDeviations[feature] = standardDeviation &lt; MinimumStandardDeviation
+    ? 1.0      // divide por 1: a coordenada centrada colapsa para ~0
+    : standardDeviation;</code></pre>
+
+<div class="porque">
+  <span class="rot">Por que 1.0 e não um épsilon</span>
+  Dividir por um épsilon minúsculo transformaria ruído numérico no sinal <em>dominante</em>
+  do espaço. Dividir por 1 mantém a coordenada centrada perto de zero, o que é honesto:
+  uma feature sem variância não distingue faixa nenhuma, então ela não deve influenciar a
+  comparação.
+</div>
+
+<h3>2.4 A invariante que sustenta tudo</h3>
+
+<p>Os parâmetros μ e σ são aprendidos <strong>uma vez</strong> e ficam fixados junto do
+índice. Semente e candidatos passam pela <strong>mesma</strong> transformação.</p>
+
+<div class="bug">
+  <span class="rot">A falha silenciosa que isso previne</span>
+  Normalizar a semente com um conjunto de parâmetros e os candidatos com outro produz
+  números plausíveis e sem sentido. É a mesma classe de erro que o skew treino/inferência
+  causa em modelos supervisionados: nada estoura, tudo fica sutilmente errado.
+</div>
+</section>
+
+<!-- ============================ 3 ============================ -->
+<section class="secao">
+<h2>3. Similaridade do cosseno</h2>
+
+<h3>3.1 Direção, não magnitude</h3>
+
+<p>Com os vetores padronizados, a métrica é o cosseno do ângulo entre eles:</p>
+
+<div class="formula">
+  cos(<strong>a</strong>, <strong>b</strong>) =
+  (<strong>a</strong> · <strong>b</strong>) / (‖<strong>a</strong>‖ · ‖<strong>b</strong>‖)
+  =
+  Σ<sub>i</sub> a<sub>i</sub>b<sub>i</sub> / (√(Σ a<sub>i</sub>²) · √(Σ b<sub>i</sub>²))
+  <span class="nota">Resultado em [−1, 1]. Vale 1 quando os vetores apontam na mesma direção.</span>
+</div>
+
+<div class="porque">
+  <span class="rot">Por que cosseno e não distância euclidiana</span>
+  O cosseno mede semelhança de <strong>perfil</strong>, ignorando magnitude. Duas faixas com
+  o mesmo caráter sonoro, uma sistematicamente mais intensa que a outra, apontam na mesma
+  direção e têm cosseno alto. A distância euclidiana as separaria por causa da intensidade,
+  que não é o que se quer num recomendador content-based.
+</div>
+
+<h3>3.2 O vetor de norma zero</h3>
+
+<p>O cosseno é indefinido quando um dos vetores é a origem: não há direção para comparar.
+O código devolve <strong>0</strong> em vez de <code>NaN</code>.</p>
+
+<div class="cuidado">
+  <span class="rot">Por que isso importa</span>
+  Um <code>NaN</code> num ranking envenena toda comparação que o toca, e o efeito aparece
+  longe da causa. Devolver 0 significa "nenhuma semelhança de direção", que é uma leitura
+  defensável e mantém a aritmética fechada. No espaço z-score isso só ocorre com uma faixa
+  exatamente na média de todas as nove features.
+</div>
+
+<h3>3.3 A explicabilidade que não pode divergir do ranking</h3>
+
+<p>Aqui está, na minha leitura, a decisão mais elegante do projeto. A explicação de
+<em>por que</em> duas faixas se parecem não é calculada à parte: ela é a
+<strong>decomposição</strong> do próprio score.</p>
+
+<div class="formula">
+  c<sub>i</sub> = (a<sub>i</sub> · b<sub>i</sub>) / (‖<strong>a</strong>‖ · ‖<strong>b</strong>‖)
+  &nbsp;&nbsp;⟹&nbsp;&nbsp;
+  Σ<sub>i</sub> c<sub>i</sub> = cos(<strong>a</strong>, <strong>b</strong>)
+  <span class="nota">Cada parcela é a contribuição da i-ésima feature, e a soma reconstrói exatamente o score.</span>
+</div>
+
+<p>A prova é imediata: o denominador é constante em relação a <em>i</em>, então somar as
+parcelas é somar o numerador do produto escalar e dividir pelo mesmo denominador.</p>
+
+<div class="porque">
+  <span class="rot">A propriedade que isso garante</span>
+  "As features que mais aproximaram" são, por construção, as de maior parcela. Como a soma
+  reconstrói o score, <strong>é impossível</strong> a explicação apontar para um lado e o
+  ranking para outro. A UI exibe as três maiores parcelas por item.
+</div>
+
+<h3>3.4 O score híbrido: cosseno mais afinidade de gênero</h3>
+
+<p>O ranking final do caminho content-based não é o cosseno puro. Ele soma um bônus quando
+candidato e semente compartilham gênero:</p>
+
+<div class="formula">
+  score = cos(<strong>a</strong>, <strong>b</strong>) + bônus,&nbsp;&nbsp;
+  bônus = 0,05 se compartilham gênero; 0 caso contrário
+</div>
+
+<p>A política que decide isso (<code>GenreAffinityPolicy</code>) tem três modos e uma regra
+de degradação honesta:</p>
+
+<table>
+  <tr><th>Modo</th><th>Elegibilidade</th><th>Bônus</th></tr>
+  <tr><td><code>boost</code> (padrão)</td><td>todos elegíveis</td><td>+0,05 para mesmo gênero</td></tr>
+  <tr><td><code>off</code></td><td>todos elegíveis</td><td>nenhum, cosseno puro</td></tr>
+  <tr><td><code>sameGenreOnly</code></td><td>filtro duro: só mesmo gênero</td><td>não se aplica</td></tr>
+</table>
+
+<div class="cuidado">
+  <span class="rot">Gênero imputado não conta</span>
+  Se o gênero da semente for nulo, vazio <em>ou imputado</em>, a política degrada para
+  <code>off</code> e sinaliza <code>genreFellBackToCosineOnly</code> na resposta. Candidata
+  com gênero imputado também não recebe bônus, mesmo que o rótulo coincida. O critério é
+  explícito: <strong>estimado não é medido</strong>, e o usuário é informado quando a
+  degradação acontece.
+</div>
+</section>
+
+<!-- ============================ 4 ============================ -->
+<section class="secao">
+<h2>4. Seleção parcial: top-K sem ordenar o catálogo</h2>
+
+<h3>4.1 O que seria ingênuo</h3>
+
+<p>Calcular o cosseno contra as 89.740 faixas e ordenar tudo custa <strong>O(n log n)</strong>
+e aloca a lista inteira, para depois jogar fora 99,99% dela. Pedir 10 recomendações não
+justifica ordenar 89.740 elementos.</p>
+
+<h3>4.2 Heap mínimo de capacidade fixa</h3>
+
+<p>O código usa seleção parcial com um heap <strong>mínimo</strong> de capacidade K. A
+inversão é o truque: manter na raiz o <em>pior</em> dos K retidos permite decidir em
+<strong>O(1)</strong> se um candidato novo merece entrar.</p>
+
+<div class="mermaid">
+flowchart TD
+    S["Varredura: para cada uma das 89.740 faixas"] --> E{"elegível pela<br/>política de gênero?"}
+    E -->|não| S
+    E -->|sim| C["calcula cosseno + bônus"]
+    C --> F{"heap tem<br/>espaço?"}
+    F -->|sim| A["insere, sobe no heap<br/>O(log K)"]
+    F -->|não| G{"melhor que a raiz<br/>(o pior retido)?"}
+    G -->|não| S
+    G -->|sim| R["substitui a raiz,<br/>desce no heap O(log K)"]
+    A --> S
+    R --> S
+    S --> FIM["ordena os K retidos<br/>O(K log K)"]
+</div>
+
+<div class="formula">
+  O(n · log K) &nbsp;&nbsp;em vez de&nbsp;&nbsp; O(n · log n)
+  <span class="nota">Com n = 89.740 e K = 120, log₂K ≈ 7 contra log₂n ≈ 16,5. Mais importante:
+  a memória retida é O(K), não O(n).</span>
+</div>
+
+<h3>4.3 O desempate, e por que ele não é detalhe</h3>
+
+<p>O critério de ordem compara a similaridade e, <strong>em caso de empate, o menor
+<code>trackId</code> em ordem ordinal</strong>:</p>
+
+<pre><code>private static bool IsBetterThan(TrackSimilarity candidate, TrackSimilarity reference)
+{
+    if (candidate.Similarity &gt; reference.Similarity) return true;
+    if (candidate.Similarity &lt; reference.Similarity) return false;
+    return string.CompareOrdinal(candidate.TrackId, reference.TrackId) &lt; 0;
+}</code></pre>
+
+<div class="porque">
+  <span class="rot">Não é preferência de negócio, é repetibilidade</span>
+  Sem o desempate, a ordem de dois empatados dependeria da ordem em que a varredura os
+  encontrou, que por sua vez depende da ordem de leitura do banco. O ranking deixaria de ser
+  reprodutível e nenhuma medição de qualidade seria comparável entre execuções.
+</div>
+
+<div class="porque">
+  <span class="rot">A consequência que destrava a seção 5</span>
+  Como o desempate é <strong>total</strong> (não existem dois itens indistinguíveis), a lista
+  ordenada é única. Logo, <em>o prefixo de tamanho w da lista de tamanho W é exatamente o
+  top-w</em>. É esta propriedade que permite o over-fetch adaptativo sem revarrer o catálogo.
+</div>
+</section>
+
+<!-- ============================ 5 ============================ -->
+<section class="secao">
+<h2>5. Over-fetch adaptativo</h2>
+
+<h3>5.1 O problema</h3>
+
+<p>O usuário pede 10 recomendações. O sistema busca 10, aplica o colapso de quase-duplicatas
+e entrega... 4. As outras 6 eram versões da mesma faixa (remaster, ao vivo, edição deluxe) e
+colapsaram num representante só.</p>
+
+<div class="kpi">
+  <div><span class="v">679</span><span class="l">de 1.895 sementes recebiam &lt; 10</span></div>
+  <div><span class="v">227</span><span class="l">recebiam exatamente 1</span></div>
+  <div><span class="v">7,87</span><span class="l">tamanho médio da lista</span></div>
+</div>
+
+<h3>5.2 A solução, e a restrição que a molda</h3>
+
+<p>A saída óbvia é buscar mais candidatas do que o limite. A restrição é que a varredura é
+<strong>O(n)</strong> sobre 89.740 faixas: repetir a varredura por rodada triplicaria o custo
+num host de free tier.</p>
+
+<p>O desenho resolve as duas coisas: <strong>varre uma vez na janela máxima</strong> e cada
+rodada pós-processa um <strong>prefixo</strong> dessa varredura.</p>
+
+<div class="formula">
+  janela(r) = min( max(limit · 3, 10) · 2<sup>(r−1)</sup>, 600 ),&nbsp;&nbsp; r ∈ {1, 2, 3}
+  <span class="nota">Para limit = 10: 30, 60, 120. A varredura acontece uma vez, em 120.</span>
+</div>
+
+<div class="mermaid">
+flowchart LR
+    V["varredura ÚNICA<br/>janela máxima = 120"] --> P1["rodada 1<br/>prefixo 30"]
+    P1 --> D1{"resultado<br/>&ge; limit?"}
+    D1 -->|sim| OK["entrega"]
+    D1 -->|não| P2["rodada 2<br/>prefixo 60"]
+    P2 --> D2{"&ge; limit?"}
+    D2 -->|sim| OK
+    D2 -->|não| P3["rodada 3<br/>prefixo 120"]
+    P3 --> OK
+</div>
+
+<div class="porque">
+  <span class="rot">Por que o prefixo é exato e não aproximado</span>
+  Pela propriedade da seção 4.3: o desempate é total, então a lista ordenada é única e o
+  prefixo de tamanho w <em>é</em> o top-w que uma segunda varredura devolveria. O
+  reaproveitamento não troca precisão por velocidade; ele é matematicamente equivalente.
+</div>
+
+<h3>5.3 A janela corta as duas fontes</h3>
+
+<p>No modo blend existem duas listas de candidatas: as vizinhas de áudio e as co-ocorrentes.
+A janela precisa cortar <strong>ambas</strong>.</p>
+
+<div class="bug">
+  <span class="rot">O bug que isso corrigiu</span>
+  Enquanto só a lista de áudio era recortada, a rodada 1 disputava com o top-120 colaborativo
+  em vez do top-30. Como a pior candidata de áudio da janela recebe score normalizado 0 (ver
+  seção 6.2), qualquer colaborativa extra com Jaccard positivo a deslocava do top-10. O
+  resultado mudava para sementes que já estavam saudáveis, sem nenhuma rodada extra ter
+  ocorrido. Corrigido no commit <code>b226f7a</code>.
+</div>
+
+<h3>5.4 O resultado medido</h3>
+
+<table>
+  <tr><th>Indicador, sobre as mesmas 1.895 sementes</th><th class="num">Antes</th><th class="num">Depois</th></tr>
+  <tr><td>sementes com menos de 10 recomendações</td><td class="num">679 (35,8%)</td><td class="num"><strong>0</strong></td></tr>
+  <tr><td>sementes com exatamente 1 recomendação</td><td class="num">227</td><td class="num"><strong>0</strong></td></tr>
+  <tr><td>tamanho médio da lista</td><td class="num">7,87</td><td class="num"><strong>10,00</strong></td></tr>
+</table>
+
+<p>Distribuição de esforço: <strong>64,2%</strong> das sementes resolvem na rodada 1,
+<strong>29,7%</strong> na rodada 2, <strong>6,2%</strong> na rodada 3. Nenhuma bate no teto
+sem resolver. O custo é p50 +1,8 ms e média +2,8 ms; a variação no p95 fica dentro do ruído.</p>
+</section>
+
+<!-- ============================ 6 ============================ -->
+<section class="secao">
+<h2>6. Blend com sinal colaborativo</h2>
+
+<h3>6.1 Um segundo sinal, de natureza diferente</h3>
+
+<p>Além da similaridade de áudio, existe o sinal colaborativo: duas faixas que aparecem
+juntas em muitas playlists provavelmente combinam, mesmo que sonoramente sejam distintas.
+A medida é o <strong>índice de Jaccard</strong>:</p>
+
+<div class="formula">
+  J(A, B) = |P<sub>A</sub> ∩ P<sub>B</sub>| / |P<sub>A</sub> ∪ P<sub>B</sub>|
+  <span class="nota">P<sub>X</sub> é o conjunto de playlists que contêm a faixa X. Resultado em [0, 1].</span>
+</div>
+
+<p>A matriz é pré-computada (1.481.511 pares, 254 MB) e guardada como par canônico
+<code>track_id_low</code> / <code>track_id_high</code>, o que corta o armazenamento pela
+metade ao custo de a consulta precisar procurar a semente nos dois lados.</p>
+
+<h3>6.2 Combinar duas escalas incomparáveis</h3>
+
+<p>O problema: o score de conteúdo vive aproximadamente em [−1, 1] mais o bônus, e o Jaccard
+vive em [0, 1], com distribuição completamente diferente. Somar direto faria uma das
+parcelas dominar por magnitude, não por mérito.</p>
+
+<p>A solução é reescalar a parcela de conteúdo por min-max <strong>dentro do conjunto de
+candidatas daquela consulta</strong>, e só então combinar:</p>
+
+<div class="formula">
+  contentNorm = (score − min) / (max − min)<br>
+  final = (1 − w) · contentNorm + w · J
+  <span class="nota">w é o <code>blendWeight</code>, padrão 0,35.</span>
+</div>
+
+<div class="porque">
+  <span class="rot">Por que min-max aqui, se a seção 2 rejeitou min-max</span>
+  São problemas diferentes. Na seção 2, min-max seria aplicado ao espaço global de features,
+  onde outliers de cauda longa o tornariam instável. Aqui ele é aplicado a um conjunto
+  pequeno e já filtrado (as candidatas de uma consulta), e o objetivo não é preservar
+  distribuição: é só trazer duas escalas para a mesma faixa antes de combiná-las. A
+  transformação é afim e <strong>monótona</strong>, então a ordem relativa dentro da parcela
+  de conteúdo é preservada, inclusive o efeito do bônus de gênero.
+</div>
+
+<h3>6.3 O caso degenerado</h3>
+
+<p>Se todas as candidatas tiverem o mesmo score de conteúdo, <code>max − min = 0</code> e a
+reescala dividiria por zero. O código trata explicitamente, devolvendo 0 ou 1 conforme o
+caso, em vez de propagar <code>NaN</code>.</p>
+
+<h3>6.4 O score exposto é o score que ordenou</h3>
+
+<div class="bug">
+  <span class="rot">O bug que definiu esta regra</span>
+  O blend reordenava pelo cosseno <em>reescalado</em> em vez do score híbrido. O bônus de
+  gênero era calculado e depois descartado na ordenação. O efeito medido foi de
+  <strong>−5,15σ</strong> na coerência de gênero, e passou dois épicos despercebido porque o
+  próprio instrumento de medição continha o mesmo erro. Hoje o contrato é explícito: existe
+  <strong>um número só</strong>, que ordena e que aparece na resposta.
+</div>
+
+<p>Consequência prática para quem consome a API, e que já causou uma tela mentindo:</p>
+
+<table>
+  <tr><th>Estratégia</th><th><code>score</code> significa</th><th>A soma <code>cosine + genre</code> fecha?</th></tr>
+  <tr><td><code>content</code></td><td>cosseno + bônus de gênero</td><td><strong>sim</strong></td></tr>
+  <tr><td><code>blend</code></td><td>score final do blender, normalizado</td><td><strong>não</strong></td></tr>
+</table>
+</section>
+
+<!-- ============================ 7 ============================ -->
+<section class="secao">
+<h2>7. Colapso de quase-duplicatas</h2>
+
+<p>O catálogo tem a mesma música várias vezes: remaster, ao vivo, edição deluxe, single e
+álbum. Entregar as cinco como "recomendações distintas" é inútil. O colapso usa
+<strong>duas chaves independentes</strong>, e nenhuma das duas sozinha resolve.</p>
+
+<h3>7.1 Chave numérica: cosseno quase perfeito</h3>
+
+<div class="formula">
+  mesma faixa &nbsp;se&nbsp; cos(<strong>a</strong>, <strong>b</strong>) ≥ 0,999
+  <span class="nota">Limiar deliberadamente severo: é "features praticamente idênticas", não "parecidas".</span>
+</div>
+
+<p>Pega o caso do mesmo master distribuído em álbuns diferentes, onde as features são
+bit a bit iguais.</p>
+
+<h3>7.2 Chave textual: nome normalizado</h3>
+
+<p>A segunda chave normaliza artista e título de forma agressiva: corta sufixo após
+<code> - </code>, remove conteúdo entre parênteses e colchetes, tira acentos e pontuação,
+colapsa espaços, e monta <code>"artista|titulo"</code>.</p>
+
+<pre><code>"Creep - Radio Edit"              → "radiohead|creep"
+"Creep (Acoustic Version)"        → "radiohead|creep"
+"Creep [2008 Remaster]"           → "radiohead|creep"</code></pre>
+
+<div class="porque">
+  <span class="rot">Por que as duas chaves</span>
+  O cosseno sozinho perde o remaster cujas features foram medidas de novo e diferem na
+  terceira casa. A chave textual sozinha perde a mesma gravação publicada com títulos
+  diferentes, e agrupa faixas homônimas de artistas distintos se a normalização errar.
+  Juntas, cobrem os dois eixos de falha.
+</div>
+
+<h3>7.3 A ordem importa</h3>
+
+<p>O colapsador abre grupos <strong>enquanto</strong> o número de grupos for menor que o
+limite, percorrendo as candidatas na ordem do ranking. Não é um pós-filtro. Isso preserva a
+posição: o representante fica no lugar da melhor versão do grupo, e o contador
+<code>equivalentVersionsCollapsed</code> informa quantas foram absorvidas.</p>
+</section>
+
+<!-- ============================ 8 ============================ -->
+<section class="secao">
+<h2>8. A engenharia ao redor do cálculo</h2>
+
+<h3>8.1 CQRS com mediator próprio</h3>
+
+<p>O projeto não usa MediatR. O mediator é caseiro: resolve o handler por reflexão, com cache
+em <code>ConcurrentDictionary&lt;Type, MethodInfo&gt;</code>, e envolve a chamada nos
+behaviors registrados.</p>
+
+<div class="mermaid">
+flowchart LR
+    R["SendAsync"] --> L["LoggingBehavior<br/><i>mais externo</i>"]
+    L --> V["ValidationBehavior<br/>FluentValidation, 400"]
+    V --> T["TransactionBehavior<br/><i>só em módulo de escrita</i>"]
+    T --> H["Handler concreto"]
+</div>
+
+<div class="cuidado">
+  <span class="rot">A ordem é contraintuitiva</span>
+  O <strong>primeiro behavior registrado vira o mais externo</strong>. Como
+  <code>LoggingBehavior</code> é registrado antes, log envolve validação, e uma requisição
+  que falha na validação <em>aparece</em> no log. O <code>CLAUDE.md</code> documenta a ordem
+  invertida; o código é a fonte da verdade.
+</div>
+
+<h3>8.2 Concorrência: servir um índice que ainda não existe</h3>
+
+<p>O índice é singleton, custa uma varredura completa para montar, e é montado em background
+no arranque. Isso cria uma janela em que o processo aceita HTTP mas não consegue responder.
+O desenho torna esse estado <strong>explícito</strong> em vez de inferido.</p>
+
+<div class="mermaid">
+stateDiagram-v2
+    [*] --> NotStarted
+    NotStarted --> Building: warm-up adquire o semáforo
+    Building --> Ready: índice publicado
+    Building --> Failed: erro na montagem
+    Failed --> Building: próxima requisição tenta de novo
+    Ready --> [*]
+    note right of Building
+        GetIndexAsync devolve
+        503 + Retry-After: 5
+    end note
+</div>
+
+<p>Três detalhes de concorrência que valem estudo:</p>
+
+<ol>
+  <li><strong>A ordem de publicação.</strong> <code>_index</code> é escrito <em>antes</em> de
+  <code>_state = Ready</code>. Com ambos <code>volatile</code>, a escrita volátil tem
+  semântica de <em>release</em>: quem lê <code>Ready</code> tem garantia de enxergar o índice.
+  A ordem inversa criaria uma janela com estado pronto e referência nula.</li>
+
+  <li><strong>O estado não é inferido do semáforo.</strong> A versão anterior deduzia
+  "indisponível" de <code>_gate.CurrentCount == 0</code>. Isso é detalhe de implementação do
+  <code>SemaphoreSlim</code>, e criava duas falhas: um 503 lançado depois de o índice já
+  ter ficado pronto, e uma requisição chegando antes do warm-up que <em>pagava a varredura
+  inteira de forma síncrona</em> com o warm-up enfileirado atrás dela.</li>
+
+  <li><strong>A sinalização acontece no construtor.</strong> O hosted service avisa o provider
+  no construtor, não no <code>ExecuteAsync</code>. O host resolve todos os
+  <code>IHostedService</code> antes de subir o Kestrel, então quando a primeira requisição
+  chega, o provider já sabe que um warm-up vem a caminho e devolve 503 em vez de construir
+  sob demanda.</li>
+</ol>
+
+<h3>8.3 CQRS levado à separação física</h3>
+
+<p>A separação não é só nominal, é de tecnologia de acesso:</p>
+
+<table>
+  <tr><th></th><th>Write-side</th><th>Read-side</th></tr>
+  <tr><td>Tipo</td><td><code>ICommand</code></td><td><code>IQuery</code></td></tr>
+  <tr><td>Acesso</td><td><strong>EF Core</strong>, rastreamento e unidade de trabalho</td><td><strong>Dapper</strong>, SQL escrito à mão</td></tr>
+  <tr><td>Organização</td><td>agregado no Domain, handler no Application</td><td>Query, Handler e Result no <strong>mesmo arquivo</strong></td></tr>
+  <tr><td>Transação</td><td><code>TransactionBehavior</code></td><td>nenhuma</td></tr>
+  <tr><td>Paginação</td><td>não se aplica</td><td><code>ROW_NUMBER() OVER()</code> + <code>COUNT(*) OVER()</code> numa CTE</td></tr>
+</table>
+
+<div class="bug">
+  <span class="rot">A armadilha do COUNT</span>
+  <code>COUNT(*) OVER()</code> do PostgreSQL devolve <code>bigint</code>, que materializa
+  como <code>long</code>. Tipar como <code>int</code> compila, passa nos testes de contrato
+  (que afirmam apenas o texto do SQL) e produz HTTP 500 em 100% das chamadas. Custou um
+  endpoint inteiro quebrado com 18 testes verdes.
+</div>
+
+<h3>8.4 Outbox: entrega sem perder e sem travar</h3>
+
+<p>Efeito colateral entre módulos não roda dentro da transação de negócio. O evento é gravado
+numa tabela <code>outbox</code> <strong>na mesma transação</strong> que a mudança de estado,
+e um job em background publica depois.</p>
+
+<div class="mermaid">
+flowchart LR
+    A["Agregado registra<br/>DomainEvent"] --> B["SaveChanges<br/><i>uma transação</i>"]
+    B --> C[("tabela outbox")]
+    B --> D[("tabelas de negócio")]
+    C --> E["OutboxDispatcher<br/>background"]
+    E --> F["Event bus"]
+    E -.->|falha| G["retry, depois<br/>dead-letter"]
+</div>
+
+<div class="porque">
+  <span class="rot">A garantia que isso compra</span>
+  Ou a mudança de estado e o registro do evento acontecem juntos, ou nenhum dos dois. Não
+  existe o caso "salvou mas não avisou". E falha na publicação não derruba a operação
+  principal: ela vira nova tentativa. A contrapartida é entrega <em>ao menos uma vez</em>,
+  então o consumidor precisa ser idempotente.
+</div>
+</section>
+
+<!-- ============================ 9 ============================ -->
+<section class="secao">
+<h2>9. Como o projeto se defende de si mesmo</h2>
+
+<h3>9.1 Fronteiras verificadas pelo compilador e pelo teste</h3>
+
+<p>São 43 regras ArchUnitNET que falham o <code>dotnet test</code> no instante em que uma
+fronteira é violada: Domain de um módulo tocando outro módulo, Domain referenciando EF Core
+ou ASP.NET, SharedKernel referenciando infraestrutura, Host referenciando Domain interno.</p>
+
+<h3>9.2 A armadilha da vacuidade</h3>
+
+<div class="bug">
+  <span class="rot">Quatro regras que não testavam nada</span>
+  Durante vários épicos, quatro das regras avaliavam <strong>zero tipos</strong>.
+  <code>ResideInAssembly(string)</code> compara com o <code>FullName</code> do assembly, e
+  recebia o nome simples: filtro vazio. Uma regra sobre conjunto vazio passa sempre. Com
+  <code>WithoutRequiringPositiveResults()</code> por cima, o verde era silencioso. O que
+  segurava a pureza do SharedKernel era o <code>.csproj</code> sem referências, não o teste.
+</div>
+
+<p>Existe hoje uma regra cuja única função é impedir a reincidência: ela verifica que os
+assemblies foram efetivamente descobertos. E ficou o protocolo: <strong>regra nova só conta
+como provada depois de ser vista vermelha com uma violação injetada de propósito</strong>.</p>
+
+<h3>9.3 Gates numéricos sobre o recomendador</h3>
+
+<p>Nove limiares são medidos contra o catálogo real e falham o build se regredirem:</p>
+
+<table>
+  <tr><th>Limiar</th><th class="num">Régua</th><th class="num">Medido</th></tr>
+  <tr><td>coerência de gênero</td><td class="num">≥ 0,40</td><td class="num">0,5563</td></tr>
+  <tr><td>ganho sobre cosseno puro</td><td class="num">≥ 2,0×</td><td class="num">4,88×</td></tr>
+  <tr><td>saturação de gênero</td><td class="num">≤ 0,50</td><td class="num">0,2800</td></tr>
+  <tr><td>recall de duplicatas</td><td class="num">≥ 0,45</td><td class="num">0,6464</td></tr>
+  <tr><td>alcance de duplicatas</td><td class="num">≥ 0,50</td><td class="num">0,7037</td></tr>
+  <tr><td>cosseno médio entre irmãs</td><td class="num">≥ 0,98</td><td class="num">0,999028</td></tr>
+  <tr><td>repetição no top-N pós-dedup</td><td class="num">= 0</td><td class="num">0 de 1.895</td></tr>
+  <tr><td>taxa de lista curta</td><td class="num">≤ 0,05</td><td class="num">0,0000</td></tr>
+  <tr><td>sementes com um item só</td><td class="num">= 0</td><td class="num">0</td></tr>
+</table>
+
+<div class="cuidado">
+  <span class="rot">Um limiar só vale na população que o calibrou</span>
+  A taxa de lista curta foi calibrada sobre os 111 grupos de 11 ou mais quase-duplicatas,
+  onde o fenômeno é real (35,8%). Numa amostra sorteada do catálogo ele é praticamente zero,
+  então o mesmo limiar de 5% seria satisfeito trivialmente. Por isso a medição carrega
+  <strong>identidade de população</strong>, e o gate recusa medição que não venha da
+  população de calibração. Sem isso, trocar a amostra deixaria o gate verde mesmo revertendo
+  a correção que ele existe para proteger.
+</div>
+</section>
+
+<!-- ============================ 10 ============================ -->
+<section class="secao">
+<h2>10. Apêndice: números medidos</h2>
+
+<h4>Catálogo e índice</h4>
+<table>
+  <tr><td>faixas no catálogo</td><td class="num">89.740</td></tr>
+  <tr><td>faixas com features imputadas</td><td class="num">0</td></tr>
+  <tr><td>artistas distintos</td><td class="num">29.811</td></tr>
+  <tr><td>gêneros distintos</td><td class="num">113</td></tr>
+  <tr><td>dimensão do espaço de similaridade</td><td class="num">9</td></tr>
+  <tr><td>tempo de montagem do índice</td><td class="num">1,05 a 1,68 s</td></tr>
+  <tr><td>memória retida pelo índice</td><td class="num">39,7 a 40,8 MB</td></tr>
+</table>
+
+<h4>Matriz de co-ocorrência</h4>
+<table>
+  <tr><td>pares armazenados</td><td class="num">1.481.511</td></tr>
+  <tr><td>ocupação em disco</td><td class="num">254 MB de 388 MB do banco</td></tr>
+  <tr><td>cobertura do catálogo</td><td class="num">9.664 faixas (10,8%)</td></tr>
+</table>
+
+<h4>Latência por recomendação, endpoint local em Release</h4>
+<table>
+  <tr><th>Percentil</th><th class="num">content</th><th class="num">observação</th></tr>
+  <tr><td>p50</td><td class="num">10,60 a 11,71 ms</td><td>a varredura é ~96% do tempo</td></tr>
+  <tr><td>p95</td><td class="num">14,15 a 15,07 ms</td><td></td></tr>
+  <tr><td>p99</td><td class="num">16,15 a 16,50 ms</td><td></td></tr>
+</table>
+
+<h4>Pegada em container</h4>
+<table>
+  <tr><th>Tier</th><th class="num">RAM após 1.800 requisições</th><th class="num">OOM</th></tr>
+  <tr><td>512 MB, sem limite de CPU</td><td class="num">310,9 MiB</td><td class="num">não</td></tr>
+  <tr><td>256 MB, sem limite de CPU</td><td class="num">148,3 MiB</td><td class="num">não</td></tr>
+</table>
+
+<div class="cuidado">
+  <span class="rot">O que estes números não dizem</span>
+  A medição em container rodou <strong>sem limite de CPU</strong>, e o gargalo real do free
+  tier é CPU, não RAM. Latência e cold start em container ainda não foram medidos com
+  metodologia confiável, e por isso não aparecem aqui.
+</div>
+
+<div class="rodape">
+  <strong>SpotifyDataAnalysis</strong> · documento técnico gerado a partir de
+  <code>documentacao/arquitetura-tecnica.html</code>.<br>
+  Companheiro de <code>ARQUITETURA.md</code> (fluxo e mapa) e de <code>README.md</code>
+  (resultados). Todos os números vêm de execução real contra o catálogo de 89.740 faixas.
+</div>
+</section>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'Segoe UI, Helvetica Neue, Arial, sans-serif',
+      fontSize: '13px',
+      primaryColor: '#e8f5ee',
+      primaryTextColor: '#14181c',
+      primaryBorderColor: '#1a7f4b',
+      lineColor: '#5b6770',
+      secondaryColor: '#f6f8fa',
+      tertiaryColor: '#ffffff'
+    },
+    flowchart: { curve: 'basis', useMaxWidth: true },
+    sequence: { useMaxWidth: true, width: 150 }
+  });
+  await mermaid.run({ querySelector: '.mermaid' });
+  document.title = 'pronto';           // sinal para o gerador de PDF
+  window.__diagramasProntos = true;
+</script>
+</body>
+</html>

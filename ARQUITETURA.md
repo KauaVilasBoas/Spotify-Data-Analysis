@@ -12,6 +12,13 @@ com nome de classe e de arquivo. É a parte que importa. A Parte 2 mostra que o 
 do projeto é esse mesmo padrão repetido, então ela pode ser lida rápido. A Parte 3
 lista onde a documentação do projeto diverge do código.
 
+> **Documento companheiro.** Este arquivo responde *onde as coisas acontecem*.
+> Para *como a tecnologia funciona por dentro* (a matemática da similaridade, o heap
+> da seleção parcial, a reescala do blend, a ordem de publicação sob concorrência),
+> veja [`documentacao/arquitetura-tecnica.pdf`](documentacao/arquitetura-tecnica.pdf).
+> Ele é gerado de `documentacao/arquitetura-tecnica.html` por
+> `documentacao/build-pdf.ps1`, que usa o Chrome já instalado e não instala nada.
+
 ---
 
 ## Sumário
