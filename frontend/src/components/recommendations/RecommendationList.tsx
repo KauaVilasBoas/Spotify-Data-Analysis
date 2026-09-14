@@ -1,5 +1,6 @@
 import type { RecommendationItem } from '@/api/prediction'
 import { TrackArt } from '@/components/data/TrackArt'
+import { blendScoreDecompositionLabel, scoreLabel } from '@/components/recommendations/score-labels'
 import { formatDecimal, formatInteger, formatSignedDecimal } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -85,21 +86,41 @@ function RecommendationItemCard({ item, rank, showBlend }: RecommendationItemCar
 
         {/* Score e decomposição */}
         <div className="shrink-0 space-y-1 text-right">
-          <p className="font-mono text-sm font-semibold text-text" title="Hybrid score">
+          <p
+            className="font-mono text-sm font-semibold text-text"
+            title={scoreLabel(showBlend)}
+          >
             {formatDecimal(item.score, 4)}
           </p>
-          <p className="text-[0.65rem] text-text-faint">
-            cosine{' '}
-            <span className="font-mono text-text-dim">{formatDecimal(item.cosineScore, 4)}</span>
-            {item.genreBoost !== 0 && (
-              <>
-                {' '}+ genre{' '}
-                <span className="font-mono text-brand-bright">
-                  {formatDecimal(item.genreBoost, 4)}
-                </span>
-              </>
-            )}
-          </p>
+          {/* content: score = cosine + genreBoost, a soma é verdadeira */}
+          {!showBlend && (
+            <p className="text-[0.65rem] text-text-faint">
+              cosine{' '}
+              <span className="font-mono text-text-dim">{formatDecimal(item.cosineScore, 4)}</span>
+              {item.genreBoost !== 0 && (
+                <>
+                  {' '}+ genre{' '}
+                  <span className="font-mono text-brand-bright">
+                    {formatDecimal(item.genreBoost, 4)}
+                  </span>
+                </>
+              )}
+            </p>
+          )}
+          {/* blend: cosine e genre são auditoria — não somam para o Blend score */}
+          {showBlend && (
+            <p className="text-[0.65rem] text-text-faint">
+              {blendScoreDecompositionLabel()}: cosine{' '}
+              <span className="font-mono text-text-dim">{formatDecimal(item.cosineScore, 4)}</span>
+              {item.genreBoost !== 0 && (
+                <>, genre{' '}
+                  <span className="font-mono text-brand-bright">
+                    {formatDecimal(item.genreBoost, 4)}
+                  </span>
+                </>
+              )}
+            </p>
+          )}
           {/* Blend: co-ocorrência em playlist */}
           {showBlend && item.coOccurrenceScore > 0 && (
             <p className="text-[0.65rem] text-text-faint">
