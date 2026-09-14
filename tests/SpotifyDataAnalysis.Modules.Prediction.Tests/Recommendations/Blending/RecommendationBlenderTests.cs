@@ -1,3 +1,4 @@
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
@@ -10,8 +11,17 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Blending;
 /// </summary>
 public sealed class RecommendationBlenderTests
 {
-    private static BlendContentCandidate Content(string id, double cosine) => new(id, cosine, Neighbor: null);
+    private static BlendContentCandidate ContentFrom(ExplainedTrackSimilarity neighbor) =>
+        BlendContentCandidate.From(neighbor);
+
+    private static BlendContentCandidate ContentFrom(TrackSimilarity neighbor) =>
+        BlendContentCandidate.From(neighbor);
+
     private static BlendCollaborativeCandidate Collab(string id, double jaccard, int co = 5) => new(id, co, jaccard);
+
+    private static ExplainedTrackSimilarity ExplainedNeighbor(string id, double similarity, double cosine = 0.0) =>
+        new(id, similarity, cosine, GenreBonus: similarity - cosine,
+            SharesSeedGenre: similarity != cosine, IsImputed: false, Contributions: []);
 
     [Fact]
     public void Blend_RejectsWeightOutOfRange()
@@ -27,7 +37,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9), Content("b", 0.5)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9)), ContentFrom(ExplainedNeighbor("b", 0.5))],
             [],
             limit: 10);
 
@@ -43,7 +53,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9))],
             [Collab("x", 0.8)],
             limit: 10);
 
@@ -60,7 +70,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9), Content("b", 0.5)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9)), ContentFrom(ExplainedNeighbor("b", 0.5))],
             [Collab("a", 0.7)],
             limit: 10);
 
@@ -78,7 +88,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9), Content("b", 0.5)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9)), ContentFrom(ExplainedNeighbor("b", 0.5))],
             [Collab("b", 1.0)], // b tem Jaccard máximo, mas w=0 o ignora
             limit: 10);
 
@@ -93,7 +103,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9), Content("b", 0.5)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9)), ContentFrom(ExplainedNeighbor("b", 0.5))],
             [Collab("b", 1.0)],
             limit: 10);
 
@@ -109,7 +119,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.98), Content("b", 0.97)],
+            [ContentFrom(ExplainedNeighbor("a", 0.98)), ContentFrom(ExplainedNeighbor("b", 0.97))],
             [Collab("b", 1.0)],
             limit: 10);
 
@@ -128,7 +138,7 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("seed", 1.0), Content("a", 0.8)],
+            [ContentFrom(ExplainedNeighbor("seed", 1.0)), ContentFrom(ExplainedNeighbor("a", 0.8))],
             [Collab("seed", 1.0), Collab("a", 0.5)],
             limit: 10);
 
@@ -142,10 +152,54 @@ public sealed class RecommendationBlenderTests
 
         IReadOnlyList<BlendedRecommendation> result = blender.Blend(
             "seed",
-            [Content("a", 0.9), Content("b", 0.7), Content("c", 0.5)],
+            [ContentFrom(ExplainedNeighbor("a", 0.9)), ContentFrom(ExplainedNeighbor("b", 0.7)), ContentFrom(ExplainedNeighbor("c", 0.5))],
             [],
             limit: 2);
 
         Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void BlendContentCandidate_From_ExplainedTrackSimilarity_UsesHybridScore()
+    {
+        // Garante que o factory extrai .Similarity (score híbrido), não .CosineSimilarity.
+        // Um vizinho com GenreBonus de 0,05 deve ter ContentScore = 0,90, não 0,85.
+        ExplainedTrackSimilarity neighbor = ExplainedNeighbor("t1", similarity: 0.90, cosine: 0.85);
+
+        BlendContentCandidate candidate = BlendContentCandidate.From(neighbor);
+
+        Assert.Equal(0.90, candidate.ContentScore);
+    }
+
+    [Fact]
+    public void BlendContentCandidate_From_TrackSimilarity_UsesHybridScore()
+    {
+        // Mesma garantia para o overload que recebe TrackSimilarity (usado no avaliador).
+        var neighbor = new TrackSimilarity("t2", Similarity: 0.90, CosineSimilarity: 0.85, GenreBonus: 0.05, IsImputed: false);
+
+        BlendContentCandidate candidate = BlendContentCandidate.From(neighbor);
+
+        Assert.Equal(0.90, candidate.ContentScore);
+    }
+
+    [Fact]
+    public void BlendContentCandidate_From_ExplainedTrackSimilarity_PreservesNeighborReference()
+    {
+        ExplainedTrackSimilarity neighbor = ExplainedNeighbor("t3", similarity: 0.88, cosine: 0.80);
+
+        BlendContentCandidate candidate = BlendContentCandidate.From(neighbor);
+
+        Assert.Same(neighbor, candidate.Neighbor);
+    }
+
+    [Fact]
+    public void BlendContentCandidate_From_TrackSimilarity_HasNullNeighbor()
+    {
+        // O avaliador passa TrackSimilarity: o Neighbor deve ser null (sem explicabilidade por feature).
+        var neighbor = new TrackSimilarity("t4", 0.88, 0.80, 0.08, IsImputed: false);
+
+        BlendContentCandidate candidate = BlendContentCandidate.From(neighbor);
+
+        Assert.Null(candidate.Neighbor);
     }
 }

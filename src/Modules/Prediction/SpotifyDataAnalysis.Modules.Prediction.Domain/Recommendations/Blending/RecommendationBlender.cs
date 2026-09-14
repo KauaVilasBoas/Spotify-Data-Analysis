@@ -1,3 +1,4 @@
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
@@ -19,13 +20,53 @@ public enum RecommendationSignal
 /// Um candidato do content-based visto pelo blend: identidade, o score content-based (o eixo a normalizar) e a
 /// vizinha rica original, para o representante blendado herdar a explicabilidade sem recalculá-la.
 /// </summary>
-/// <param name="TrackId">Id da faixa.</param>
-/// <param name="ContentScore">
-/// O score content-based COMPLETO, isto é o híbrido do E4.3 (cosseno de áudio + bônus de gênero) — não o cosseno nu.
-/// Passar só o cosseno aqui descarta o boost de gênero da chave de ordenação final, que foi o defeito do E4.10.
-/// </param>
-/// <param name="Neighbor">A vizinha rica do content-based, ou <c>null</c> quando a faixa só tem sinal colaborativo.</param>
-public sealed record BlendContentCandidate(string TrackId, double ContentScore, ExplainedTrackSimilarity? Neighbor);
+/// <remarks>
+/// O construtor é privado para forçar a criação via <see cref="From(ExplainedTrackSimilarity)"/> ou
+/// <see cref="From(TrackSimilarity)"/>. Os factory methods extraem <c>.Similarity</c> (o score HÍBRIDO do E4.3) —
+/// não <c>.CosineSimilarity</c> —, eliminando estruturalmente o defeito do E4.10 de descartar o boost de gênero.
+/// </remarks>
+public sealed record BlendContentCandidate
+{
+    /// <summary>Id da faixa.</summary>
+    public string TrackId { get; init; }
+
+    /// <summary>
+    /// O score content-based COMPLETO: o híbrido do E4.3 (cosseno de áudio + bônus de gênero). Nunca o cosseno nu —
+    /// passar só o cosseno descartaria o boost de gênero da chave de ordenação final (defeito do E4.10).
+    /// </summary>
+    public double ContentScore { get; init; }
+
+    /// <summary>A vizinha rica do content-based, ou <c>null</c> quando criado a partir de <see cref="TrackSimilarity"/> (sem decomposição por feature).</summary>
+    public ExplainedTrackSimilarity? Neighbor { get; init; }
+
+    private BlendContentCandidate(string trackId, double contentScore, ExplainedTrackSimilarity? neighbor)
+    {
+        TrackId = trackId;
+        ContentScore = contentScore;
+        Neighbor = neighbor;
+    }
+
+    /// <summary>
+    /// Cria o candidato a partir de uma vizinha rica: extrai o score HÍBRIDO (<see cref="ExplainedTrackSimilarity.Similarity"/>)
+    /// e preserva a referência para o representante blendado herdar a explicabilidade.
+    /// </summary>
+    public static BlendContentCandidate From(ExplainedTrackSimilarity neighbor)
+    {
+        ArgumentNullException.ThrowIfNull(neighbor);
+        return new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, neighbor);
+    }
+
+    /// <summary>
+    /// Cria o candidato a partir de uma vizinha sem decomposição por feature (usado no avaliador de qualidade):
+    /// extrai o score HÍBRIDO (<see cref="TrackSimilarity.Similarity"/>) e define <see cref="Neighbor"/> como
+    /// <c>null</c>, pois a avaliação não consome explicabilidade por feature.
+    /// </summary>
+    public static BlendContentCandidate From(TrackSimilarity neighbor)
+    {
+        ArgumentNullException.ThrowIfNull(neighbor);
+        return new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, null);
+    }
+}
 
 /// <summary>Um vizinho colaborativo visto pelo blend: identidade, quantas playlists compartilha e o Jaccard já normalizado.</summary>
 /// <param name="TrackId">Id da faixa.</param>

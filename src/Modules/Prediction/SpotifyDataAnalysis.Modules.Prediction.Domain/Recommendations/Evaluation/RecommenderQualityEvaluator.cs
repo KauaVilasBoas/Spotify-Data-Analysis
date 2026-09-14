@@ -502,9 +502,7 @@ public sealed class RecommenderQualityEvaluator
 
         foreach (TrackSimilarity neighbor in neighbors)
         {
-            // Neighbor null de propósito: o blender só o repassa adiante, e a avaliação não lê explicabilidade —
-            // montar a decomposição por feature aqui seria custo puro sem efeito no ranking medido.
-            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, null));
+            contentCandidates.Add(BlendContentCandidate.From(neighbor));
             byTrackId[neighbor.TrackId] = neighbor;
         }
 

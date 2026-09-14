@@ -295,7 +295,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
     {
         var contentCandidates = new List<BlendContentCandidate>(neighbors.Count);
         foreach (ExplainedTrackSimilarity neighbor in neighbors)
-            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, neighbor));
+            contentCandidates.Add(BlendContentCandidate.From(neighbor));
 
         var collaborativeCandidates = new List<BlendCollaborativeCandidate>(coOccurring.Count);
         foreach (CoOccurringTrack track in coOccurring)
