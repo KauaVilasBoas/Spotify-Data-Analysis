@@ -808,6 +808,175 @@ public sealed class GetTrackRecommendationsQueryHandlerTests
         Assert.Equal(RecommendationOverFetch.MaximumCountFor(limit), capturingSource.LastLimit);
     }
 
+    // --- E4.12: a janela da rodada corta o FUNIL INTEIRO, não só o lado de áudio ---
+
+    /// <summary>
+    /// O defeito: depois do E4.9 o handler passou a buscar a janela da ÚLTIMA rodada da fonte colaborativa (120
+    /// candidatas para <c>limit=10</c>, contra 30 antes) e a entregar essa lista INTEIRA a todas as rodadas, enquanto
+    /// só o lado de áudio era recortado pela janela. A rodada 1 do blend passou a disputar com 4× mais colaborativas
+    /// do que antes do E4.9 — logo a promessa de que "a rodada 1 é bit a bit o comportamento de antes do E4.9" era
+    /// falsa no blend.
+    ///
+    /// <para>O cenário isola o mecanismo: as 30 primeiras colaborativas são forasteiras (não estão no catálogo) com
+    /// Jaccard calibrado para NÃO alcançar o top-10, e a 31ª — a primeira além da janela da rodada 1 — é exatamente a
+    /// faixa que o ranking de conteúdo deixou em 11º lugar. Se o lado colaborativo vazar além da janela, essa 31ª ganha
+    /// a parcela colaborativa, passa a 10ª e a composição do top-10 muda sem nenhuma rodada 2 ter ocorrido.</para>
+    /// </summary>
+    [Fact]
+    public async Task Handle_Blend_FirstRoundIgnoresCollaborativeBeyondTheRoundWindow()
+    {
+        const int limit = 10;
+        const double collaborativeWeight = GetTrackRecommendationsQuery.DefaultBlendWeight;
+        const double contentWeight = 1.0 - collaborativeWeight;
+        int firstWindow = RecommendationOverFetch.CountForRound(limit, round: 1);
+
+        List<RawTrackFeatures> catalog = SpreadCatalog(40);
+        StubMetadataSource metadata = SpreadMetadata(catalog);
+        ITrackSimilarityIndexProvider index = IndexOf(catalog);
+
+        // O ranking de conteúdo puro é a régua: quem está no top-10 e quem é o primeiro de fora.
+        TrackRecommendationsResponse contentRanking = await Handler(index, metadata).HandleAsync(
+            Query("seed", limit: catalog.Count - 1, genreMode: GenreRankingModeContract.Off));
+
+        string[] contentTopN = contentRanking.Recommendations
+            .Take(limit).Select(item => item.TrackId).ToArray();
+        string firstOutsideTopN = contentRanking.Recommendations[limit].TrackId;
+
+        // A parcela de content do blend é o min-max do score de conteúdo DENTRO da janela da rodada 1.
+        double[] windowScores = contentRanking.Recommendations
+            .Take(firstWindow).Select(item => item.Score).ToArray();
+        double lowest = windowScores.Min();
+        double spread = windowScores.Max() - lowest;
+        double NormalizedContent(double score) => (score - lowest) / spread;
+
+        double lastInTopN = contentWeight * NormalizedContent(windowScores[limit - 1]);
+        double firstOutside = contentWeight * NormalizedContent(windowScores[limit]);
+
+        // Jaccard que vale METADE do que a última do top-10 já vale: forte o bastante para promover a 11ª acima da
+        // 10ª, fraco o bastante para uma forasteira sem sinal de áudio nenhum não alcançar o top-10.
+        double jaccard = lastInTopN / (2.0 * collaborativeWeight);
+
+        Assert.True(
+            jaccard is > 0.0 and <= 1.0,
+            $"Premissa do cenário: o Jaccard calibrado tem de ser um sinal válido. Calculado: {jaccard}.");
+        Assert.True(
+            collaborativeWeight * jaccard < lastInTopN,
+            "Premissa do cenário: uma forasteira só-colaborativa com esse Jaccard fica FORA do top-10 " +
+            $"({collaborativeWeight * jaccard} vs {lastInTopN}).");
+        Assert.True(
+            firstOutside + (collaborativeWeight * jaccard) > lastInTopN,
+            "Premissa do cenário: se o lado colaborativo vazar, a 11ª do conteúdo passa a 10ª " +
+            $"({firstOutside + (collaborativeWeight * jaccard)} vs {lastInTopN}).");
+
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add(
+            "seed",
+            Enumerable.Range(0, firstWindow)
+                .Select(i => new CoOccurringTrack($"outsider{i:00}", CoPlaylists: 9, Jaccard: jaccard))
+                // A 31ª candidata: mesmo Jaccard, menos playlists — a fonte ordena por jaccard DESC, co_playlists
+                // DESC, então ela é legitimamente a última e cai fora da janela da rodada 1.
+                .Append(new CoOccurringTrack(firstOutsideTopN, CoPlaylists: 1, Jaccard: jaccard))
+                .ToArray());
+
+        TrackRecommendationsResponse blended = await Handler(index, metadata, coOccurrence).HandleAsync(
+            Query("seed", limit: limit, genreMode: GenreRankingModeContract.Off,
+                strategy: RecommendationStrategyContract.Blend));
+
+        Assert.Equal(
+            contentTopN,
+            blended.Recommendations.Select(item => item.TrackId).ToArray());
+    }
+
+    /// <summary>
+    /// O outro lado do critério: alargar a rodada tem de alargar AS DUAS listas. Aqui o lado de áudio está esgotado
+    /// (27 vizinhas, das quais 25 são a mesma obra) e é só o lado colaborativo que ainda tem candidatas distintas a
+    /// oferecer — além da janela da rodada 1. Se a janela recortasse o lado colaborativo mas o teto do laço continuasse
+    /// sendo o tamanho da varredura de áudio, a rodada nunca alcançaria essas candidatas e o usuário receberia 4
+    /// recomendações para um <c>limit=10</c>.
+    /// </summary>
+    [Fact]
+    public async Task Handle_Blend_WiderRoundWidensTheCollaborativeSideToo()
+    {
+        var catalog = new List<RawTrackFeatures> { DuplicateTrack("seed", 0) };
+        for (int i = 0; i < 25; i++)
+            catalog.Add(DuplicateTrack($"dup{i:00}", i + 1));
+        for (int k = 0; k < 2; k++)
+            catalog.Add(new RawTrackFeatures($"far{k:00}", DistinctVector(k), Genre: null, IsImputed: false));
+
+        StubMetadataSource metadata = CollapsingMetadata(catalog);
+
+        // 27 forasteiras da MESMA obra (colapsam em 1) e, depois delas, 13 obras distintas: as distintas só existem
+        // além da janela da rodada 1 (30).
+        var coOccurring = new List<CoOccurringTrack>();
+        for (int i = 0; i < 27; i++)
+        {
+            coOccurring.Add(new CoOccurringTrack($"clone{i:00}", CoPlaylists: 20, Jaccard: 0.50));
+            metadata.Add(Meta($"clone{i:00}", name: "A Obra Clonada", artist: "O Artista Clonado"));
+        }
+
+        for (int i = 0; i < 13; i++)
+        {
+            coOccurring.Add(new CoOccurringTrack($"solo{i:00}", CoPlaylists: 5, Jaccard: 0.40));
+            metadata.Add(Meta($"solo{i:00}", name: $"Obra Solo {i:00}", artist: $"Artista Solo {i:00}"));
+        }
+
+        var coOccurrence = new StubCoOccurrenceSource();
+        coOccurrence.Add("seed", coOccurring.ToArray());
+
+        var handler = Handler(IndexOf(catalog), metadata, coOccurrence);
+
+        TrackRecommendationsResponse response = await handler.HandleAsync(
+            Query("seed", limit: 10, genreMode: GenreRankingModeContract.Off, dedupe: true,
+                strategy: RecommendationStrategyContract.Blend));
+
+        Assert.Equal(10, response.Recommendations.Count);
+    }
+
+    /// <summary>
+    /// Catálogo de vetores mutuamente espalhados, gerado por uma rotação determinística módulo 41 (primo) das nove
+    /// features: os cossenos com a semente ficam distintos e bem separados, o que dá um ranking de conteúdo estável
+    /// sem quase-duplicata nenhuma.
+    /// </summary>
+    private static List<RawTrackFeatures> SpreadCatalog(int count)
+    {
+        var catalog = new List<RawTrackFeatures>
+        {
+            new("seed", Raw(0.80, 0.80, 0.80, 120.0, 0.10, 0.10, 0.10, 0.05, -8.0), Genre: null, IsImputed: false)
+        };
+
+        for (int k = 0; k < count; k++)
+            catalog.Add(new RawTrackFeatures($"c{k:00}", SpreadVector(k), Genre: null, IsImputed: false));
+
+        return catalog;
+    }
+
+    private static SimilarityFeatureVector SpreadVector(int k)
+    {
+        static double Cycle(int k, int multiplier) => ((k * multiplier) % 41) / 40.0;
+
+        return Raw(
+            0.05 + (0.90 * Cycle(k, 17)),
+            0.05 + (0.90 * Cycle(k, 23)),
+            0.05 + (0.90 * Cycle(k, 29)),
+            60.0 + (120.0 * Cycle(k, 11)),
+            0.05 + (0.90 * Cycle(k, 31)),
+            0.05 + (0.90 * Cycle(k, 7)),
+            0.05 + (0.90 * Cycle(k, 37)),
+            0.02 + (0.50 * Cycle(k, 13)),
+            -30.0 + (28.0 * Cycle(k, 19)));
+    }
+
+    /// <summary>Metadata do catálogo espalhado: cada faixa é obra própria, então o dedup não tem o que colapsar.</summary>
+    private static StubMetadataSource SpreadMetadata(IReadOnlyList<RawTrackFeatures> catalog)
+    {
+        var metadata = new StubMetadataSource();
+
+        foreach (RawTrackFeatures track in catalog)
+            metadata.Add(Meta(track.TrackId, name: $"Obra {track.TrackId}", artist: $"Artista {track.TrackId}"));
+
+        return metadata;
+    }
+
     /// <summary>Handler com um sinal colaborativo VAZIO por default — os testes de content/E4.3/E4.7 não usam blend.</summary>
     private static GetTrackRecommendationsQueryHandler Handler(
         ITrackSimilarityIndexProvider index, ITrackMetadataSource metadata,

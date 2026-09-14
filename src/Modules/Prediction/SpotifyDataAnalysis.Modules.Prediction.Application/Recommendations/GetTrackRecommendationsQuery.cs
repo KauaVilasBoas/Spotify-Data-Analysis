@@ -119,7 +119,8 @@ internal sealed class GetTrackRecommendationsQueryHandler
         //
         // A varredura é UMA, na janela da última rodada (E4.9): ela é O(n) no tamanho do índice, então refazê-la por
         // rodada custaria uma nova passada por 89.740 faixas. As rodadas do laço adaptativo abaixo leem PREFIXOS
-        // desta varredura, que são exatamente os top-N que uma segunda varredura devolveria.
+        // desta varredura, que são exatamente os top-N que uma segunda varredura devolveria. O MESMO vale para o lado
+        // colaborativo: busca-se a janela máxima uma vez e cada rodada lê o prefixo dela (E4.12).
         bool overFetches = request.Dedupe || request.Strategy == RecommendationStrategyContract.Blend;
         int fetchCount = overFetches
             ? RecommendationOverFetch.MaximumCountFor(limit)
@@ -155,7 +156,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
         PostProcessedCandidates postProcessed = overFetches
             ? RecommendationOverFetch.Resolve(
                 limit,
-                neighbors.Count,
+                Math.Max(neighbors.Count, coOccurring.Count),
                 window => PostProcess(
                     request, neighbors, coOccurring, candidateMetadata, index, limit, window, blends),
                 result => result.Representatives.Count).Result
@@ -226,9 +227,13 @@ internal sealed class GetTrackRecommendationsQueryHandler
         IReadOnlyList<RankedCandidate> Representatives, IReadOnlyDictionary<string, int> CollapsedCounts);
 
     /// <summary>
-    /// Pós-processa as primeiras <paramref name="window"/> candidatas da varredura: blend colaborativo (E4.6) quando
-    /// há sinal, depois dedup de quase-duplicatas (E4.7), cortando em <paramref name="limit"/>. É a função que o laço
+    /// Pós-processa as primeiras <paramref name="window"/> candidatas do FUNIL: blend colaborativo (E4.6) quando há
+    /// sinal, depois dedup de quase-duplicatas (E4.7), cortando em <paramref name="limit"/>. É a função que o laço
     /// adaptativo do <see cref="RecommendationOverFetch"/> repete com a janela dobrada quando o resultado sai curto.
+    ///
+    /// <para><b>A janela corta as DUAS listas</b> (E4.12), pelo mesmo prefixo: a de áudio e a colaborativa. Cortar só a
+    /// de áudio fazia a rodada 1 do blend disputar com o top-máximo colaborativo em vez do top-30 — ou seja, o
+    /// resultado mudava para sementes que a rodada 1 já resolvia, contra o que o E4.9 prometeu.</para>
     /// </summary>
     private static PostProcessedCandidates PostProcess(
         GetTrackRecommendationsQuery request,
@@ -240,12 +245,12 @@ internal sealed class GetTrackRecommendationsQueryHandler
         int window,
         bool blends)
     {
-        IReadOnlyList<ExplainedTrackSimilarity> candidates = window >= neighbors.Count
-            ? neighbors
-            : neighbors.Take(window).ToArray();
+        IReadOnlyList<ExplainedTrackSimilarity> candidates = RecommendationOverFetch.Prefix(neighbors, window);
 
         RankedCandidate[] ranked = blends
-            ? BlendCandidates(request.SeedTrackId, candidates, coOccurring, request.BlendWeight)
+            ? BlendCandidates(
+                request.SeedTrackId, candidates, RecommendationOverFetch.Prefix(coOccurring, window),
+                request.BlendWeight)
             : ContentCandidates(candidates);
 
         if (!request.Dedupe)

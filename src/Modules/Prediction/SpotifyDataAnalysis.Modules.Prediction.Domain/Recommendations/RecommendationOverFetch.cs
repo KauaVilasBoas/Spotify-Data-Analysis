@@ -27,6 +27,14 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 /// o prefixo de tamanho <c>w</c> do top-máximo é bit a bit o top-<c>w</c> que uma segunda varredura devolveria. O que
 /// as rodadas repetem é só o pós-processamento (blend e dedup), que é O(janela²) no pior caso — dezenas de itens,
 /// não o catálogo.</para>
+///
+/// <para><b>A janela é do FUNIL INTEIRO, não de uma das fontes.</b> No blend (E4.6) entram duas listas — o top-N de
+/// áudio e o top-N colaborativo —, e a rodada corta as DUAS pelo mesmo prefixo (<see cref="Prefix"/>). Cortar só o
+/// lado de áudio fazia a rodada 1 disputar com o top-máximo colaborativo (120 candidatas para <c>limit=10</c>) em vez
+/// do top-30 de antes do E4.9: como a pior candidata de áudio da janela recebe parcela de content 0 no min-max do
+/// blender, qualquer colaborativa extra com <c>jaccard &gt; 0</c> a deslocava do top-N sem nenhuma rodada 2 ter
+/// ocorrido. O prefixo colaborativo também é exato: a fonte ordena por <c>jaccard DESC, co_playlists DESC</c>, então
+/// o prefixo de tamanho <c>w</c> é o mesmo top-<c>w</c> que um <c>LIMIT w</c> devolveria.</para>
 /// </summary>
 public static class RecommendationOverFetch
 {
@@ -89,6 +97,34 @@ public static class RecommendationOverFetch
     public static int MaximumCountFor(int limit) => CountForRound(limit, MaximumRounds);
 
     /// <summary>
+    /// O prefixo de <paramref name="window"/> candidatas de uma lista JÁ ordenada pela chave de ranking da própria
+    /// fonte. É o corte que dá à janela o significado de funil inteiro: no blend, as duas fontes passam por aqui com o
+    /// MESMO <paramref name="window"/>, de modo que a rodada 1 disputa com o mesmo conjunto de antes do E4.9 e uma
+    /// rodada mais larga alarga os dois lados juntos.
+    ///
+    /// <para>Devolve a própria lista quando a janela já a cobre — a rodada que não corta nada não paga cópia.</para>
+    /// </summary>
+    /// <typeparam name="T">O tipo da candidata; o prefixo não interpreta nada dela.</typeparam>
+    /// <param name="candidates">A lista ordenada da fonte.</param>
+    /// <param name="window">A janela da rodada, em número de candidatas.</param>
+    public static IReadOnlyList<T> Prefix<T>(IReadOnlyList<T> candidates, int window)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+
+        if (window >= candidates.Count)
+            return candidates;
+
+        if (window <= 0)
+            return [];
+
+        var prefix = new T[window];
+        for (int i = 0; i < window; i++)
+            prefix[i] = candidates[i];
+
+        return prefix;
+    }
+
+    /// <summary>
     /// Roda o over-fetch adaptativo: pós-processa o prefixo da rodada 1 e, SÓ se o resultado ficou abaixo de
     /// <paramref name="limit"/>, repete numa janela dobrada — até <see cref="MaximumRounds"/> ou até a janela deixar
     /// de crescer (a varredura acabou). Devolve o último resultado com o custo que ele exigiu.
@@ -104,7 +140,11 @@ public static class RecommendationOverFetch
     /// </summary>
     /// <typeparam name="TResult">O que o pós-processamento produz (lista de itens, ou item + diagnóstico).</typeparam>
     /// <param name="limit">O top-N pedido; o laço para quando o resultado o alcança.</param>
-    /// <param name="availableCandidates">Quantas candidatas a varredura devolveu — o teto real da janela.</param>
+    /// <param name="availableCandidates">
+    /// Quantas candidatas o funil tem para oferecer — o teto real da janela. Quando o funil tem MAIS DE UMA fonte (o
+    /// blend do E4.6: áudio + colaborativo), é o tamanho da fonte MAIS LONGA: parar no tamanho da mais curta impediria
+    /// uma rodada mais larga de alcançar candidatas que a outra fonte ainda tinha.
+    /// </param>
     /// <param name="postProcessPrefix">
     /// Pós-processa as N primeiras candidatas da varredura, com N = a janela da rodada. É chamado uma vez por rodada.
     /// </param>

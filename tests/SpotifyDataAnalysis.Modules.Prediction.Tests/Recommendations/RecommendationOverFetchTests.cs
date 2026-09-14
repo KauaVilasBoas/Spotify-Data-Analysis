@@ -160,6 +160,25 @@ public sealed class RecommendationOverFetchTests
         Assert.Equal(4, outcome.CandidatesConsidered);
     }
 
+    /// <summary>
+    /// O prefixo da janela (E4.12): é o que faz a rodada cortar o funil INTEIRO. Aritmética pura sobre uma lista já
+    /// ordenada — a janela maior que a lista devolve a própria lista, sem cópia, porque a rodada que não corta nada
+    /// não deve pagar alocação.
+    /// </summary>
+    [Fact]
+    public void Prefixo_da_janela_corta_a_lista_ordenada()
+    {
+        int[] candidates = [9, 8, 7, 6, 5];
+        int[] firstThree = [9, 8, 7];
+        int[] empty = [];
+
+        Assert.Equal(firstThree, RecommendationOverFetch.Prefix(candidates, window: 3));
+        Assert.Same(candidates, RecommendationOverFetch.Prefix(candidates, window: 5));
+        Assert.Same(candidates, RecommendationOverFetch.Prefix(candidates, window: 50));
+        Assert.Empty(RecommendationOverFetch.Prefix(candidates, window: 0));
+        Assert.Empty(RecommendationOverFetch.Prefix(empty, window: 30));
+    }
+
     [Fact]
     public void Limite_nao_positivo_e_rejeitado()
     {
