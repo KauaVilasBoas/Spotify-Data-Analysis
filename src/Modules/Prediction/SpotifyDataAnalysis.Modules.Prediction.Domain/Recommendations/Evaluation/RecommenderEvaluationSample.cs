@@ -14,9 +14,18 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluati
 /// </summary>
 /// <param name="SeedTrackIds">Sementes da avaliação, na ordem determinística em que foram sorteadas.</param>
 /// <param name="DuplicateGroups">Grupos de faixas que o catálogo considera a mesma obra (proxy 3).</param>
+/// <param name="SeedPopulation">
+/// QUE população a lista de sementes representa (E4.12). É identidade, não rótulo decorativo: o gate cobra a
+/// população de cada medição que consome sementes, porque limiar calibrado numa população não vale noutra — a lista
+/// curta é fenômeno dos grupos grandes de quase-duplicatas e é indistinguível de zero numa amostra sorteada.
+///
+/// <para>O default é <see cref="RecommenderEvaluationPopulation.Unspecified"/> de propósito, e isso é o fail-safe:
+/// uma amostra que não declara a própria população nunca satisfaz uma guarda do gate.</para>
+/// </param>
 public sealed record RecommenderEvaluationSample(
     IReadOnlyList<string> SeedTrackIds,
-    IReadOnlyList<DuplicateTrackGroup> DuplicateGroups)
+    IReadOnlyList<DuplicateTrackGroup> DuplicateGroups,
+    RecommenderEvaluationPopulation SeedPopulation = RecommenderEvaluationPopulation.Unspecified)
 {
     /// <summary>
     /// Monta a amostra validando que ela mede alguma coisa: uma amostra sem sementes produziria proxies "perfeitos"
@@ -24,7 +33,9 @@ public sealed record RecommenderEvaluationSample(
     /// </summary>
     /// <exception cref="DomainException">Quando não há semente alguma para avaliar.</exception>
     public static RecommenderEvaluationSample Create(
-        IReadOnlyList<string> seedTrackIds, IReadOnlyList<DuplicateTrackGroup> duplicateGroups)
+        IReadOnlyList<string> seedTrackIds,
+        IReadOnlyList<DuplicateTrackGroup> duplicateGroups,
+        RecommenderEvaluationPopulation seedPopulation = RecommenderEvaluationPopulation.Unspecified)
     {
         ArgumentNullException.ThrowIfNull(seedTrackIds);
         ArgumentNullException.ThrowIfNull(duplicateGroups);
@@ -34,8 +45,51 @@ public sealed record RecommenderEvaluationSample(
                 "A amostra de avaliação não tem sementes: um proxy medido sobre zero sementes daria 100% por " +
                 "vacuidade, não por qualidade.");
 
-        return new RecommenderEvaluationSample(seedTrackIds, duplicateGroups);
+        return new RecommenderEvaluationSample(seedTrackIds, duplicateGroups, seedPopulation);
     }
+}
+
+/// <summary>
+/// QUE população de sementes uma amostra representa — o eixo que faltava na identidade de uma medição (E4.12).
+///
+/// <para><b>Por que existe:</b> a configuração (<see cref="RecommenderEvaluationSetting"/>) e o top-N já viajavam com
+/// cada proxy, mas a AMOSTRA não. Duas medições podiam ter configuração idêntica e vir de populações diferentes, e o
+/// gate aprovava — com o agravante de que os limiares de completude do resultado foram calibrados sobre a população
+/// PATOLÓGICA (0,3583 de lista curta antes do over-fetch adaptativo) e são satisfeitos por vacuidade numa amostra
+/// sorteada, onde o fenômeno é ~0. Um conjunto fechado, e não um texto livre, porque o gate precisa RECONHECER a
+/// população que calibrou cada régua.</para>
+/// </summary>
+public enum RecommenderEvaluationPopulation
+{
+    /// <summary>
+    /// Não declarada. Nunca satisfaz uma guarda do gate — amostra sem população declarada é medição sem identidade.
+    /// </summary>
+    Unspecified = 0,
+
+    /// <summary>
+    /// As sementes sorteadas do catálogo elegível pela semente fixa do sorteio — a população da coerência de gênero,
+    /// da autoexclusão e da tabela de calibração do boost.
+    /// </summary>
+    RandomCatalogSeeds = 1,
+
+    /// <summary>
+    /// O subconjunto das sorteadas que TEM co-ocorrência registrada — o único recorte em que o blend muda o ranking.
+    /// É população própria, e não as sorteadas: a média dela não é comparável com a da amostra inteira.
+    /// </summary>
+    CollaborativeCoveredSeeds = 2,
+
+    /// <summary>
+    /// UMA semente por grupo grande de quase-duplicatas (o primeiro membro de cada grupo). Serve ao proxy 3, que varre
+    /// os membros por dentro dos grupos — NÃO é a população por semente dos grupos grandes.
+    /// </summary>
+    LargeNearDuplicateGroupLeaders = 3,
+
+    /// <summary>
+    /// TODOS os membros indexados dos grupos grandes de quase-duplicatas — a população patológica em que a lista curta
+    /// foi medida e em que os limiares de completude do resultado (E4.9) foram calibrados. É a única população em que
+    /// esses dois limiares significam alguma coisa: numa amostra sorteada eles passam por vacuidade.
+    /// </summary>
+    LargeNearDuplicateGroupMembers = 4
 }
 
 /// <summary>

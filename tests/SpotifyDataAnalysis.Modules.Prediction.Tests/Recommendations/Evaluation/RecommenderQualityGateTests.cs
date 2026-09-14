@@ -266,6 +266,105 @@ public sealed class RecommenderQualityGateTests
                 outroTopN));
     }
 
+    // --- E4.12: a guarda do proxy 4 cobrava o eixo que já coincidia, e não a AMOSTRA ---
+
+    /// <summary>
+    /// O cenário de falha que a guarda anterior aprovava, e é o mais severo da revisão: alguém "simplifica" a avaliação
+    /// passando a amostra SORTEADA às duas medições. Configuração e top-N continuam idênticos — são os dois únicos
+    /// eixos que a guarda do E4.9 comparava —, então ela aprovava; e como lista curta é fenômeno dos grupos de 11+
+    /// (0,3583 antes do over-fetch adaptativo, contra ~0 numa amostra sorteada), o teto de 5% passava por vacuidade.
+    /// Consequência: <b>reverter o over-fetch adaptativo deixava o gate verde.</b>
+    ///
+    /// <para>Repare que os DOIS valores medidos aqui são os aprovados (0 e 0) e a configuração é a MESMA da medição de
+    /// coerência: o que reprova é exclusivamente a população. A guarda tem de ser ABSOLUTA — cobrar apenas que as duas
+    /// medições coincidam entre si aprovaria exatamente este cenário.</para>
+    /// </summary>
+    [Fact]
+    public void Recusa_a_distribuicao_medida_na_amostra_sorteada_em_vez_da_populacao_que_calibrou_o_limiar()
+    {
+        RecommendationSizeProxy naAmostraSorteada = MeasuredResultSize() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.RandomCatalogSeeds,
+            SeedsEvaluated = 300
+        };
+
+        Assert.Equal(MeasuredBoosted().Setting, naAmostraSorteada.Setting);
+        Assert.Equal(MeasuredBoosted().TopN, naAmostraSorteada.TopN);
+        Assert.Equal(MeasuredBoosted().SeedPopulation, naAmostraSorteada.SeedPopulation);
+
+        DomainException exception = Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), MeasuredDedupedDuplicates(),
+                naAmostraSorteada));
+
+        Assert.Contains("vacuidade", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// O fail-safe: amostra que não declara a própria população não satisfaz a guarda. O default do enum é
+    /// <c>Unspecified</c> justamente para que o esquecimento reprove, em vez de o gate herdar por omissão a população
+    /// que calibrou o limiar.
+    /// </summary>
+    [Fact]
+    public void Recusa_a_distribuicao_de_uma_amostra_que_nao_declarou_populacao()
+    {
+        RecommendationSizeProxy semPopulacao = MeasuredResultSize() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.Unspecified
+        };
+
+        Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), MeasuredDedupedDuplicates(),
+                semPopulacao));
+    }
+
+    /// <summary>
+    /// O ganho da coerência é uma razão entre duas médias: tirar o numerador das sementes com cobertura colaborativa e
+    /// o denominador da amostra inteira produz um número que não descreve sistema nenhum — e o gate o aprovava, porque
+    /// só o <c>dedupe</c> era cobrado como pareamento.
+    /// </summary>
+    [Fact]
+    public void Recusa_comparar_ganho_entre_populacoes_diferentes()
+    {
+        RecommenderQualityMeasurement outraPopulacao = MeasuredBoosted() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.CollaborativeCoveredSeeds
+        };
+
+        Assert.Equal(MeasuredCosineOnly().Setting.Dedupe, outraPopulacao.Setting.Dedupe);
+
+        Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), outraPopulacao, MeasuredDuplicates(), MeasuredDedupedDuplicates(),
+                MeasuredResultSize()));
+    }
+
+    /// <summary>
+    /// O mesmo fail-safe do lado da coerência, e ele é necessário: duas medições <c>Unspecified</c> COINCIDEM, então
+    /// uma guarda de igualdade pura seria satisfeita por duas medições sem identidade nenhuma.
+    /// </summary>
+    [Fact]
+    public void Recusa_ganho_entre_duas_medicoes_sem_populacao_declarada()
+    {
+        RecommenderQualityMeasurement cosineSemPopulacao = MeasuredCosineOnly() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.Unspecified
+        };
+
+        RecommenderQualityMeasurement boostedSemPopulacao = MeasuredBoosted() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.Unspecified
+        };
+
+        Assert.Equal(cosineSemPopulacao.SeedPopulation, boostedSemPopulacao.SeedPopulation);
+
+        Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                cosineSemPopulacao, boostedSemPopulacao, MeasuredDuplicates(), MeasuredDedupedDuplicates(),
+                MeasuredResultSize()));
+    }
+
     [Fact]
     public void Falhas_trazem_o_valor_medido_e_o_limiar_para_o_diagnostico_nao_exigir_arqueologia()
     {
@@ -285,9 +384,11 @@ public sealed class RecommenderQualityGateTests
     private static RecommenderQualityMeasurement MeasuredCosineOnly() =>
         new(
             RecommenderEvaluationSetting.CosineOnly().WithDedupe(),
+            RecommenderEvaluationPopulation.RandomCatalogSeeds,
             TopN: 10,
             new GenreCoherenceProxy(
-                300, 0, 0, 0, MeanCoherence: 0.1140, SaturatedSeeds: 2, MeanImputedNeighbors: 0,
+                SeedsEvaluated: 300, SeedsWithoutUsableGenre: 0, SeedsWithEmptyTopN: 0, SeedsMissingFromIndex: 0,
+                ImputedSeeds: 0, MeanCoherence: 0.1140, SaturatedSeeds: 2, MeanImputedNeighbors: 0,
                 CoherenceStandardDeviation: 0.1734),
             new SelfExclusionProxy(300, 0));
 
@@ -301,9 +402,11 @@ public sealed class RecommenderQualityGateTests
     private static RecommenderQualityMeasurement MeasuredBoosted() =>
         new(
             RecommenderEvaluationSetting.BoostedBy(0.05).WithDedupe(),
+            RecommenderEvaluationPopulation.RandomCatalogSeeds,
             TopN: 10,
             new GenreCoherenceProxy(
-                300, 0, 0, 0, MeanCoherence: 0.5563, SaturatedSeeds: 84, MeanImputedNeighbors: 0,
+                SeedsEvaluated: 300, SeedsWithoutUsableGenre: 0, SeedsWithEmptyTopN: 0, SeedsMissingFromIndex: 0,
+                ImputedSeeds: 0, MeanCoherence: 0.5563, SaturatedSeeds: 84, MeanImputedNeighbors: 0,
                 CoherenceStandardDeviation: 0.3607),
             new SelfExclusionProxy(300, 0));
 
@@ -354,6 +457,10 @@ public sealed class RecommenderQualityGateTests
     ///
     /// <para>O custo, medido na mesma passada: 1.216 sementes resolvem na primeira rodada, 562 precisam da segunda e
     /// 117 da terceira. Nenhuma bate no teto sem resolver.</para>
+    ///
+    /// <para><b>A população é parte do número</b> (E4.12): estes 1.895 ids são os membros dos grupos de 11+, e é sobre
+    /// ELES que o teto de 5% foi calibrado. Trocar a população por uma amostra sorteada manteria configuração e top-N
+    /// idênticos e mediria um fenômeno que lá não acontece.</para>
     /// </summary>
     private static RecommendationSizeProxy MeasuredResultSize() =>
         new(
@@ -365,6 +472,7 @@ public sealed class RecommenderQualityGateTests
             MeanResultSize: 10.00,
             SeedsByRound: [1216, 562, 117],
             RecommenderEvaluationSetting.BoostedBy(0.05).WithDedupe(),
+            RecommenderEvaluationPopulation.LargeNearDuplicateGroupMembers,
             TopN: 10);
 
     private static RecommenderQualityMeasurement WithCoherence(

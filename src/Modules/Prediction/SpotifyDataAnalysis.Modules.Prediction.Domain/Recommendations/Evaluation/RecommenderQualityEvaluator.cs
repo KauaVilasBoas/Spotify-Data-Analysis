@@ -50,6 +50,7 @@ public sealed class RecommenderQualityEvaluator
 
         int seedsMissingFromIndex = 0;
         int seedsWithoutUsableGenre = 0;
+        int seedsWithEmptyTopN = 0;
         int imputedSeeds = 0;
         int seedsEvaluated = 0;
         int saturatedSeeds = 0;
@@ -82,10 +83,19 @@ public sealed class RecommenderQualityEvaluator
             if (ContainsSeed(neighbors, seedTrackId))
                 selfExclusionViolations++;
 
+            // As DUAS causas de descarte são contadas SEPARADAMENTE. Somá-las num contador só fazia uma semente com
+            // gênero válido cujo FUNIL não devolveu vizinho ser publicada como "sem gênero" — e quem lê a coluna
+            // `sem_genero` conclui "falta rótulo de gênero" quando o rótulo estava lá.
             bool seedGenreIsUsable = !string.IsNullOrWhiteSpace(seedGenre) && !seedIsImputed.Value;
-            if (!seedGenreIsUsable || neighbors.Count == 0)
+            if (!seedGenreIsUsable)
             {
                 seedsWithoutUsableGenre++;
+                continue;
+            }
+
+            if (neighbors.Count == 0)
+            {
+                seedsWithEmptyTopN++;
                 continue;
             }
 
@@ -124,6 +134,7 @@ public sealed class RecommenderQualityEvaluator
         var genreCoherence = new GenreCoherenceProxy(
             seedsEvaluated,
             seedsWithoutUsableGenre,
+            seedsWithEmptyTopN,
             seedsMissingFromIndex,
             imputedSeeds,
             meanCoherence,
@@ -132,7 +143,11 @@ public sealed class RecommenderQualityEvaluator
             Math.Sqrt(coherenceVariance));
 
         return new RecommenderQualityMeasurement(
-            setting, topN, genreCoherence, new SelfExclusionProxy(selfExclusionSeeds, selfExclusionViolations));
+            setting,
+            sample.SeedPopulation,
+            topN,
+            genreCoherence,
+            new SelfExclusionProxy(selfExclusionSeeds, selfExclusionViolations));
     }
 
     /// <summary>
@@ -336,6 +351,7 @@ public sealed class RecommenderQualityEvaluator
             seedsEvaluated == 0 ? 0.0 : (double)resultSizeSum / seedsEvaluated,
             seedsByRound,
             setting,
+            sample.SeedPopulation,
             topN);
     }
 
@@ -416,14 +432,18 @@ public sealed class RecommenderQualityEvaluator
         if (scanned is null)
             return null;
 
-        // Cobertura colaborativa ZERO cai no content puro, exatamente como o handler (`coOccurring.Count > 0`).
-        // Sem esta guarda a avaliação blendaria sementes que em produção nunca chegam a blendar, e mediria um
-        // sistema que o endpoint não entrega.
-        IReadOnlyList<BlendCollaborativeCandidate> collaborative = context.CollaborativeFor(seedTrackId);
+        // O sinal colaborativo só existe no modo blend, exatamente como no handler (`strategy == Blend ? fetch : []`),
+        // e cobertura ZERO cai no content puro (`coOccurring.Count > 0`). Sem as duas guardas a avaliação blendaria
+        // sementes que em produção nunca chegam a blendar, e mediria um sistema que o endpoint não entrega.
+        IReadOnlyList<BlendCollaborativeCandidate> collaborative = setting.IsBlended
+            ? context.CollaborativeFor(seedTrackId)
+            : [];
 
+        // O teto da janela é o tamanho da fonte MAIS LONGA do funil (E4.12): parar no tamanho da de áudio impediria
+        // uma rodada mais larga de alcançar candidatas que o lado colaborativo ainda tinha.
         RecommendationOverFetchOutcome<IReadOnlyList<TrackSimilarity>> outcome = RecommendationOverFetch.Resolve(
             topN,
-            scanned.Count,
+            Math.Max(scanned.Count, collaborative.Count),
             window => PostProcess(index, seedTrackId, scanned, window, setting, collaborative, context, topN),
             postProcessed => postProcessed.Count);
 
@@ -431,8 +451,12 @@ public sealed class RecommenderQualityEvaluator
     }
 
     /// <summary>
-    /// Uma rodada de pós-processamento sobre as primeiras <paramref name="window"/> candidatas da varredura: blend
+    /// Uma rodada de pós-processamento sobre as primeiras <paramref name="window"/> candidatas do FUNIL: blend
     /// (quando há sinal colaborativo) e dedup, na ordem do handler, cortando em <paramref name="topN"/>.
+    ///
+    /// <para><b>A janela corta as DUAS fontes</b> (E4.12), pelo mesmo prefixo, como no handler: a de áudio e a
+    /// colaborativa. Cortar só a de áudio faria a rodada 1 do blend disputar com o top-máximo colaborativo em vez do
+    /// top-N de uma rodada — ou seja, a avaliação mediria um funil que o endpoint não entrega.</para>
     /// </summary>
     private static IReadOnlyList<TrackSimilarity> PostProcess(
         SimilarityIndex index,
@@ -444,12 +468,11 @@ public sealed class RecommenderQualityEvaluator
         RecommenderEvaluationContext context,
         int topN)
     {
-        IReadOnlyList<TrackSimilarity> candidates = window >= scanned.Count
-            ? scanned
-            : scanned.Take(window).ToArray();
+        IReadOnlyList<TrackSimilarity> candidates = RecommendationOverFetch.Prefix(scanned, window);
 
         IReadOnlyList<TrackSimilarity> ranked = setting.BlendWeight is double blendWeight && collaborative.Count > 0
-            ? BlendRanking(index, seedTrackId, candidates, collaborative, blendWeight)
+            ? BlendRanking(
+                index, seedTrackId, candidates, RecommendationOverFetch.Prefix(collaborative, window), blendWeight)
             : candidates;
 
         if (setting.Dedupe)

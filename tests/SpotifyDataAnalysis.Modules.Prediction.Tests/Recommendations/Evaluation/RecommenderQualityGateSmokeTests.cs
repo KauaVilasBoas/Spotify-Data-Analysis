@@ -68,7 +68,13 @@ public sealed class RecommenderQualityGateSmokeTests
             _harness.Context);
 
         // Proxy 4 (E4.9): a distribuição de tamanho do resultado, na MESMA configuração cuja qualidade é gateada, e
-        // sobre as 1.895 sementes dos grupos de 11+ — a população em que o defeito do over-fetch fixo foi medido.
+        // sobre as 1.895 sementes dos grupos de 11+ — a população em que o defeito do over-fetch fixo foi medido e em
+        // que os dois limiares foram calibrados. Desde o E4.12 o gate COBRA essa população: passar aqui a amostra
+        // sorteada deixaria configuração e top-N idênticos e mediria um fenômeno que lá não acontece.
+        Assert.Equal(
+            RecommenderQualityGate.CalibrationPopulationOfResultSize,
+            _harness.LargeGroupMemberSample.SeedPopulation);
+
         RecommendationSizeProxy resultSize = RecommenderQualityEvaluator.MeasureResultSize(
             _harness.Index,
             _harness.LargeGroupMemberSample,
@@ -80,13 +86,15 @@ public sealed class RecommenderQualityGateSmokeTests
             .Evaluate(cosineOnly, boosted, similarityEngineDuplicates, dedupedDuplicates, resultSize);
 
         _output.WriteLine(
-            $"[{resultSize.Setting.Label}] tamanho do resultado: {resultSize.SeedsBelowTopN} de " +
+            $"[{resultSize.Setting.Label}] [{resultSize.SeedPopulation}] tamanho do resultado: " +
+            $"{resultSize.SeedsBelowTopN} de " +
             $"{resultSize.SeedsEvaluated} sementes abaixo de {resultSize.TopN} " +
             $"({resultSize.ShortResultRate:0.0000}), {resultSize.SeedsWithSingleResult} com um item so; " +
             $"rodadas de over-fetch: {string.Join(" / ", resultSize.SeedsByRound)}.");
 
         _output.WriteLine(
-            $"[{boosted.Setting.Label}] coerencia {cosineOnly.GenreCoherence.MeanCoherence:0.0000} -> " +
+            $"[{boosted.Setting.Label}] [{boosted.SeedPopulation}] " +
+            $"coerencia {cosineOnly.GenreCoherence.MeanCoherence:0.0000} -> " +
             $"{boosted.GenreCoherence.MeanCoherence:0.0000} " +
             $"(saturacao {boosted.GenreCoherence.SaturationRate:0.0000}); " +
             $"autoexclusao {boosted.SelfExclusion.Violations} violacoes; " +

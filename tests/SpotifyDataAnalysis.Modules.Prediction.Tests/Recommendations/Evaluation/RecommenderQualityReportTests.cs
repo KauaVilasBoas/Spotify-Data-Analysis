@@ -29,14 +29,19 @@ public sealed class RecommenderQualityReportTests
     /// <summary>Os pesos do blend colaborativo medidos sobre o RANKING FINAL (E4.8): o default e um contraste alto.</summary>
     private static readonly double[] BlendWeights = [0.35, 0.60];
 
+    /// <summary>
+    /// As duas causas de descarte são colunas SEPARADAS (E4.12): <c>sem_genero</c> é rótulo que não serve,
+    /// <c>topn_vazio</c> é funil que não devolveu vizinho. Somadas numa coluna só, uma semente com gênero válido cujo
+    /// dedup colapsou o resultado era lida como "falta rótulo de gênero" — e isso orienta decisão de produto.
+    /// </summary>
     private const string CoherenceHeader =
-        "config                                 | coerencia |  desvio |  erro_padrao | saturacao | sementes | sem_genero | fora_indice | imputadas | autoexcl_viol";
+        "config                                 | populacao                       | coerencia |  desvio |  erro_padrao | saturacao | sementes | sem_genero | topn_vazio | fora_indice | imputadas | autoexcl_viol";
 
     private const string DuplicateHeader =
         "amostra                    | config                          | grupos | sementes | recall | hit-rate | 1o_irmao | cos_irmaos | topK_100%_dup | repeticao_no_topK | topK_incompleto";
 
     private const string SizeHeader =
-        "config                           | sementes | abaixo_de_K | %_abaixo | exatamente_1 | vazias | tamanho_medio | rodada_1 | rodada_2 | rodada_3 | p50_ms | p95_ms | p99_ms | max_ms";
+        "config                           | populacao                       | sementes | abaixo_de_K | %_abaixo | exatamente_1 | vazias | tamanho_medio | rodada_1 | rodada_2 | rodada_3 | p50_ms | p95_ms | p99_ms | max_ms";
 
     private readonly RecommenderEvaluationHarness _harness;
     private readonly ITestOutputHelper _output;
@@ -145,9 +150,11 @@ public sealed class RecommenderQualityReportTests
         GenreCoherenceProxy coherence = measurement.GenreCoherence;
 
         report.AppendLine(CultureInfo.InvariantCulture,
-            $"{setting.Label,-38} | {coherence.MeanCoherence,9:0.0000} | {coherence.CoherenceStandardDeviation,7:0.0000} | " +
+            $"{setting.Label,-38} | {measurement.SeedPopulation,-31} | " +
+            $"{coherence.MeanCoherence,9:0.0000} | {coherence.CoherenceStandardDeviation,7:0.0000} | " +
             $"{coherence.CoherenceStandardError,12:0.0000} | {coherence.SaturationRate,9:0.0000} | " +
             $"{coherence.SeedsEvaluated,8} | {coherence.SeedsWithoutUsableGenre,10} | " +
+            $"{coherence.SeedsWithEmptyTopN,10} | " +
             $"{coherence.SeedsMissingFromIndex,11} | {coherence.ImputedSeeds,9} | " +
             $"{measurement.SelfExclusion.Violations,13}");
     }
@@ -230,7 +237,8 @@ public sealed class RecommenderQualityReportTests
             double[] latencies = MeasurePerSeedLatency(setting);
 
             report.AppendLine(CultureInfo.InvariantCulture,
-                $"{setting.Label,-32} | {size.SeedsEvaluated,8} | {size.SeedsBelowTopN,11} | " +
+                $"{setting.Label,-32} | {size.SeedPopulation,-31} | " +
+                $"{size.SeedsEvaluated,8} | {size.SeedsBelowTopN,11} | " +
                 $"{size.ShortResultRate,8:0.0000} | {size.SeedsWithSingleResult,12} | {size.SeedsWithEmptyResult,6} | " +
                 $"{size.MeanResultSize,13:0.00} | {size.SeedsByRound[0],8} | {size.SeedsByRound[1],8} | " +
                 $"{size.SeedsByRound[2],8} | {Percentile(latencies, 0.50),6:0.00} | " +

@@ -5,11 +5,17 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluati
 /// <see cref="RecommenderEvaluationSetting"/>. É uma linha da tabela de calibração.
 /// </summary>
 /// <param name="Setting">A configuração de ranking sob a qual esta linha foi medida.</param>
+/// <param name="SeedPopulation">
+/// A população de sementes que produziu esta linha (E4.12) — o terceiro eixo da identidade, ao lado da configuração e
+/// do top-N. Sem ele, o ganho da coerência podia ser calculado entre duas populações diferentes e o gate aprovava a
+/// razão de dois números que ninguém comparou.
+/// </param>
 /// <param name="TopN">Tamanho do top-N usado na medição.</param>
 /// <param name="GenreCoherence">Proxy 1 — o quanto o top-N compartilha o gênero da semente.</param>
 /// <param name="SelfExclusion">Proxy 2 — a semente jamais aparece no próprio top-N.</param>
 public sealed record RecommenderQualityMeasurement(
     RecommenderEvaluationSetting Setting,
+    RecommenderEvaluationPopulation SeedPopulation,
     int TopN,
     GenreCoherenceProxy GenreCoherence,
     SelfExclusionProxy SelfExclusion);
@@ -23,7 +29,18 @@ public sealed record RecommenderQualityMeasurement(
 /// disfarçado.</para>
 /// </summary>
 /// <param name="SeedsEvaluated">Sementes que entraram na média (estão no índice e têm gênero utilizável).</param>
-/// <param name="SeedsWithoutUsableGenre">Sementes descartadas por não terem gênero — não há coerência a medir.</param>
+/// <param name="SeedsWithoutUsableGenre">
+/// Sementes descartadas porque o RÓTULO de gênero não serve: ausente, em branco, ou de faixa imputada (DP-F). Não há
+/// coerência a medir sem um gênero de referência.
+///
+/// <para><b>Não inclui</b> a semente que tinha gênero e recebeu top-N vazio — essa é a
+/// <paramref name="SeedsWithEmptyTopN"/>. Contar as duas juntas publicava um defeito do FUNIL como falta de rótulo, e
+/// quem lê a tabela decidiria enriquecer metadata quando o problema estava no ranking.</para>
+/// </param>
+/// <param name="SeedsWithEmptyTopN">
+/// Sementes com gênero utilizável cujo top-N veio VAZIO — não há vizinho com que comparar gênero. A causa é o FUNIL
+/// (filtro duro de gênero sem candidata elegível, ou índice sem outra faixa), não o rótulo da semente.
+/// </param>
 /// <param name="SeedsMissingFromIndex">Sementes que não estavam no índice; contadas em vez de silenciadas.</param>
 /// <param name="ImputedSeeds">Sementes com features imputadas (DP-F) — hoje zero no catálogo, medido e não presumido.</param>
 /// <param name="MeanCoherence">Média por semente da fração do top-N com o mesmo gênero. Em [0, 1].</param>
@@ -40,6 +57,7 @@ public sealed record RecommenderQualityMeasurement(
 public sealed record GenreCoherenceProxy(
     int SeedsEvaluated,
     int SeedsWithoutUsableGenre,
+    int SeedsWithEmptyTopN,
     int SeedsMissingFromIndex,
     int ImputedSeeds,
     double MeanCoherence,
@@ -153,6 +171,13 @@ public sealed record EndpointTopN(
 /// 0 é a primeira rodada (o over-fetch de sempre); as seguintes só existem quando o funil derrubou candidatas.
 /// </param>
 /// <param name="Setting">A configuração que produziu estes números — obrigatória, pela mesma razão do proxy 3.</param>
+/// <param name="SeedPopulation">
+/// A população de sementes medida — obrigatória, e aqui é o campo MAIS importante (E4.12). Os dois limiares deste
+/// proxy foram calibrados sobre os membros dos grupos grandes de quase-duplicatas, onde a lista curta valia 0,3583
+/// antes do over-fetch adaptativo. Numa amostra sorteada o fenômeno é ~0, então a mesma régua passaria por vacuidade —
+/// e reverter o over-fetch adaptativo deixaria o gate verde. Por isso o gate cobra a população, e não só a
+/// configuração.
+/// </param>
 /// <param name="TopN">O top-N pedido, contra o qual "abaixo do pedido" é definido.</param>
 public sealed record RecommendationSizeProxy(
     int SeedsEvaluated,
@@ -163,6 +188,7 @@ public sealed record RecommendationSizeProxy(
     double MeanResultSize,
     IReadOnlyList<int> SeedsByRound,
     RecommenderEvaluationSetting Setting,
+    RecommenderEvaluationPopulation SeedPopulation,
     int TopN)
 {
     /// <summary>A fração de sementes que recebeu menos do que pediu — a leitura direta do defeito do E4.9.</summary>

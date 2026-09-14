@@ -30,6 +30,11 @@ public sealed class RecommenderQualityGate
     // O E4.9 (2026-09-13) acrescentou DOIS limiares novos (completude do resultado) e re-mediu os sete anteriores com
     // o over-fetch adaptativo ligado: nenhum se moveu. Limiar novo nasce de medição; limiar antigo não se afrouxa
     // para acomodar mudança.
+    //
+    // E O E4.12 ACRESCENTOU O EIXO QUE FALTAVA: a AMOSTRA. Dizer a configuração de um limiar não basta quando duas
+    // amostras diferentes convivem na mesma avaliação — os sete primeiros limiares foram calibrados sobre as 300
+    // sementes sorteadas e os dois de completude sobre os 1.895 membros dos grupos de 11+. Daí em diante cada limiar
+    // diz a configuração E a população que o valida, e as guardas cobram as duas.
 
     /// <summary>
     /// Piso absoluto da coerência sob o boost default. Medido em <c>boost 0.050 | dedupe=on | content</c>, amostra
@@ -116,6 +121,14 @@ public sealed class RecommenderQualityGate
     public const int MaximumSeedsWithSingleResult = 0;
 
     /// <summary>
+    /// A população que calibrou os DOIS limiares acima (E4.12) — e, portanto, a única em que eles são régua e não
+    /// formalidade. É constante pública porque o smoke e o relatório precisam citá-la para medir no lugar certo, em vez
+    /// de descobrirem pela exceção.
+    /// </summary>
+    public const RecommenderEvaluationPopulation CalibrationPopulationOfResultSize =
+        RecommenderEvaluationPopulation.LargeNearDuplicateGroupMembers;
+
+    /// <summary>
     /// Avalia os proxies contra os limiares. Recebe as DUAS medições de coerência (cosine puro e boost) porque o
     /// ganho só existe como comparação pareada — pedir só a medição boostada tornaria o gate incapaz de distinguir
     /// "o boost funciona" de "o catálogo é homogêneo".
@@ -131,13 +144,15 @@ public sealed class RecommenderQualityGate
     /// <param name="similarityEngineDuplicates">Proxy 3 com <c>dedupe=false</c>: o motor de similaridade nu.</param>
     /// <param name="dedupedDuplicates">Proxy 3 com <c>dedupe=true</c>: o top-N que o endpoint realmente devolve.</param>
     /// <param name="resultSize">
-    /// Proxy 4 (E4.9) — a distribuição do tamanho do resultado, medida na MESMA configuração de
-    /// <paramref name="boosted"/>. A exigência de configuração idêntica não é formalidade: gatear a qualidade de uma
-    /// configuração e a completude de outra devolveria um "aprovado" sobre duas grandezas que ninguém comparou.
+    /// Proxy 4 (E4.9) — a distribuição do tamanho do resultado, medida na MESMA configuração e no MESMO top-N de
+    /// <paramref name="boosted"/>, e sobre a <see cref="CalibrationPopulationOfResultSize"/>. As duas exigências não
+    /// são formalidade nem são a mesma coisa: gatear a qualidade de uma configuração e a completude de outra devolveria
+    /// um "aprovado" sobre duas grandezas que ninguém comparou, e medir a completude numa população onde a lista curta
+    /// não acontece devolveria um "aprovado" que o defeito de volta não reprovaria.
     /// </param>
     /// <exception cref="DomainException">
-    /// Quando a configuração de alguma medição não é a que o limiar correspondente valida — gate mal ligado produz
-    /// um veredito confiante e errado, que é pior que gate nenhum.
+    /// Quando a configuração OU A POPULAÇÃO de alguma medição não é a que o limiar correspondente valida — gate mal
+    /// ligado produz um veredito confiante e errado, que é pior que gate nenhum.
     /// </exception>
     public RecommenderQualityVerdict Evaluate(
         RecommenderQualityMeasurement cosineOnly,
@@ -162,6 +177,21 @@ public sealed class RecommenderQualityGate
             "O ganho da coerência é uma comparação PAREADA: as medições de cosine puro e de boost precisam ter o " +
             $"mesmo dedupe (recebido {cosineOnly.Setting.Dedupe} e {boosted.Setting.Dedupe}).");
 
+        // O pareamento é da AMOSTRA também, não só do dedupe (E4.12). O ganho é uma razão entre duas médias: tirar o
+        // numerador de uma população e o denominador de outra produz um número que não descreve sistema nenhum. E a
+        // população não declarada é recusada em vez de comparada — duas medições `Unspecified` "coincidem" e essa
+        // coincidência não afirma nada.
+        RequireConfiguration(
+            cosineOnly.SeedPopulation != RecommenderEvaluationPopulation.Unspecified
+            && boosted.SeedPopulation != RecommenderEvaluationPopulation.Unspecified,
+            "Medição sem população declarada não tem identidade: as amostras de cosine puro e de boost precisam " +
+            $"declarar de que população vieram (recebido {cosineOnly.SeedPopulation} e {boosted.SeedPopulation}).");
+
+        RequireConfiguration(
+            cosineOnly.SeedPopulation == boosted.SeedPopulation,
+            "O ganho da coerência é uma comparação PAREADA também na AMOSTRA: as medições de cosine puro e de boost " +
+            $"precisam vir da MESMA população (recebido {cosineOnly.SeedPopulation} e {boosted.SeedPopulation}).");
+
         RequireConfiguration(
             !similarityEngineDuplicates.Setting.Dedupe,
             "Recall, alcance e cosseno de duplicatas medem o MOTOR de similaridade e exigem as duplicatas visíveis: " +
@@ -177,6 +207,20 @@ public sealed class RecommenderQualityGate
             "A distribuição de tamanho do resultado (E4.9) tem de ser medida na MESMA configuração e no mesmo top-N " +
             $"da medição gateada: recebido '{resultSize.Setting.Label}' top-{resultSize.TopN} contra " +
             $"'{boosted.Setting.Label}' top-{boosted.TopN}.");
+
+        // A guarda que faltava (E4.12), e é ABSOLUTA, não relativa: exigir só que esta medição coincida com a da
+        // coerência não resolveria nada, porque as duas podem coincidir na amostra sorteada e continuar erradas. Os
+        // limiares deste proxy foram calibrados sobre os MEMBROS DOS GRUPOS GRANDES de quase-duplicatas, onde a lista
+        // curta valia 0,3583 antes do over-fetch adaptativo; numa amostra sorteada ela é ~0 e o teto de 5% passa por
+        // vacuidade — ou seja, reverter o over-fetch adaptativo deixaria este gate VERDE. O limiar só significa alguma
+        // coisa sobre a população que o calibrou, e é essa população que a guarda nomeia.
+        RequireConfiguration(
+            resultSize.SeedPopulation == CalibrationPopulationOfResultSize,
+            "A distribuição de tamanho do resultado (E4.9) só significa alguma coisa sobre a população que calibrou " +
+            $"os limiares dela — {CalibrationPopulationOfResultSize}, onde a lista curta é fenômeno real. Recebido " +
+            $"{resultSize.SeedPopulation} ({resultSize.SeedsEvaluated} sementes): numa população em que a lista curta " +
+            "é ~0 por natureza, o teto seria satisfeito por vacuidade e reverter o over-fetch adaptativo não " +
+            "reprovaria o build.");
 
         var failures = new List<string>();
 

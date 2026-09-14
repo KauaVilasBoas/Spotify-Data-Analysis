@@ -169,8 +169,13 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
         long memoryAfterIndex = GC.GetTotalMemory(forceFullCollection: true);
         IndexFootprintMb = Math.Max(0, memoryAfterIndex - memoryBefore) / (1024.0 * 1024.0);
 
-        Sample = await sampleSource.LoadSampleAsync(
-            SamplingSeed, SeedSampleSize, DuplicateGroupCount, MaxMembersPerGroup);
+        // A população de cada amostra é DECLARADA aqui (E4.12), e é o harness que tem essa informação: a fonte de
+        // dados sabe montar a lista de ids, não sabe que papel ela cumpre na avaliação. É o que o gate cobra para não
+        // aprovar um limiar sobre uma população que não o calibrou.
+        Sample = (await sampleSource.LoadSampleAsync(
+                SamplingSeed, SeedSampleSize, DuplicateGroupCount, MaxMembersPerGroup))
+            with
+            { SeedPopulation = RecommenderEvaluationPopulation.RandomCatalogSeeds };
 
         // TODOS os grupos de duplicatas, com todos os membros. Uma leitura só serve às duas amostras sem teto: a
         // dos MESMOS 300 grupos da amostra fixa (comparação pareada com o E4.4) e a dos grupos grandes, onde o
@@ -183,14 +188,17 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
 
         UncappedDuplicateSample = RecommenderEvaluationSample.Create(
             Sample.SeedTrackIds,
-            allGroups.DuplicateGroups.Where(group => sampledMatchKeys.Contains(group.MatchKey)).ToArray());
+            allGroups.DuplicateGroups.Where(group => sampledMatchKeys.Contains(group.MatchKey)).ToArray(),
+            RecommenderEvaluationPopulation.RandomCatalogSeeds);
 
         DuplicateTrackGroup[] largeGroups = allGroups.DuplicateGroups
             .Where(group => group.TrackIds.Count >= LargeGroupMinimumMembers)
             .ToArray();
 
         LargeDuplicateGroupSample = RecommenderEvaluationSample.Create(
-            largeGroups.Select(group => group.TrackIds[0]).ToArray(), largeGroups);
+            largeGroups.Select(group => group.TrackIds[0]).ToArray(),
+            largeGroups,
+            RecommenderEvaluationPopulation.LargeNearDuplicateGroupLeaders);
 
         // A MESMA população que o proxy 3 varre por dentro dos grupos (cada membro que está no índice), agora exposta
         // como lista de sementes. A ordem segue a dos grupos e a dos membros dentro deles — determinística.
@@ -199,7 +207,8 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
                 .SelectMany(group => group.TrackIds)
                 .Where(Index.ContainsTrack)
                 .ToArray(),
-            largeGroups);
+            largeGroups,
+            RecommenderEvaluationPopulation.LargeNearDuplicateGroupMembers);
 
         Census = await sampleSource.LoadCensusAsync();
 
@@ -210,7 +219,8 @@ public sealed class RecommenderEvaluationHarness : IAsyncLifetime
 
         CollaborativeCoveredSample = RecommenderEvaluationSample.Create(
             Sample.SeedTrackIds.Where(seed => Context.CollaborativeFor(seed).Count > 0).ToArray(),
-            Sample.DuplicateGroups);
+            Sample.DuplicateGroups,
+            RecommenderEvaluationPopulation.CollaborativeCoveredSeeds);
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
