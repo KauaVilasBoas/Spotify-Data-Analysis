@@ -91,11 +91,12 @@ MAE threshold, because only the comparison answers "did it learn anything?".
 - **Collaborative signal without user data.** Item-item co-occurrence mined from 37,121 real
   playlists, Jaccard-scored and **materialised** into `prediction.track_cooccurrence` (1,481,511
   pairs) by a batch step. The request path reads that table; it never self-joins over jsonb.
-- **Boundaries enforced by the build.** 42 ArchUnitNET facts fail `dotnet test` the moment a module
+- **Boundaries enforced by the build.** 43 ArchUnitNET facts fail `dotnet test` the moment a module
   reaches into another module's internals, or Domain touches EF Core, Dapper or ASP.NET.
-- **Measured operations.** RAM ceiling, boot time, p95 latency and cold start were benchmarked in a
-  container at 256 MB and 512 MB, at full and throttled CPU. The conclusion is recorded in
-  [`deploy/DEPLOY.md`](deploy/DEPLOY.md): the free-tier bottleneck here is **CPU and disk, not RAM**.
+- **Measured operations.** RAM and OOM behaviour were verified in container at 256 MB and 512 MB (no
+  CPU throttle). The conclusion is recorded in [`deploy/DEPLOY.md`](deploy/DEPLOY.md): the similarity
+  index fits in 256 MB and the free-tier bottleneck is **CPU and disk, not RAM**. Latency under CPU
+  throttle has not been re-measured with reliable methodology yet.
 
 ---
 
@@ -324,36 +325,50 @@ impossible: with top-10, a seed needs 10 siblings to saturate its own list. Remo
 the **111 groups of 11+ tracks** (1,895 seeds, 18,892 of the 36,940 pairs) is what turned that indicator
 from a structural zero into a real reading.
 
-#### Two findings from the re-measurement, both open
+#### Two findings from the re-measurement, both closed
 
-**The blend drops the genre boost from the final ordering.** The blender re-ranks by min-max rescaled
-*cosine*, not by the hybrid score, so `genreMode=boost` shapes which candidates are fetched but no longer
-orders them. On the 37 of 300 seeds that actually have co-occurrence — the only ones where the blend
-changes anything — coherence falls from **0.5324 ± 0.3480** (content) to **0.1676 ± 0.2537** at
-`blendWeight=0.35`, close to the pure-cosine floor, which is exactly what dropping the boost predicts.
-A 0.365 gap against a 0.071 standard error of the difference is an effect, not sampling noise. At
-`blendWeight=0.60` it recovers to **0.2432 ± 0.2766**. The blend is measured and reported but **not
-gated**: it is opt-in, and its default weight has no validated calibration yet.
+**The blend was dropping the genre boost from the final ordering, and the instrument that measured it
+was doing the same thing.** The blender re-ranked by min-max rescaled *cosine*, not by the hybrid score,
+so `genreMode=boost` shaped which candidates were fetched but no longer ordered them. On the 37 of 300
+seeds that actually have co-occurrence, coherence fell from **0.5324 ± 0.3480** (content) to
+**0.1676 ± 0.2537** at `blendWeight=0.35`. What made the finding harder to spot: the
+`RecommenderQualityEvaluator` contained the same bug in two places (`neighbor.CosineSimilarity` where
+the contract required `neighbor.Similarity`, the hybrid score), so the evaluation harness itself was
+measuring the blend with naked cosine. The numbers were describing a system that was not what was
+running. After the fix (commit `be1d6c0`, card E4.10), on those same 37 seeds, the effect goes from
+**-5.15σ to +0.30σ** at `blendWeight=0.35` and from -3.96σ to +0.80σ at `blendWeight=0.60`. The -5.15σ
+reproduces the original signal, which validates the measurement method. Product decision: the boost
+enters the sort key, and the score exposed to the caller is exactly the value that ordered the list.
 
-**Near-duplicate collapse can return fewer results than requested.** A seed inside a large duplicate
-group has an over-fetch (3x the limit) made almost entirely of its own siblings, which collapse into a
-single entry. Measured on the live endpoint, not only in the harness: at
-`genreMode=boost&dedupe=true&limit=10`, **679 of the 1,895 seeds in 11+ groups get fewer than 10
-recommendations and 227 get exactly one**. The fix is an over-fetch that adapts to group size; it is not
-in the gate yet, because pinning the threshold at today's measured value would ratify the defect as a
-baseline.
+**Near-duplicate collapse was returning fewer results than requested, now fixed by adaptive over-fetch.**
+A seed inside a large duplicate group had a 3x over-fetch made almost entirely of its own siblings,
+which collapsed into a single entry. Measured on the live endpoint at
+`genreMode=boost&dedupe=true&limit=10`: **679 of the 1,895 seeds in 11+ groups got fewer than 10
+recommendations and 227 got exactly one**. The fix (commit `e5ab833`, card E4.9) over-fetches once in
+the maximum window and post-processes a prefix per round, which is exact rather than approximate because
+the heap breaks all ties by `trackId`. Cap of 3 rounds; across 1,895 seeds: 64.2% resolved in round 1,
+29.7% in round 2, 6.2% in round 3, zero seeds hit the cap without resolving. Outcome: **below 10
+recommendations 679 to 0; exactly 1 recommendation 227 to 0; average list size 7.87 to 10.00**. The
+gate grew from 7 to 9 thresholds (the two new ones being `MaximumShortResultRate = 0.05` and
+`MaximumSeedsWithSingleResult = 0`); none of the previous seven thresholds regressed or had their
+target moved.
 
 ### Free-tier footprint
 
-Container `spotifydataanalysis-api` against Postgres with the full dataset. Full runbook in
-[`deploy/DEPLOY.md`](deploy/DEPLOY.md).
+Container `spotifydataanalysis-api` against Postgres with the full dataset. Full runbook and methodology
+in [`deploy/DEPLOY.md`](deploy/DEPLOY.md), including known limitations of the current measurement.
 
-| Scenario | Peak RAM | Boot to `/health` | 1st recommendation | p95 content | p95 blend | OOM |
-|---|---:|---:|---:|---:|---:|:--:|
-| 512 MB, full CPU | 310.1 MiB | 9.5 s | 6.9 s | 715 ms | 204 ms | no |
-| 256 MB, full CPU | 217.3 MiB | 11.1 s | 16.2 s | 402 ms | 166 ms | no |
-| 512 MB, 0.1 vCPU | 142.9 MiB | 51.1 s | 32.4 s | 1,915 ms | 2,479 ms | no |
-| 256 MB, 0.1 vCPU | 138.4 MiB | 31.9 s | 25.5 s | 2,614 ms | 2,337 ms | no |
+Re-measured against commit `e5ab833` (adaptive over-fetch, E4.9), script `deploy/measure-latency.ps1`,
+300 deterministic seeds, 3 rounds, 1,800 sequential requests per tier. RAM read from `docker stats`
+after the full run (current usage at that moment, not historical peak). No CPU throttle was applied,
+so these numbers do not represent the real free-tier constraint, where CPU is the bottleneck. Latency
+and cold-start results were not re-measured with reliable methodology and are omitted; see
+[`deploy/DEPLOY.md`](deploy/DEPLOY.md) for what remains pending.
+
+| Scenario | RAM after run | OOM |
+|---|---:|:--:|
+| 512 MB, no CPU limit | 310.9 MiB | no |
+| 256 MB, no CPU limit | 148.3 MiB | no |
 
 Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
 
@@ -370,9 +385,9 @@ a signal that covers **9,664 of 89,740 tracks (10.8%)**, and only **37 of the 30
 ratio, not the absolute size, is the argument for pruning the matrix by a minimum `co_playlists` before
 the catalogue grows again.
 
-Image: 349 MB. Worst measured cold start with spin-down at 0.1 vCPU: **83 s** (51 s of boot plus 32 s of
-similarity-index build). The conclusion, *CPU and disk rather than RAM*, is what drives the roadmap
-item to warm the index in the background at startup.
+Image: 349 MB. The similarity index fits comfortably in 256 MB with no OOM across 1,800 requests. The
+conclusion, *CPU and disk rather than RAM*, is what drove the index to be built in the background at
+startup (E6.9), with the endpoint answering 503 until it is ready.
 
 ---
 
