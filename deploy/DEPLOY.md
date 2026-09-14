@@ -4,21 +4,57 @@ Runbook do E6.2. Três recursos independentes: **API .NET 8** (container), **Pos
 **SPA estática**. A SPA NÃO é servida pelo Host .NET; ela vive num host estático próprio e fala com a API
 por HTTP, com CORS como único mecanismo de ligação.
 
-## Números medidos (E6.2, 17/08/2026)
+## Números medidos (E6.9, 13/09/2026)
 
-Container `spotifydataanalysis-api:e62` apontando para o Postgres com o dataset completo
-(89.740 faixas, 37.121 playlists, 1.481.511 pares de co-ocorrência).
+Container `spotifydataanalysis-api:e5ab833` (HEAD, over-fetch adaptativo, E4.9) apontando para o
+Postgres local com o dataset completo (89.740 faixas, 37.121 playlists, 1.481.511 pares de
+co-ocorrência). CPU livre (sem throttle). Script: `deploy/measure-latency.ps1`.
 
-| Cenário | Pico de RAM | Boot até `/health` | 1ª recomendação | p95 content | p95 blend | OOM |
-| --- | --- | --- | --- | --- | --- | --- |
-| 512 MB, CPU livre | 310,1 MiB | 9,5 s | 6,9 s | 715 ms | 204 ms | não |
-| 256 MB, CPU livre | 217,3 MiB | 11,1 s | 16,2 s | 402 ms | 166 ms | não |
-| 512 MB, 0,1 vCPU | 142,9 MiB | 51,1 s | 32,4 s | 1.915 ms | 2.479 ms | não |
-| 256 MB, 0,1 vCPU | 138,4 MiB | 31,9 s | 25,5 s | 2.614 ms | 2.337 ms | não |
+**Metodologia:** 300 sementes determinísticas (semente textual `e4.4-proxies-v1`, query
+`md5(semente || id)`, reprodutível via script), requisições sequenciais (1 cliente), 3 rodadas,
+1.800 requisições totais por tier (300 sementes × 3 rodadas × 2 estratégias). RAM lida de
+`docker stats --no-stream` após o warm-up e após a última rodada. `docker stats` devolve uso
+**corrente**, não pico histórico: os valores abaixo são "uso após a rodada", não pico.
+
+| Cenário | RAM pós-warmup | RAM pós-medição | OOM |
+| --- | --- | --- | --- |
+| 512 MB, CPU livre | 161,6 MiB | 310,9 MiB | não |
+| 256 MB, CPU livre | 140,3 MiB | 148,3 MiB | não |
 
 Disco do banco: **388 MB** no total, dos quais `prediction.track_cooccurrence` = 254 MB (65%).
 
-O gargalo do free tier neste projeto é **CPU e disco**, não RAM.
+**O que esta medição prova:** o índice de similaridade cabe em 256 MB e o app serve 1.800 requisições
+sequenciais nesse tier sem OOM.
+
+**O que esta medição NÃO prova:** latência e cold start. Veja as limitações conhecidas abaixo.
+
+### Limitações conhecidas da metodologia atual
+
+Os dados de latência do script (`p50`, `p95`, média por rodada) não são publicáveis por três razões:
+
+1. **Aquecimento de uma única requisição.** O `Wait-Warmup` do script aguarda `/health` 200 seguido
+   de ao menos uma recomendação 200 (`measure-latency.ps1`, linhas 245-256). Uma única requisição não
+   é suficiente para o JIT do .NET chegar a regime. A rodada 1 é sistematicamente mais lenta que as
+   seguintes nos dois tiers (content 512 MB: 104,0 ms / 65,7 ms / 83,1 ms; content 256 MB:
+   83,0 ms / 55,6 ms / 52,2 ms), e o desvio entre rodadas (±19,2 ms e ±16,9 ms) supera qualquer
+   diferença entre tiers, produzindo o resultado não-físico de 256 MB mais rápido que 512 MB.
+
+2. **Cronômetro do warm-up a partir da referência errada.** O `Wait-Warmup` inicia o cronômetro
+   antes de saber se o container está de pé (`measure-latency.ps1`, linha 224) e trunca para inteiro.
+   O valor registrado de "1 s" é inconsistente com os ~9,5 s de boot que a tabela anterior registrava
+   para a mesma imagem; um app .NET não sobe em 1 s, e o número mede a diferença entre o `docker run`
+   e o primeiro `Invoke-WebRequest` bem-sucedido, não o cold start real.
+
+3. **Sem limite de CPU (`--cpus` ausente).** O script sobe o container apenas com `-m` e
+   `--memory-swap` (`measure-latency.ps1`, linhas 341-343), sem throttle de CPU. O gargalo real do
+   free tier é CPU, e a linha de 0,1 vCPU da medição anterior mostrava p95 acima de 1.900 ms.
+   Latência medida em CPU livre não representa o cenário de produção.
+
+**Os números do E6.2 (17/08/2026) foram substituídos.** Aquela medição não tinha metodologia
+registrada nem script; a comparação direta seria inválida porque o código e a metodologia mudaram ao
+mesmo tempo.
+
+O gargalo do free tier neste projeto é **CPU e disco**, não RAM: o working set cabe folgado em 256 MB.
 
 ## Requisitos do plano
 
@@ -112,8 +148,10 @@ Imagem resultante: 349 MB.
 ## Cold start
 
 Com spin-down ligado e 0,1 vCPU, a primeira recomendação depois da hibernação levou **83 s**
-(51 s de boot + 32 s de montagem do índice de similaridade). O índice é montado sob demanda, na
-primeira chamada de `/api/recommendations`, e custa 25 s nessa CPU.
+(51 s de boot + 32 s de montagem do índice de similaridade). O índice é montado em background no
+arranque (commit 32262b6): durante a montagem o endpoint devolve 503 com `Retry-After: 5`; a
+primeira chamada após o warm-up já encontra o serviço pronto. O tempo de warm-up em CPU livre não
+foi re-medido com metodologia confiável (ver limitações acima).
 
 Duas mitigações conhecidas, ambas fora do escopo do E6.2:
 
