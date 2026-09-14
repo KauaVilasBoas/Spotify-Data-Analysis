@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
+using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
 
@@ -105,7 +106,7 @@ public sealed class ImputationDemoSeederTests : IAsyncLifetime, IDisposable
                     && t.AudioFeatures != null && t.AudioFeatures.IsImputed);
 
             string csvPath = FindKaggleCsv();
-            var seeder = new ImputationDemoSeeder(_db, NullLogger<ImputationDemoSeeder>.Instance);
+            var seeder = new ImputationDemoSeeder(_db, new KaggleAudioFeaturesCsvReader(), NullLogger<ImputationDemoSeeder>.Instance);
 
             // --- Primeira execução ---
             ImputationDemoSeedResult result1 = await seeder.SeedAsync(csvPath);

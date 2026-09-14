@@ -5,7 +5,6 @@ using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Common;
 using SpotifyDataAnalysis.Modules.Catalog.Domain.Tracks;
-using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Ingestion;
 using SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Persistence;
 
 namespace SpotifyDataAnalysis.Modules.Catalog.Infrastructure.Seeding;
@@ -49,13 +48,11 @@ public sealed class ImputationDemoSeeder
     /// </summary>
     public const string TrackIdPrefix = "imp_seed_";
 
-    /// <summary>Origem gravada nas features imputadas — distingue do dataset medido.</summary>
-    private const string SourceName = "kaggle:spotify-tracks-dataset";
-
     /// <summary>Gênero das faixas semeadas — deve existir no CSV de medianas para que a imputação use a mediana por gênero.</summary>
     private const string SeedGenre = "pop";
 
     private readonly CatalogDbContext _dbContext;
+    private readonly IKaggleAudioFeaturesReader _reader;
     private readonly ILogger<ImputationDemoSeeder> _logger;
 
     private static readonly Action<ILogger, Exception?> LogMedianProfileBuilt =
@@ -67,9 +64,13 @@ public sealed class ImputationDemoSeeder
             "Seed de imputação: {Inserted} faixas inseridas, {AlreadyExisted} já existiam, " +
             "{Imputed} imputadas em {ElapsedMs} ms.");
 
-    public ImputationDemoSeeder(CatalogDbContext dbContext, ILogger<ImputationDemoSeeder> logger)
+    public ImputationDemoSeeder(
+        CatalogDbContext dbContext,
+        IKaggleAudioFeaturesReader reader,
+        ILogger<ImputationDemoSeeder> logger)
     {
         _dbContext = dbContext;
+        _reader = reader;
         _logger = logger;
     }
 
@@ -93,8 +94,9 @@ public sealed class ImputationDemoSeeder
         Stopwatch stopwatch = Stopwatch.StartNew();
 
         // --- Passo 1: Construir o perfil de medianas a partir do dataset real -------------------------
-        // Usa o KaggleAudioFeaturesCsvReader (CsvHelper) — mesmo leitor que a produção usa —
-        // para que as medianas sejam idênticas às que o ImportKaggleAudioFeaturesCommandHandler produziria.
+        // Usa IKaggleAudioFeaturesReader (a porta registrada no Composition Root) para que a leitura
+        // seja idêntica à que ImportKaggleAudioFeaturesCommandHandler usa — inclusive em encoding,
+        // tratamento de aspas e qualquer futuro ajuste centralizado na implementação concreta.
         AudioFeatureMedianProfile medians = await BuildMedianProfileAsync(
             kaggleAudioFeaturesCsvPath, cancellationToken);
 
@@ -151,41 +153,26 @@ public sealed class ImputationDemoSeeder
         long inserted = tracksToImpute.Count;
 
         // --- Passo 5: Aplicar o imputador real -------------------------------------------------------
-        // Recarrega do banco para ter os agregados rastreados (EF precisa rastrear para detectar mudanças).
-        // O ITrackRepository.GetByIdAsync seria a porta correta num handler, mas aqui usamos o DbContext
-        // diretamente seguindo o padrão dos seeders vizinhos.
+        // Carrega todas as faixas de demonstração em lote (um único SELECT IN) para que o
+        // ChangeTracker as rastreie, evitando N queries individuais. O imputer é criado uma única vez
+        // fora do laço.
+        Dictionary<string, Track> tracksById = (await _dbContext.Tracks
+            .Where(t => demoIds.Contains(t.Id))
+            .ToListAsync(cancellationToken))
+            .ToDictionary(t => t.Id.Value, StringComparer.Ordinal);
+
+        var imputer = new MedianAudioFeatureImputer();
         long processedByImputer = 0;
 
         foreach (KaggleAudioFeaturesRow row in demoRows)
         {
             string normalizedId = row.TrackId.Trim();
 
-            Track? track = await _dbContext.Tracks
-                .FindAsync([SpotifyTrackId.Of(normalizedId)], cancellationToken);
-
-            if (track is null)
+            if (!tracksById.TryGetValue(normalizedId, out Track? track))
                 continue;
 
-            // Aqui está o caminho de produção: o MedianAudioFeatureImputer.Impute() real,
-            // com o perfil de medianas construído pelo AudioFeatureMedianProfileBuilder real.
-            ImputedAudioFeatures result = new MedianAudioFeatureImputer().Impute(row, medians);
-
-            track.AttachAudioFeatures(AudioFeatures.Create(
-                danceability: result[AudioFeature.Danceability],
-                energy: result[AudioFeature.Energy],
-                valence: result[AudioFeature.Valence],
-                tempo: result[AudioFeature.Tempo],
-                acousticness: result[AudioFeature.Acousticness],
-                instrumentalness: result[AudioFeature.Instrumentalness],
-                liveness: result[AudioFeature.Liveness],
-                speechiness: result[AudioFeature.Speechiness],
-                loudness: result[AudioFeature.Loudness],
-                key: (int)result[AudioFeature.Key],
-                mode: (int)result[AudioFeature.Mode],
-                timeSignature: (int)result[AudioFeature.TimeSignature],
-                source: SourceName,
-                genre: row.Genre,
-                isImputed: result.IsImputed));
+            ImputedAudioFeatures result = imputer.Impute(row, medians);
+            track.AttachAudioFeatures(AudioFeaturesFactory.Build(result, row.Genre));
 
             if (result.IsImputed)
                 processedByImputer++;
@@ -211,17 +198,16 @@ public sealed class ImputationDemoSeeder
 
     /// <summary>
     /// Constrói o perfil de medianas a partir do CSV do Kaggle — a primeira passada do
-    /// <see cref="ImportKaggleAudioFeaturesCommandHandler"/>. Usa o
-    /// <see cref="KaggleAudioFeaturesCsvReader"/> (CsvHelper) para garantir que as medianas sejam
-    /// idênticas às que a produção calcularia — inclusive em linhas com campos entre aspas.
+    /// <see cref="ImportKaggleAudioFeaturesCommandHandler"/>. Usa a porta
+    /// <see cref="IKaggleAudioFeaturesReader"/> para que qualquer ajuste na abertura do arquivo
+    /// (encoding, tratamento de aspas, gzip) seja centralizado na implementação concreta.
     /// </summary>
-    private static async Task<AudioFeatureMedianProfile> BuildMedianProfileAsync(
+    private async Task<AudioFeatureMedianProfile> BuildMedianProfileAsync(
         string csvFilePath, CancellationToken cancellationToken)
     {
         var builder = new AudioFeatureMedianProfileBuilder();
 
-        using var reader = new StreamReader(csvFilePath);
-        await foreach (KaggleAudioFeaturesRow row in KaggleAudioFeaturesCsvReader.ParseAsync(reader, cancellationToken))
+        await foreach (KaggleAudioFeaturesRow row in _reader.ReadAsync(csvFilePath, cancellationToken))
             builder.Observe(row);
 
         return builder.Build();
