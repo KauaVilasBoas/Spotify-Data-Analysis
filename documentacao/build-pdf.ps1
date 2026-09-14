@@ -28,12 +28,19 @@ $chrome = $candidatos[0]
 
 if (-not (Test-Path $Fonte)) { throw "HTML de origem nao encontrado: $Fonte" }
 
-# Sem internet o Mermaid nao carrega e os diagramas saem em branco. Avisa cedo.
-try {
-  Invoke-WebRequest 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs' `
-    -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
-} catch {
-  Write-Warning 'CDN do Mermaid inacessivel: os diagramas vao sair VAZIOS no PDF.'
+# Duas dependencias de rede, e falhar em qualquer uma degrada o PDF em silencio:
+# sem Mermaid os diagramas saem vazios, sem Google Fonts a tipografia cai para
+# serif generica e o documento perde a identidade inteira.
+$recursos = @{
+  'Mermaid'      = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+  'Google Fonts' = 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400&display=swap'
+}
+foreach ($nome in $recursos.Keys) {
+  try {
+    Invoke-WebRequest $recursos[$nome] -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
+  } catch {
+    Write-Warning "$nome inacessivel: o PDF vai sair degradado."
+  }
 }
 
 if (Test-Path $Saida) { Remove-Item $Saida -Force }
@@ -69,6 +76,16 @@ if (-not (Test-Path $Saida)) { throw 'O Chrome nao produziu o PDF.' }
 $kb = [math]::Round((Get-Item $Saida).Length / 1KB, 1)
 Write-Host "PDF gerado: $Saida ($kb KB)"
 
-# Um PDF com diagramas renderizados passa bem dos 100 KB. Bem menos que isso
-# quase sempre significa Mermaid que nao desenhou.
-if ($kb -lt 80) { Write-Warning "PDF suspeito de estar sem diagramas ($kb KB)." }
+# Com diagramas em SVG e tres familias de fonte embutidas, o PDF passa de 800 KB.
+# Bem menos que isso quase sempre significa Mermaid que nao desenhou ou fonte que
+# nao carregou, e os dois casos saem sem erro nenhum.
+if ($kb -lt 400) { Write-Warning "PDF suspeito: $kb KB. Confira diagramas e fontes." }
+
+# Prova de que as fontes customizadas entraram: um PDF com fallback generico nao
+# embute FontFile nenhum.
+$bytes = [IO.File]::ReadAllBytes($Saida)
+$texto = [Text.Encoding]::GetEncoding(28591).GetString($bytes)
+$embutidas = ([regex]::Matches($texto, '/FontFile')).Count
+$paginas = ([regex]::Matches($texto, '/Type\s*/Page[^s]')).Count
+Write-Host "paginas: $paginas | fontes embutidas: $embutidas"
+if ($embutidas -lt 5) { Write-Warning 'Poucas fontes embutidas: a tipografia provavelmente caiu para fallback.' }
