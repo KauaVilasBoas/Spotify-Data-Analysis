@@ -19,14 +19,18 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Infrastructure.Recommendations;
 /// abre um scope próprio via <see cref="IServiceScopeFactory"/> — o padrão canônico para um serviço de vida longa
 /// consumir um colaborador de vida curta sem capturar uma conexão além do necessário.</para>
 ///
-/// <para><b>Máquina de estados:</b> três situações distintas para <see cref="GetIndexAsync"/>:</para>
+/// <para><b>Máquina de estados explícita (<see cref="IndexBuildState"/>):</b></para>
 /// <list type="number">
-///   <item><b>Pronto</b> (<c>_index != null</c>) — retorna o índice, lock-free.</item>
-///   <item><b>Montagem em andamento</b> (<c>_gate.CurrentCount == 0</c>) — lança
-///     <see cref="ServiceUnavailableException"/> (503) imediatamente com <c>Retry-After</c>; o cliente
-///     pode fazer retry em vez de ficar pendurado.</item>
-///   <item><b>Nunca iniciada ou terminada em falha</b> — monta sob demanda, preservando o comportamento
-///     anterior ao E6.9: uma falha do Postgres no arranque não deixa o endpoint morto para sempre.</item>
+///   <item><b><see cref="IndexBuildState.Ready"/></b> — retorna o índice, lock-free.</item>
+///   <item><b><see cref="IndexBuildState.Building"/></b> — lança <see cref="ServiceUnavailableException"/>
+///     (503) imediatamente com <c>Retry-After</c>; o cliente pode fazer retry em vez de ficar pendurado.</item>
+///   <item><b><see cref="IndexBuildState.NotStarted"/> com warm-up registrado</b> — lança
+///     <see cref="ServiceUnavailableException"/> (503): o warm-up foi registrado e ainda não disparou;
+///     uma requisição não paga a varredura nesse intervalo.</item>
+///   <item><b><see cref="IndexBuildState.NotStarted"/> sem warm-up registrado</b> — monta sob demanda
+///     (cenário de teste sem banco, ou uso standalone).</item>
+///   <item><b><see cref="IndexBuildState.Failed"/></b> — monta sob demanda na próxima chamada; uma falha
+///     do Postgres no arranque não deixa o endpoint morto para sempre.</item>
 /// </list>
 ///
 /// <para>O <see cref="SemaphoreSlim"/> serializa a montagem: duas chamadas simultâneas ao <see cref="WarmUpAsync"/>
@@ -40,8 +44,11 @@ internal sealed partial class CachedTrackSimilarityIndexProvider : ITrackSimilar
     /// </summary>
     internal const int IndexBuildBatchSize = 20_000;
 
-    private const string NotReadyMessage =
+    private const string BuildingMessage =
         "O índice de similaridade ainda está sendo montado no arranque — aguarde alguns instantes e tente novamente.";
+
+    private const string WarmUpPendingMessage =
+        "O servidor ainda está inicializando o índice de similaridade — aguarde alguns instantes e tente novamente.";
 
     /// <summary>Segundos sugeridos para o cliente esperar antes de fazer retry enquanto o índice está montando.</summary>
     private const int RetryAfterSeconds = 5;
@@ -55,6 +62,20 @@ internal sealed partial class CachedTrackSimilarityIndexProvider : ITrackSimilar
     /// </summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>
+    /// Estado explícito da montagem do índice. Publicado antes de qualquer await, garantindo visibilidade
+    /// entre threads sem depender do contador interno do semáforo.
+    /// </summary>
+    private volatile IndexBuildState _state = IndexBuildState.NotStarted;
+
+    /// <summary>
+    /// Definido por <see cref="NotifyWarmUpRegistered"/>, chamado pelo construtor de
+    /// <see cref="SimilarityIndexWarmUpService"/> na inicialização do hosted service — antes de qualquer
+    /// requisição ser processada. Quando verdadeiro, <see cref="GetIndexAsync"/> nunca constrói sob demanda:
+    /// devolve 503 até o warm-up concluir (ou falhar, momento em que volta a construir sob demanda).
+    /// </summary>
+    private volatile bool _warmUpRegistered;
+
     private volatile SimilarityIndex? _index;
 
     public CachedTrackSimilarityIndexProvider(
@@ -66,48 +87,47 @@ internal sealed partial class CachedTrackSimilarityIndexProvider : ITrackSimilar
     }
 
     /// <summary>
-    /// Devolve o índice montado (caminho quente, lock-free). Se a montagem já está em andamento,
-    /// lança <see cref="ServiceUnavailableException"/> (503 + Retry-After) imediatamente. Se nunca
-    /// foi iniciada ou terminou em falha, monta sob demanda — nenhum caminho fica pior que antes do E6.9.
+    /// Chamado pelo construtor de <see cref="SimilarityIndexWarmUpService"/> para sinalizar que o warm-up
+    /// está registrado. A partir deste ponto, <see cref="GetIndexAsync"/> não constrói sob demanda enquanto
+    /// o estado for <see cref="IndexBuildState.NotStarted"/> — evita que uma requisição no arranque pague
+    /// a varredura síncrona antes de o <c>BackgroundService</c> ter a chance de disparar.
+    /// </summary>
+    internal void NotifyWarmUpRegistered() => _warmUpRegistered = true;
+
+    /// <summary>
+    /// Devolve o índice montado (caminho quente, lock-free se <see cref="IndexBuildState.Ready"/>).
+    /// Lança <see cref="ServiceUnavailableException"/> (503 + Retry-After) imediatamente quando a montagem
+    /// está em andamento ou quando o warm-up foi registrado mas ainda não disparou. Constrói sob demanda
+    /// quando nunca iniciado (sem warm-up registrado) ou após falha — nenhum caminho fica pior que antes do E6.9.
     /// </summary>
     public async Task<SimilarityIndex> GetIndexAsync(CancellationToken cancellationToken = default)
     {
+        // Re-leitura explícita antes de cada decisão de estado — evita que o compilador ou o JIT
+        // reutilize um valor lido anteriormente em outro branch.
+        IndexBuildState state = _state;
+
         // Fast path: pronto — sem trava.
-        SimilarityIndex? index = _index;
-        if (index is not null)
-            return index;
+        if (state == IndexBuildState.Ready)
+            return _index!;
 
-        // Montagem em andamento: gate ocupado por outro chamador.
-        // Resposta honesta e imediata (503) em vez de fila de espera.
-        if (_gate.CurrentCount == 0)
-            throw new ServiceUnavailableException(NotReadyMessage, RetryAfterSeconds);
+        // Montagem em andamento: throw honesto e imediato.
+        if (state == IndexBuildState.Building)
+            throw new ServiceUnavailableException(BuildingMessage, RetryAfterSeconds);
 
-        // Nunca iniciada ou terminou em falha: monta sob demanda.
-        // O SemaphoreSlim evita dupla montagem mesmo com chamadas concorrentes.
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            // Double-check: outro chamador pode ter montado enquanto esperávamos.
-            if (_index is not null)
-                return _index;
+        // NotStarted com warm-up registrado: o hosted service vai disparar em instantes.
+        // Não deve construir sob demanda — isso transferiria a varredura para o request.
+        if (state == IndexBuildState.NotStarted && _warmUpRegistered)
+            throw new ServiceUnavailableException(WarmUpPendingMessage, RetryAfterSeconds);
 
-            // Se outro chamador já ocupa o gate (estado "em andamento") e chegamos aqui,
-            // o WaitAsync nos bloqueou até ele terminar — verificamos o double-check acima.
-            // Chegamos aqui apenas se realmente precisamos montar.
-            _index = await BuildIndexAsync(cancellationToken);
-            return _index;
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        // NotStarted sem warm-up registrado, ou Failed: constrói sob demanda.
+        // O semáforo impede dupla montagem mesmo com chamadas concorrentes.
+        return await ExecuteBuildAsync(cancellationToken);
     }
 
     /// <summary>
     /// Monta o índice em background, chamado pelo <see cref="SimilarityIndexWarmUpService"/> no arranque. Bloqueia
     /// até a montagem terminar e publica o resultado em <c>_index</c>. Idempotente: se o índice já foi publicado
-    /// (chamada duplicada), retorna sem refazer a varredura. O <see cref="SemaphoreSlim"/> impede que duas chamadas
-    /// simultâneas disparem duas varreduras do catálogo.
+    /// (chamada duplicada), retorna sem refazer a varredura.
     /// </summary>
     internal async Task WarmUpAsync(CancellationToken cancellationToken)
     {
@@ -115,14 +135,43 @@ internal sealed partial class CachedTrackSimilarityIndexProvider : ITrackSimilar
         if (_index is not null)
             return;
 
-        await _gate.WaitAsync(cancellationToken);
+        await ExecuteBuildAsync(cancellationToken);
+    }
 
+    /// <summary>
+    /// Protocolo unificado de montagem: publica <see cref="IndexBuildState.Building"/> antes de qualquer await,
+    /// executa a varredura com double-checked locking via semáforo, e publica <see cref="IndexBuildState.Ready"/>
+    /// ou <see cref="IndexBuildState.Failed"/> ao terminar. Centraliza o protocolo para que qualquer refinamento
+    /// futuro seja aplicado uma única vez.
+    /// </summary>
+    private async Task<SimilarityIndex> ExecuteBuildAsync(CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
         try
         {
+            // Double-check: outro chamador pode ter montado enquanto esperávamos o semáforo.
             if (_index is not null)
-                return;
+                return _index;
 
-            _index = await BuildIndexAsync(cancellationToken);
+            // Publica o estado Building antes de iniciar a varredura — visível a outras threads
+            // assim que o estado for lido em GetIndexAsync.
+            _state = IndexBuildState.Building;
+
+            SimilarityIndex built = await BuildIndexAsync(cancellationToken);
+
+            // Publica o índice antes de mudar o estado: leitores do fast path de GetIndexAsync
+            // que observarem Ready verão _index não-nulo.
+            _index = built;
+            _state = IndexBuildState.Ready;
+
+            return built;
+        }
+        catch
+        {
+            // Só transita para Failed se ainda não estava Ready (falha após double-check mas antes do build).
+            if (_state != IndexBuildState.Ready)
+                _state = IndexBuildState.Failed;
+            throw;
         }
         finally
         {

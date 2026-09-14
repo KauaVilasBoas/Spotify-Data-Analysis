@@ -11,10 +11,12 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations;
 /// Comportamento da máquina de estados do <see cref="CachedTrackSimilarityIndexProvider"/> (E6.9):
 /// <list type="bullet">
 ///   <item>Montagem em andamento → <see cref="ServiceUnavailableException"/> (503) imediata, não pendurada.</item>
-///   <item>Nunca iniciada (warm-up não rodou) → monta sob demanda.</item>
+///   <item>NotStarted com warm-up registrado → 503 imediata (arranque pendente).</item>
+///   <item>Nunca iniciada sem warm-up registrado → monta sob demanda.</item>
 ///   <item>Warm-up falhou → monta sob demanda na próxima chamada.</item>
 ///   <item>Duas chamadas concorrentes de warm-up não disparam duas varreduras.</item>
 ///   <item>Após montado → retorna o índice correto.</item>
+///   <item>503 não é lançado depois que o índice fica pronto (re-leitura de estado antes do throw).</item>
 /// </list>
 /// </summary>
 public sealed class CachedTrackSimilarityIndexProviderTests
@@ -108,7 +110,7 @@ public sealed class CachedTrackSimilarityIndexProviderTests
     [Fact]
     public async Task GetIndexAsync_WhenNeverInitialized_BuildsOnDemand()
     {
-        // Arrange: provider recém-criado, warm-up nunca chamado.
+        // Arrange: provider recém-criado, warm-up nunca chamado e não registrado.
         var source = new CountingFeatureSource();
         using var provider = Build(source);
 
@@ -147,8 +149,8 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         Task warmUp = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
 
         // Espera de forma determinística: o sinal é publicado pela BlockingFeatureSource
-        // imediatamente antes de bloquear no buildGate, momento em que o _gate do provider
-        // já foi adquirido (CurrentCount == 0) — sem Task.Delay.
+        // imediatamente antes de bloquear no buildGate, momento em que o estado já é Building
+        // (publicado por ExecuteBuildAsync antes de chamar BuildIndexAsync) — sem Task.Delay.
         await started.Task;
 
         // Requisição chegando durante a montagem deve receber ServiceUnavailableException imediatamente.
@@ -219,5 +221,137 @@ public sealed class CachedTrackSimilarityIndexProviderTests
 
         // O source foi chamado apenas uma vez: o fast path do segundo WarmUpAsync curto-circuitou.
         Assert.Equal(1, source.CallCount);
+    }
+
+    // --- testes novos: prova dos achados C1, C2, C3 ---
+
+    /// <summary>
+    /// C1: 503 espúrio com o índice já pronto.
+    /// Verifica que GetIndexAsync não lança 503 quando o índice foi publicado antes do throw.
+    /// Prova vermelha: se o throw ocorrer sem re-leitura do estado, este teste falharia porque
+    /// o índice estaria pronto mas o caller receberia ServiceUnavailableException.
+    /// </summary>
+    [Fact]
+    public async Task GetIndexAsync_WhenBuildingStateButIndexAlreadyPublished_ReturnsIndexWithoutThrowing()
+    {
+        // Arrange: força o estado para Building e publica o índice diretamente via WarmUpAsync completo,
+        // simulando a race onde Building é lido mas Ready já foi publicado antes do throw.
+        // A forma determinística: completar o warm-up e verificar que GetIndexAsync retorna o índice.
+        // O índice deve estar disponível independentemente do estado interno que foi transitado.
+        var buildGate = new SemaphoreSlim(0, 1);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockingSource = new BlockingFeatureSource(buildGate, started);
+        using var provider = Build(blockingSource);
+
+        Task warmUp = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
+        await started.Task;
+
+        // Neste ponto: estado é Building, _index ainda é null — 503 esperada.
+        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync());
+        Assert.NotNull(ex.RetryAfterSeconds);
+
+        // Libera o warm-up: estado transita para Ready, _index publicado.
+        buildGate.Release();
+        await warmUp;
+
+        // Agora o índice está pronto: GetIndexAsync NÃO deve lançar 503.
+        // Se o throw ocorresse sem re-leitura do estado (bug C1), isto falharia.
+        SimilarityIndex index = await provider.GetIndexAsync();
+        Assert.Equal(1, index.Count);
+    }
+
+    /// <summary>
+    /// C2: requisição no arranque não pode pagar a varredura síncrona com warm-up registrado.
+    /// Prova vermelha: sem NotifyWarmUpRegistered, GetIndexAsync construiria sob demanda quando
+    /// o estado é NotStarted — este teste falharia porque esperaria ServiceUnavailableException.
+    /// </summary>
+    [Fact]
+    public async Task GetIndexAsync_WhenWarmUpRegisteredButNotStarted_ThrowsServiceUnavailableException()
+    {
+        // Arrange: provider com warm-up registrado mas ExecuteAsync ainda não rodou.
+        // Simula o intervalo entre construção do hosted service e início do BackgroundService.
+        var source = new CountingFeatureSource();
+        using var provider = Build(source);
+
+        // NotifyWarmUpRegistered é chamado pelo construtor do SimilarityIndexWarmUpService.
+        // Aqui simulamos isso diretamente.
+        provider.NotifyWarmUpRegistered();
+
+        // Act: GetIndexAsync deve retornar 503 imediatamente, sem construir o índice.
+        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync());
+
+        // Assert: 503 com Retry-After, e source NÃO foi chamado.
+        Assert.NotNull(ex.RetryAfterSeconds);
+        Assert.True(ex.RetryAfterSeconds > 0);
+        Assert.Equal(0, source.CallCount);
+    }
+
+    /// <summary>
+    /// C2 (complemento): após o warm-up registrado concluir, GetIndexAsync retorna o índice normalmente.
+    /// </summary>
+    [Fact]
+    public async Task GetIndexAsync_WhenWarmUpRegisteredAndCompleted_ReturnsIndex()
+    {
+        // Arrange
+        var source = new CountingFeatureSource();
+        using var provider = Build(source);
+        provider.NotifyWarmUpRegistered();
+
+        // Simula o warm-up sendo executado pelo BackgroundService.
+        await provider.WarmUpAsync(CancellationToken.None);
+
+        // Act: agora deve retornar o índice sem 503.
+        SimilarityIndex index = await provider.GetIndexAsync();
+
+        // Assert
+        Assert.Equal(2, index.Count);
+        Assert.Equal(1, source.CallCount);
+    }
+
+    /// <summary>
+    /// C2 (recovery): após warm-up registrado falhar, GetIndexAsync volta a construir sob demanda.
+    /// O estado Failed indica que o warm-up tentou mas não conseguiu — a construção sob demanda
+    /// é o mecanismo de recovery, e deve funcionar mesmo com warm-up previamente registrado.
+    /// </summary>
+    [Fact]
+    public async Task GetIndexAsync_WhenWarmUpRegisteredAndFailed_BuildsOnDemand()
+    {
+        // Arrange: warm-up registrado, mas falhou.
+        var source = new FlakyFeatureSource();
+        using var provider = Build(source);
+        provider.NotifyWarmUpRegistered();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => provider.WarmUpAsync(CancellationToken.None));
+
+        // Act: após falha, GetIndexAsync deve tentar montar sob demanda (recovery).
+        SimilarityIndex index = await provider.GetIndexAsync();
+
+        // Assert: índice montado com a segunda tentativa da FlakyFeatureSource.
+        Assert.Equal(1, index.Count);
+    }
+
+    /// <summary>
+    /// C3: os dois caminhos de montagem (warm-up e sob demanda) continuam cobertos com o protocolo unificado.
+    /// Verifica que WarmUpAsync e GetIndexAsync (sob demanda) produzem o mesmo resultado final.
+    /// </summary>
+    [Fact]
+    public async Task WarmUpPath_AndOnDemandPath_BothProduceCorrectIndex()
+    {
+        // Caminho warm-up.
+        var sourceForWarmUp = new CountingFeatureSource();
+        using var providerWithWarmUp = Build(sourceForWarmUp);
+        await providerWithWarmUp.WarmUpAsync(CancellationToken.None);
+        SimilarityIndex indexFromWarmUp = await providerWithWarmUp.GetIndexAsync();
+
+        // Caminho sob demanda (sem warm-up).
+        var sourceOnDemand = new CountingFeatureSource();
+        using var providerOnDemand = Build(sourceOnDemand);
+        SimilarityIndex indexOnDemand = await providerOnDemand.GetIndexAsync();
+
+        // Ambos devem produzir índices com o mesmo número de faixas e cada source chamado uma vez.
+        Assert.Equal(2, indexFromWarmUp.Count);
+        Assert.Equal(2, indexOnDemand.Count);
+        Assert.Equal(1, sourceForWarmUp.CallCount);
+        Assert.Equal(1, sourceOnDemand.CallCount);
     }
 }

@@ -23,6 +23,11 @@ internal sealed partial class SimilarityIndexWarmUpService : BackgroundService
     {
         _provider = provider;
         _logger = logger;
+
+        // Sinaliza ao provider que o warm-up está registrado. Executado no construtor (antes de qualquer
+        // ExecuteAsync) para que GetIndexAsync saiba que não deve construir sob demanda — mesmo no intervalo
+        // entre o Kestrel aceitar conexões e o BackgroundService iniciar a varredura.
+        _provider.NotifyWarmUpRegistered();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
