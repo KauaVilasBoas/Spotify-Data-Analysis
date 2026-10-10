@@ -173,10 +173,10 @@ public sealed class NearDuplicateCollapserTests
     }
 
     [Fact]
-    public void Collapse_GroupsTheSameSongIdentically_RegardlessOfArrivalOrder()
+    public void Collapse_GroupsTheSameSongIdentically_WhetherTheInheritedKeyArrivesBeforeOrAfterTheGroupOpener()
     {
         // Com "sibling" antes de "first", a chave do "sibling" já está no mapa quando "late" chega e tudo funde em 1;
-        // na ordem inversa dá 2 grupos. O resultado não pode depender da ordem de chegada.
+        // na ordem inversa a chave do absorvido é registrada ao absorver e também dá 1. Só estas duas ordens são cobertas.
         NearDuplicateCollapser collapser = CollapserFor(("first", "sibling"));
         DeduplicationCandidate[] v = RisingSunVersions();
 
@@ -184,6 +184,20 @@ public sealed class NearDuplicateCollapserTests
         int firstFirst = collapser.Collapse([v[0], v[1], v[2]], limit: 5).Count;
 
         Assert.Equal(siblingFirst, firstFirst);
+    }
+
+    [Fact]
+    public void Collapse_KnownLimit_WhenTheKeyHolderArrivesBeforeItsCosineTwin_TheSameSongStaysInTwoGroups()
+    {
+        // Limite conhecido, não garantia desejada: na ordem first, late, sibling, "late" abre um grupo (cosseno baixo com
+        // "first", chave de "sibling" ainda não mapeada) e "sibling" casa pela chave com ele. "first" fica sozinho,
+        // embora seja a mesma obra por cosseno. O dedup NÃO é independente de ordem.
+        NearDuplicateCollapser collapser = CollapserFor(("first", "sibling"));
+        DeduplicationCandidate[] v = RisingSunVersions();
+
+        IReadOnlyList<CollapsedRecommendation> result = collapser.Collapse([v[0], v[2], v[1]], limit: 5);
+
+        Assert.Equal(2, result.Count);
     }
 
     [Fact]
