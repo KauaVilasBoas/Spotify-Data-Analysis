@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <b>89,740</b> tracks &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>723</b> tests &nbsp;·&nbsp; <b>42</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
+  <b>89,740</b> tracks &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>803</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
 </p>
 
 <p align="center">
@@ -91,7 +91,7 @@ MAE threshold, because only the comparison answers "did it learn anything?".
 - **Collaborative signal without user data.** Item-item co-occurrence mined from 37,121 real
   playlists, Jaccard-scored and **materialised** into `prediction.track_cooccurrence` (1,481,511
   pairs) by a batch step. The request path reads that table; it never self-joins over jsonb.
-- **Boundaries enforced by the build.** 43 ArchUnitNET facts fail `dotnet test` the moment a module
+- **Boundaries enforced by the build.** 45 ArchUnitNET facts fail `dotnet test` the moment a module
   reaches into another module's internals, or Domain touches EF Core, Dapper or ASP.NET.
 - **Measured operations.** RAM and OOM behaviour were verified in container at 256 MB and 512 MB (no
   CPU throttle). The conclusion is recorded in [`deploy/DEPLOY.md`](deploy/DEPLOY.md): the similarity
@@ -416,7 +416,7 @@ percentage to extract from zero, and passing there would mean passing by divisio
 
 ### Recommender gate: `RecommenderQualityGate`
 
-Seven thresholds, all pinned to measured values, each bound to the configuration that validates it,
+Nine thresholds, all pinned to measured values, each bound to the configuration that validates it,
 with coherence charged from **both sides**:
 
 | Threshold | Value | Validating config | Measured | Why this side exists |
@@ -427,17 +427,25 @@ with coherence charged from **both sides**:
 | `MinimumDuplicateRecall` | 0.45 | `off \| dedupe=off \| content` | 0.6464 | non-circular guard |
 | `MinimumDuplicateHitRate` | 0.50 | `off \| dedupe=off \| content` | 0.7037 | non-circular guard |
 | `MinimumSiblingCosine` | 0.98 | `off \| dedupe=off \| content` | 0.999028 | moves only if normalisation or the cosine break |
-| `MaximumSeedsWithRedundantSiblings` | 0 | `off \| dedupe=on \| content` | 0 / 1,895 | the collapse's own promise: the same work never takes two slots |
+| `MaximumSeedsWithRedundantSiblings` | 0 | `off \| dedupe=on \| content`, leaders of the 11+ duplicate groups | 0 / 1,895 | the collapse's own promise: the same work never takes two slots |
+| `MaximumShortResultRate` | 0.05 | `boost 0.050 \| dedupe=on \| content`, members of the 11+ duplicate groups | 0.0000 (0 / 1,895) | the collapse must not shrink the list: a seed inside a large duplicate group still gets the top-N it asked for |
+| `MaximumSeedsWithSingleResult` | 0 | same as above | 0 | a one-item list does not read as a design choice, it reads as a broken recommender, so it is counted apart |
 
 The 2026-09-12 re-measurement **changed no threshold value**. All six original thresholds still hold on
 today's default configuration, with room to spare; what changed is that each one now names the config
-that validates it, and a seventh was added for the collapse.
+that validates it, and a seventh was added for the collapse. The eighth and ninth came with the adaptive
+over-fetch (E4.9).
 
 The gate **refuses**, with an exception rather than a verdict, to be handed the wrong configuration:
 recall and hit-rate measured on an already-deduplicated ranking, a redundancy indicator measured without
-the collapse, a lift compared across different `dedupe` settings, or a blended measurement. A
-mis-wired gate does not get the number wrong, it gets the *question* wrong, and would return a confident
-pass about a different quantity.
+the collapse, a lift compared across different `dedupe` settings, or a blended measurement. It also
+refuses the wrong **population**. The last three thresholds only mean something on the seeds that
+calibrated them: on a sample made of duplicate pairs the redundancy count is zero by arithmetic, with
+the collapse on or off, because two versions of the same work in one top-N need a seed and two siblings;
+and on randomly drawn seeds the short-list rate is close to zero with or without the adaptive
+over-fetch. A measurement that declares another population, or none, is rejected, and so is a redundancy
+count taken over zero seeds. A mis-wired gate does not get the number wrong, it gets the *question*
+wrong, and would return a confident pass about a different quantity.
 
 > Self-exclusion is not a threshold. Any violation in any run is a failure, because the acceptable
 > value is zero.
@@ -610,7 +618,7 @@ block, and no component may reintroduce motion outside that umbrella.
 | Frontend | React 19, Vite 8, TypeScript 6 (`strict`, `noUncheckedIndexedAccess`), Tailwind 4, shadcn/ui, ECharts 6, TanStack Query, cmdk for the command palette, Motion |
 | Security | Security headers, HSTS, forwarded-headers hardening, unknown-query-parameter rejection, RFC 7807, secrets only in User Secrets or environment variables |
 | Observability | Serilog with JSON console output, correlation ids end to end, request logging, `/health` with a Postgres probe |
-| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **723 tests across 7 projects** |
+| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **803 tests across 7 projects** |
 | CI | GitHub Actions: clean-clone build in Release, full test run, and a step that **names every skipped test and the reason**, so "green" never means "did not run" |
 
 ---
@@ -767,8 +775,8 @@ docker run --rm -m 512m --memory-swap 512m -p 8080:8080 `
 ### Tests
 
 ```powershell
-dotnet test                                             # 723 tests
-dotnet test tests/SpotifyDataAnalysis.ArchitectureTests  # 42 boundary rules, fast
+dotnet test                                             # 803 tests
+dotnet test tests/SpotifyDataAnalysis.ArchitectureTests  # 45 boundary rules, fast
 ```
 
 Two tests are marked `[PostgresFact]` and skip without a real database. CI **prints their names and
