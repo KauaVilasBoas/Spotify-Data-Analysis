@@ -365,6 +365,57 @@ public sealed class RecommenderQualityGateTests
                 MeasuredResultSize()));
     }
 
+    // --- E4.14: o limiar ZERO de repetição também só é régua na população que o calibrou ---
+
+    /// <summary>
+    /// O buraco que o E4.14 mediu. Duas versões da mesma obra no MESMO top-N exigem um grupo de três ou mais membros (a
+    /// semente e dois irmãos), então numa população só de pares o indicador é 0 por aritmética — com o dedup funcionando
+    /// ou quebrado. Medido em 2026-10-10 sobre os 300 grupos sorteados com teto de 2 membros por grupo (600 sementes, o
+    /// que a <c>Sample</c> do harness seria com esse teto): <b>0 repetições com dedup e 0 sem dedup</b>, e o gate
+    /// aprovava as duas. Não é população exótica: 4.999 dos 7.015 grupos de duplicatas do catálogo são pares.
+    ///
+    /// <para>Repare que os valores medidos aqui são os aprovados (0 repetições, <c>dedupe=true</c>): o que recusa é
+    /// exclusivamente a população. Na de calibração, o mesmo dedup desligado deixa 1.768 de 1.895 sementes com
+    /// repetição — lá o zero acusa um dedup quebrado; num par, não tem como.</para>
+    /// </summary>
+    [Fact]
+    public void Recusa_o_indicador_de_repeticao_medido_fora_da_populacao_que_calibrou_o_limiar_zero()
+    {
+        DuplicateProximityProxy soPares = MeasuredDedupedDuplicates() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.RandomCatalogSeeds,
+            GroupsEvaluated = 300,
+            SeedsEvaluated = 600
+        };
+
+        Assert.True(soPares.Setting.Dedupe);
+        Assert.Equal(0, soPares.SeedsWithRedundantSiblings);
+
+        DomainException exception = Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), soPares, MeasuredResultSize()));
+
+        Assert.Contains("vacuidade", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// O mesmo fail-safe do proxy 4: amostra que não declara a própria população não satisfaz a guarda. É o caso de toda
+    /// amostra que sai da fonte de dados sem o harness carimbá-la — inclusive a que não tem grupo nenhum, em que o
+    /// indicador vale 0 sobre ZERO sementes avaliadas.
+    /// </summary>
+    [Fact]
+    public void Recusa_o_indicador_de_repeticao_de_uma_amostra_que_nao_declarou_populacao()
+    {
+        DuplicateProximityProxy semPopulacao = MeasuredDedupedDuplicates() with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.Unspecified
+        };
+
+        Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), semPopulacao, MeasuredResultSize()));
+    }
+
     [Fact]
     public void Falhas_trazem_o_valor_medido_e_o_limiar_para_o_diagnostico_nao_exigir_arqueologia()
     {
@@ -425,7 +476,8 @@ public sealed class RecommenderQualityGateTests
             SeedsWithFullyDuplicatedTopK: 143,
             SeedsWithRedundantSiblings: 361,
             SeedsWithIncompleteTopK: 0,
-            RecommenderEvaluationSetting.CosineOnly());
+            RecommenderEvaluationSetting.CosineOnly(),
+            RecommenderEvaluationPopulation.RandomCatalogSeeds);
 
     /// <summary>
     /// Proxy 3 com o dedup LIGADO sobre os 111 grupos de 11+ faixas, re-medido em 2026-09-13 com o over-fetch
@@ -436,6 +488,10 @@ public sealed class RecommenderQualityGateTests
     /// de 1 ou 2 itens em que o único item era irmão da semente. Com o top-10 completo, o irmão divide a lista com
     /// oito faixas distintas — e é por isso que o recall (0,0958) NÃO sobe: o numerador é o mesmo, o K é o mesmo, o
     /// que mudou é a lista deixar de ser curta.</para>
+    ///
+    /// <para><b>A população é parte do número</b> (E4.14): o zero foi re-medido em 2026-10-10 sobre estes mesmos 111
+    /// grupos, e é neles que desligar o dedup devolve 1.768 repetições. Numa população só de pares o zero é
+    /// aritmético.</para>
     /// </summary>
     private static DuplicateProximityProxy MeasuredDedupedDuplicates() =>
         new(
@@ -448,7 +504,8 @@ public sealed class RecommenderQualityGateTests
             SeedsWithFullyDuplicatedTopK: 0,
             SeedsWithRedundantSiblings: 0,
             SeedsWithIncompleteTopK: 0,
-            RecommenderEvaluationSetting.CosineOnly().WithDedupe());
+            RecommenderEvaluationSetting.CosineOnly().WithDedupe(),
+            RecommenderEvaluationPopulation.LargeNearDuplicateGroupLeaders);
 
     /// <summary>
     /// Proxy 4 — a distribuição de tamanho do resultado, medida em 2026-09-13 na configuração default do endpoint

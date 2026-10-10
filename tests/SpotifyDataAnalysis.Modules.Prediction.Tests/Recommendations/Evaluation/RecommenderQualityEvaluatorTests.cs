@@ -255,6 +255,33 @@ public sealed class RecommenderQualityEvaluatorTests
         Assert.Equal(0, duplicates.SeedsEvaluated);
     }
 
+    /// <summary>
+    /// E4.14: o proxy 3 carrega a população DECLARADA pela amostra, sem inferir nem carimbar a de calibração. Se o
+    /// avaliador escrevesse aqui a população que o gate espera, a guarda do limiar zero de repetição seria satisfeita
+    /// por qualquer amostra — e o gate não teria como saber.
+    /// </summary>
+    [Fact]
+    public void Proxy_de_duplicatas_carrega_a_populacao_declarada_pela_amostra()
+    {
+        SimilarityIndex index = BuildIndex(
+            Track("d1", 0.80, "pop"),
+            Track("d2", 0.80, "pop"),
+            Track("longe", 0.05, "rock"));
+
+        RecommenderEvaluationSample declarada = SampleWithGroup("d1", "d2") with
+        {
+            SeedPopulation = RecommenderEvaluationPopulation.LargeNearDuplicateGroupLeaders
+        };
+
+        Assert.Equal(
+            RecommenderEvaluationPopulation.LargeNearDuplicateGroupLeaders,
+            _evaluator.MeasureDuplicateProximity(index, declarada, topK: 2).SeedPopulation);
+
+        Assert.Equal(
+            RecommenderEvaluationPopulation.Unspecified,
+            _evaluator.MeasureDuplicateProximity(index, SampleWithGroup("d1", "d2"), topK: 2).SeedPopulation);
+    }
+
     [Fact]
     public void Amostra_sem_sementes_e_rejeitada_em_vez_de_produzir_proxy_perfeito_por_vacuidade()
     {

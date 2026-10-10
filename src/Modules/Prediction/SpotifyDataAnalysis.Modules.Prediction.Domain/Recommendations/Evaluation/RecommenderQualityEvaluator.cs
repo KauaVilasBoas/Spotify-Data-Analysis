@@ -277,7 +277,8 @@ public sealed class RecommenderQualityEvaluator
             seedsFullyDuplicated,
             seedsWithRedundantSiblings,
             seedsWithIncompleteTopK,
-            effectiveSetting);
+            effectiveSetting,
+            sample.SeedPopulation);
     }
 
     /// <summary>

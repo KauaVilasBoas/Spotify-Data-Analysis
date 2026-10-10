@@ -120,6 +120,13 @@ public sealed record SelfExclusionProxy(int SeedsEvaluated, int Violations)
 /// medições cujo <c>dedupe</c> não corresponda ao limiar que está prestes a aplicar — foi medir sem saber a
 /// configuração que tornou os números do E4.4 obsoletos sem ninguém perceber.
 /// </param>
+/// <param name="SeedPopulation">
+/// A população DECLARADA pela amostra cujos grupos foram varridos (E4.14) — obrigatória, pela mesma razão do proxy 4.
+/// Este proxy lê os grupos de duplicatas, e não a lista de sementes: o rótulo identifica a AMOSTRA, e é ele que o gate
+/// cobra antes de aplicar o limiar zero de <paramref name="SeedsWithRedundantSiblings"/>. Duas versões da mesma obra no
+/// mesmo top-K exigem um grupo de três ou mais membros, então numa população só de pares esse indicador é 0 por
+/// aritmética, com o dedup ligado ou desligado.
+/// </param>
 public sealed record DuplicateProximityProxy(
     int GroupsEvaluated,
     int SeedsEvaluated,
@@ -130,7 +137,8 @@ public sealed record DuplicateProximityProxy(
     int SeedsWithFullyDuplicatedTopK,
     int SeedsWithRedundantSiblings,
     int SeedsWithIncompleteTopK,
-    RecommenderEvaluationSetting Setting);
+    RecommenderEvaluationSetting Setting,
+    RecommenderEvaluationPopulation SeedPopulation);
 
 /// <summary>
 /// O top-N que o endpoint devolveria para UMA semente, com o custo que produzi-lo exigiu (E4.9).

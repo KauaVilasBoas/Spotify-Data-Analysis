@@ -89,6 +89,18 @@ public sealed class RecommenderQualityGate
     /// </summary>
     public const int MaximumSeedsWithRedundantSiblings = 0;
 
+    /// <summary>
+    /// A população que calibrou o limiar acima (E4.14), e a única que o gate aceita para ele: nos grupos de 11+ faixas,
+    /// desligar o dedup deixa 1.768 de 1.895 sementes com repetição, então ali o zero acusa um dedup quebrado.
+    ///
+    /// <para><b>Fora dela o zero pode ser aritmético.</b> Duas versões da mesma obra no mesmo top-N exigem um grupo de
+    /// três ou mais membros (a semente e dois irmãos); numa população só de pares o indicador é 0 com o dedup ligado ou
+    /// desligado. Medido em 2026-10-10 sobre os 300 grupos sorteados com teto de 2 membros por grupo (600 sementes):
+    /// 0 e 0 — e 4.999 dos 7.015 grupos de duplicatas do catálogo são pares.</para>
+    /// </summary>
+    public const RecommenderEvaluationPopulation CalibrationPopulationOfDedupedDuplicates =
+        RecommenderEvaluationPopulation.LargeNearDuplicateGroupLeaders;
+
     // O BURACO QUE O E4.8 DEIXOU REGISTRADO E O E4.9 FECHOU.
     //
     // A medição do E4.8 encontrou um defeito que o E4.4 não tinha como ver: com dedup ligado, uma semente que
@@ -142,7 +154,10 @@ public sealed class RecommenderQualityGate
     /// <param name="cosineOnly">Medição com o gênero desligado — o piso da comparação.</param>
     /// <param name="boosted">Medição com o boost no peso default de produção.</param>
     /// <param name="similarityEngineDuplicates">Proxy 3 com <c>dedupe=false</c>: o motor de similaridade nu.</param>
-    /// <param name="dedupedDuplicates">Proxy 3 com <c>dedupe=true</c>: o top-N que o endpoint realmente devolve.</param>
+    /// <param name="dedupedDuplicates">
+    /// Proxy 3 com <c>dedupe=true</c>: o top-N que o endpoint realmente devolve, medido sobre a
+    /// <see cref="CalibrationPopulationOfDedupedDuplicates"/> (E4.14).
+    /// </param>
     /// <param name="resultSize">
     /// Proxy 4 (E4.9) — a distribuição do tamanho do resultado, medida na MESMA configuração e no MESMO top-N de
     /// <paramref name="boosted"/>, e sobre a <see cref="CalibrationPopulationOfResultSize"/>. As duas exigências não
@@ -201,6 +216,15 @@ public sealed class RecommenderQualityGate
             dedupedDuplicates.Setting.Dedupe,
             "O indicador de repetição no top-N só faz sentido depois do dedup: essa medição tem de vir com " +
             "dedupe=true (E4.8, DP-2).");
+
+        RequireConfiguration(
+            dedupedDuplicates.SeedPopulation == CalibrationPopulationOfDedupedDuplicates,
+            "O indicador de repetição no top-N (E4.8) só significa alguma coisa sobre a população que calibrou o " +
+            $"limiar zero dele — {CalibrationPopulationOfDedupedDuplicates}, os grupos de 11+ faixas. Recebido " +
+            $"{dedupedDuplicates.SeedPopulation} ({dedupedDuplicates.SeedsEvaluated} sementes em " +
+            $"{dedupedDuplicates.GroupsEvaluated} grupos): duas versões da mesma obra no mesmo top-N exigem um grupo " +
+            "de três ou mais membros, então numa população só de pares, ou sem grupo avaliado, o zero é satisfeito " +
+            "por vacuidade e o dedup quebrado não reprovaria o build.");
 
         RequireConfiguration(
             resultSize.Setting == boosted.Setting && resultSize.TopN == boosted.TopN,

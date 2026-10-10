@@ -60,6 +60,10 @@ public sealed class RecommenderQualityGateSmokeTests
             _harness.Context);
 
         // A cura, medida onde a dor existe: os grupos de 11+ faixas, com o dedup ligado.
+        Assert.Equal(
+            RecommenderQualityGate.CalibrationPopulationOfDedupedDuplicates,
+            _harness.LargeDuplicateGroupSample.SeedPopulation);
+
         DuplicateProximityProxy dedupedDuplicates = evaluator.MeasureDuplicateProximity(
             _harness.Index,
             _harness.LargeDuplicateGroupSample,
@@ -101,7 +105,7 @@ public sealed class RecommenderQualityGateSmokeTests
             $"[{similarityEngineDuplicates.Setting.Label}] duplicatas recall " +
             $"{similarityEngineDuplicates.MeanRecall:0.0000} hit-rate {similarityEngineDuplicates.HitRate:0.0000} " +
             $"cosine {similarityEngineDuplicates.MeanSiblingCosine:0.000000}; " +
-            $"[{dedupedDuplicates.Setting.Label}] repeticao no top-N em " +
+            $"[{dedupedDuplicates.Setting.Label}] [{dedupedDuplicates.SeedPopulation}] repeticao no top-N em " +
             $"{dedupedDuplicates.SeedsWithRedundantSiblings} de {dedupedDuplicates.SeedsEvaluated} sementes, " +
             $"top-K 100% duplicado em {dedupedDuplicates.SeedsWithFullyDuplicatedTopK}.");
 
