@@ -514,7 +514,7 @@ public sealed class RecommenderQualityEvaluator
         var ranked = new List<TrackSimilarity>(blended.Count);
         foreach (BlendedRecommendation item in blended)
         {
-            ranked.Add(byTrackId.TryGetValue(item.TrackId, out TrackSimilarity? neighbor)
+            ranked.Add(byTrackId.TryGetValue(item.TrackId, out TrackSimilarity neighbor)
                 ? neighbor
                 : new TrackSimilarity(
                     item.TrackId, item.Jaccard, CosineSimilarity: 0.0, GenreBonus: 0.0,

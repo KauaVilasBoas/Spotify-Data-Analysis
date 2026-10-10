@@ -13,7 +13,7 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 /// <param name="CosineSimilarity">Só o cosseno entre a semente e a vizinha, em [−1, 1] — o eixo do E4.1, sem o gênero.</param>
 /// <param name="GenreBonus">Quanto o gênero somou ao score desta vizinha (0 quando não compartilha ou o gênero não pesa).</param>
 /// <param name="IsImputed">Se as features da vizinha foram imputadas, não medidas.</param>
-public sealed record TrackSimilarity(
+public readonly record struct TrackSimilarity(
     string TrackId,
     double Similarity,
     double CosineSimilarity,
