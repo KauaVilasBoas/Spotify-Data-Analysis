@@ -361,11 +361,13 @@ target moved.
 Container `spotifydataanalysis-api` against Postgres with the full dataset. Full runbook and methodology
 in [`deploy/DEPLOY.md`](deploy/DEPLOY.md), including known limitations of the current measurement.
 
-Re-measured against commit `e5ab833` (adaptive over-fetch, E4.9), script `deploy/measure-latency.ps1`,
-300 deterministic seeds, 3 rounds, 1,800 sequential requests per tier. RAM read from `docker stats`
-after the full run (current usage at that moment, not historical peak). No CPU throttle was applied,
-so these RAM numbers do not represent the real free-tier constraint, where CPU is the bottleneck. Latency
-and cold start were measured separately, under a CPU limit; see the second table below.
+The RAM table below was measured against commit `e5ab833` (adaptive over-fetch, E4.9) with the version
+of `deploy/measure-latency.ps1` from commit `53d78e4` (2026-09-13): 300 deterministic seeds, 3 rounds,
+1,800 sequential requests per tier. The current script no longer reproduces that table: it measures
+latency and cold start (second table below), not RAM, and it does not run the `blend` strategy. RAM was
+read from `docker stats` after the full run (current usage at that moment, not historical peak). No
+CPU throttle was applied, and the Docker VM had 20 CPUs, so these RAM numbers do not represent the real
+free-tier constraint, where CPU is the bottleneck.
 
 | Scenario | RAM after run | OOM |
 |---|---:|:--:|
@@ -373,13 +375,21 @@ and cold start were measured separately, under a CPU limit; see the second table
 | 256 MB, no CPU limit | 148.3 MiB | no |
 
 Latency and cold start of `GET /api/recommendations/track/{id}?limit=10&strategy=content`, measured
-2026-10-10 against commit `d7bc20a` (89,740 tracks in the database) with `deploy/measure-latency.ps1`.
+2026-10-10 against application commit `d7bc20a` (89,740 tracks in the database), with
+`deploy/measure-latency.ps1` as of commit `a38e8c6`. Docker Desktop on WSL2, VM with 20 CPUs and 16 GB.
 Load generator: k6 v2.3.0 (`grafana/k6` container, pinned by digest) on the same Docker network as the
 API, one virtual user, sequential requests. Each round is one pass over the 300 deterministic seeds
-(`e4.4-proxies-v1`, same order every time), 5 rounds per scenario, after a warm-up of 80 to 100 discarded
-requests (stops when the mean of two consecutive windows of 20 differs by less than 10%). The `blend`
-strategy is not measured. Cold start is 3 fresh `docker run` per scenario, timed from the `docker run`
-call. Values are the median across the 5 rounds, with the range (max minus min) in parentheses.
+(`e4.4-proxies-v1`, same order every time), 5 rounds per scenario. Before the first scenario, a pre-flight
+container requested all 300 seeds, so every measurement, cold starts included, ran with the Postgres and OS
+caches already warm for those seeds. Each scenario then starts the container 3 times (cold start, timed
+from the `docker run` call) and the load runs on the third start. Before the rounds, requests are
+discarded as warm-up in windows of 20 (the same 20 seeds each time) until the mean of two consecutive
+windows differs by less than 10%, with a floor of 50 and a cap of 200; 80 to 100 were discarded, and the
+cap was never reached. Scenarios always run in the same order (0.1 CPU before no limit, 512 MB before
+256 MB). The `blend` strategy is not measured.
+
+Latency columns: median across the 5 rounds, with the range across rounds (max minus min) in parentheses.
+Cold start columns: median of the 3 starts, with the range (min to max) in parentheses.
 
 | Scenario | Mean (ms) | p50 (ms) | p95 (ms) | p99 (ms) | Cold start to `/health` (s) | Cold start to first recommendation (s) |
 |---|---:|---:|---:|---:|---:|---:|
@@ -388,16 +398,34 @@ call. Values are the median across the 5 rounds, with the range (max minus min) 
 | 512 MB, no CPU limit | 14.2 (0.8) | 14.1 (0.7) | 15.8 (1.7) | 17.9 (2.9) | 1.57 (1.50 to 1.75) | 2.10 (2.08 to 2.16) |
 | 256 MB, no CPU limit | 13.7 (0.5) | 13.6 (0.3) | 15.5 (1.9) | 18.2 (1.2) | 1.61 (1.52 to 1.65) | 2.13 (2.06 to 2.26) |
 
-What this says: CPU is what moves latency. At 0.1 CPU the mean is about 8 times higher and the first
-recommendation takes about 21 s instead of about 2 s. There is no detectable effect of the RAM tier: the
-256 MB versus 512 MB difference in the mean is inside the round-to-round range in both CPU settings.
-Under 0.1 CPU (a CFS quota, throttled in 100 ms slices) latency is bimodal, close to 100 ms and close to
-190 ms, so the percentiles swing a lot between rounds; read them with the range next to them. The mean also
-kept falling across rounds at 0.1 CPU (512 MB: 156.6, 125.6, 118.5, 108.6, 107.8 ms), so the first rounds
-are slower than the steady state. The cgroup `cpu.stat` confirmed the throttle (1,859 of 1,873 periods
-throttled at 512 MB, 1,917 of 1,936 at 256 MB, none without the limit). Docker Desktop on WSL2 gives a
-same-machine comparison between scenarios, not a production promise: client, API and Postgres share the
-host, and a managed free-tier provider will differ.
+Mean latency per round at 0.1 CPU (ms), rounds 1 to 5:
+
+| Scenario | R1 | R2 | R3 | R4 | R5 |
+|---|---:|---:|---:|---:|---:|
+| 512 MB, 0.1 CPU | 156.6 | 125.6 | 118.5 | 108.6 | 107.8 |
+| 256 MB, 0.1 CPU | 149.3 | 153.2 | 109.4 | 116.1 | 107.3 |
+
+What this says: CPU is what moves latency. The mean at 0.1 CPU was still falling when the measurement
+ended, so the median of the 5 rounds is an upper bound on the regime, not the regime itself, and the
+ratio to the unthrottled mean depends on the round: from about 7.6 times (round 5) to about 10.4 times
+(round 1) at 512 MB, and from 7.7 to 10.7 times at 256 MB. The first recommendation takes about 21 s at
+0.1 CPU against about 2 s without a limit.
+
+RAM tier: the 256 MB versus 512 MB difference in the mean (256 MB slightly faster in both CPU settings:
+-2.4 ms at 0.1 CPU, -0.5 ms without a limit) is inside the range across rounds (about 45 ms at 0.1 CPU,
+about 1 ms without a limit). Only an effect larger than that range could have been detected, and because
+256 MB always ran after 512 MB, a small effect of the RAM tier cannot be separated from an order effect.
+The application used about 150 to 170 MiB at the 256 MB tier, so no large effect was expected.
+
+Under 0.1 CPU (a CFS quota, throttled in 100 ms slices) the latency looks bimodal, near 100 ms and near
+190 ms. That is inferred from p50 and p95; the script keeps no histogram. The p99 reaches 292 ms (median)
+at 256 MB and about 490 ms in round 1 of both tiers, which suggests a tail beyond the second mode. The
+percentiles swing a lot between rounds; read them with the range next to them. With the limit set,
+`cpu.stat` of the container's cgroup confirmed the throttle (1,859 of 1,873 periods throttled at 512 MB,
+1,917 of 1,936 at 256 MB). Without the limit, the script only checks that the container was started with
+no CPU limit (`NanoCpus` equal to 0). Docker Desktop on WSL2 gives a same-machine comparison between
+scenarios, not a production promise: client, API and Postgres share the host, and a managed free-tier
+provider will differ.
 
 Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
 
