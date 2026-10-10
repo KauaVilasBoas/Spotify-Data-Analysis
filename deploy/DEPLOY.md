@@ -26,29 +26,36 @@ Disco do banco: **388 MB** no total, dos quais `prediction.track_cooccurrence` =
 **O que esta medição prova:** o índice de similaridade cabe em 256 MB e o app serve 1.800 requisições
 sequenciais nesse tier sem OOM.
 
-**O que esta medição NÃO prova:** latência e cold start. Veja as limitações conhecidas abaixo.
+**O que esta medição NÃO prova:** latência e cold start. Eles foram medidos depois, com outra
+metodologia (próxima seção).
 
-### Limitações conhecidas da metodologia atual
+### Latência e cold start (E6.12, 10/10/2026)
 
-Os dados de latência do script (`p50`, `p95`, média por rodada) não são publicáveis por três razões:
+Commit `d7bc20a`, 89.740 faixas no banco, `deploy/measure-latency.ps1` (um comando, ver o cabeçalho
+do script). Resultado: medição **válida** (THROTTLE, V1, V2 e V3 passaram, código de saída 0).
+Os números e as condições estão na seção "Free-tier footprint" do `README.md`.
 
-1. **Aquecimento de uma única requisição.** O `Wait-Warmup` do script aguarda `/health` 200 seguido
-   de ao menos uma recomendação 200 (`measure-latency.ps1`, linhas 245-256). Uma única requisição não
-   é suficiente para o JIT do .NET chegar a regime. A rodada 1 é sistematicamente mais lenta que as
-   seguintes nos dois tiers (content 512 MB: 104,0 ms / 65,7 ms / 83,1 ms; content 256 MB:
-   83,0 ms / 55,6 ms / 52,2 ms), e o desvio entre rodadas (±19,2 ms e ±16,9 ms) supera qualquer
-   diferença entre tiers, produzindo o resultado não-físico de 256 MB mais rápido que 512 MB.
+**Metodologia:** carga pelo `k6` v2.3.0 (imagem oficial `grafana/k6` fixada por digest) em container na
+mesma rede Docker da API, 1 usuário virtual, uma passada sequencial pelas 300 sementes
+`e4.4-proxies-v1` por rodada, 5 rodadas, estratégia `content`. Quatro combinações
+{512 MB, 256 MB} x {`--cpus 0.1`, sem limite}. Aquecimento: janelas de 20 requisições descartadas até a
+média de duas janelas consecutivas diferir menos de 10% (piso 50, teto 200). Cold start: 3 `docker run`
+novos por combinação, cronômetro iniciado antes do `docker run`. Validade bloqueante sobre o eixo de
+CPU: o throttle tem de ser provado no `cpu.stat`, a média a 0,1 CPU tem de ser maior que a sem limite
+(V1), a diferença entre as medianas tem de superar a maior amplitude entre rodadas (V2), e as quatro
+combinações têm de estar completas com zero resposta diferente de 200 (V3). O tier de RAM não entra
+na validade: a aplicação usa cerca de 160 MiB e o efeito 256 versus 512 MB não é detectável.
 
-2. **Cronômetro do warm-up a partir da referência errada.** O `Wait-Warmup` inicia o cronômetro
-   antes de saber se o container está de pé (`measure-latency.ps1`, linha 224) e trunca para inteiro.
-   O valor registrado de "1 s" é inconsistente com os ~9,5 s de boot que a tabela anterior registrava
-   para a mesma imagem; um app .NET não sobe em 1 s, e o número mede a diferença entre o `docker run`
-   e o primeiro `Invoke-WebRequest` bem-sucedido, não o cold start real.
+**O que segue pendente:**
 
-3. **Sem limite de CPU (`--cpus` ausente).** O script sobe o container apenas com `-m` e
-   `--memory-swap` (`measure-latency.ps1`, linhas 341-343), sem throttle de CPU. O gargalo real do
-   free tier é CPU, e a linha de 0,1 vCPU da medição anterior mostrava p95 acima de 1.900 ms.
-   Latência medida em CPU livre não representa o cenário de produção.
+- A estratégia `blend` (co-ocorrência no Postgres) não foi medida.
+- Cliente, API e Postgres dividem a mesma máquina (Docker Desktop sobre WSL2): é um comparativo entre
+  cenários, não uma promessa de produção. Latência de um Postgres gerenciado remoto não está incluída.
+- `--cpus 0.1` é cota CFS, não uma vCPU lenta; sob ela os percentis são bimodais e a média ainda caiu
+  ao longo das rodadas (512 MB: 156,6 ms na rodada 1 contra 107,8 ms na 5), então as primeiras rodadas
+  são mais lentas que o regime.
+- O cold start de ~21 s a 0,1 CPU é medido com o disco e o cache do Postgres locais; o provedor real
+  pode diferir (ver a medição de 83 s com spin-down abaixo).
 
 **Os números do E6.2 (17/08/2026) foram substituídos.** Aquela medição não tinha metodologia
 registrada nem script; a comparação direta seria inválida porque o código e a metodologia mudaram ao
@@ -150,8 +157,8 @@ Imagem resultante: 349 MB.
 Com spin-down ligado e 0,1 vCPU, a primeira recomendação depois da hibernação levou **83 s**
 (51 s de boot + 32 s de montagem do índice de similaridade). O índice é montado em background no
 arranque (commit 32262b6): durante a montagem o endpoint devolve 503 com `Retry-After: 5`; a
-primeira chamada após o warm-up já encontra o serviço pronto. O tempo de warm-up em CPU livre não
-foi re-medido com metodologia confiável (ver limitações acima).
+primeira chamada após o warm-up já encontra o serviço pronto. Em container local, a primeira
+recomendação leva cerca de 2,1 s sem limite de CPU e cerca de 21 s a 0,1 CPU (seção acima).
 
 Duas mitigações conhecidas, ambas fora do escopo do E6.2:
 

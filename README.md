@@ -95,8 +95,8 @@ MAE threshold, because only the comparison answers "did it learn anything?".
   reaches into another module's internals, or Domain touches EF Core, Dapper or ASP.NET.
 - **Measured operations.** RAM and OOM behaviour were verified in container at 256 MB and 512 MB (no
   CPU throttle). The conclusion is recorded in [`deploy/DEPLOY.md`](deploy/DEPLOY.md): the similarity
-  index fits in 256 MB and the free-tier bottleneck is **CPU and disk, not RAM**. Latency under CPU
-  throttle has not been re-measured with reliable methodology yet.
+  index fits in 256 MB and the free-tier bottleneck is **CPU and disk, not RAM**. Latency and cold
+  start were measured at 0.1 CPU and without a limit; see "Free-tier footprint" below.
 
 ---
 
@@ -364,14 +364,40 @@ in [`deploy/DEPLOY.md`](deploy/DEPLOY.md), including known limitations of the cu
 Re-measured against commit `e5ab833` (adaptive over-fetch, E4.9), script `deploy/measure-latency.ps1`,
 300 deterministic seeds, 3 rounds, 1,800 sequential requests per tier. RAM read from `docker stats`
 after the full run (current usage at that moment, not historical peak). No CPU throttle was applied,
-so these numbers do not represent the real free-tier constraint, where CPU is the bottleneck. Latency
-and cold-start results were not re-measured with reliable methodology and are omitted; see
-[`deploy/DEPLOY.md`](deploy/DEPLOY.md) for what remains pending.
+so these RAM numbers do not represent the real free-tier constraint, where CPU is the bottleneck. Latency
+and cold start were measured separately, under a CPU limit; see the second table below.
 
 | Scenario | RAM after run | OOM |
 |---|---:|:--:|
 | 512 MB, no CPU limit | 310.9 MiB | no |
 | 256 MB, no CPU limit | 148.3 MiB | no |
+
+Latency and cold start of `GET /api/recommendations/track/{id}?limit=10&strategy=content`, measured
+2026-10-10 against commit `d7bc20a` (89,740 tracks in the database) with `deploy/measure-latency.ps1`.
+Load generator: k6 v2.3.0 (`grafana/k6` container, pinned by digest) on the same Docker network as the
+API, one virtual user, sequential requests. Each round is one pass over the 300 deterministic seeds
+(`e4.4-proxies-v1`, same order every time), 5 rounds per scenario, after a warm-up of 80 to 100 discarded
+requests (stops when the mean of two consecutive windows of 20 differs by less than 10%). The `blend`
+strategy is not measured. Cold start is 3 fresh `docker run` per scenario, timed from the `docker run`
+call. Values are the median across the 5 rounds, with the range (max minus min) in parentheses.
+
+| Scenario | Mean (ms) | p50 (ms) | p95 (ms) | p99 (ms) | Cold start to `/health` (s) | Cold start to first recommendation (s) |
+|---|---:|---:|---:|---:|---:|---:|
+| 512 MB, 0.1 CPU | 118.5 (48.8) | 101.2 (5.0) | 192.6 (113.2) | 201.0 (304.4) | 18.5 (18.5 to 19.4) | 20.8 (20.7 to 21.8) |
+| 256 MB, 0.1 CPU | 116.1 (45.9) | 101.2 (6.1) | 192.3 (111.3) | 292.4 (299.4) | 19.3 (18.7 to 19.6) | 21.5 (20.9 to 21.9) |
+| 512 MB, no CPU limit | 14.2 (0.8) | 14.1 (0.7) | 15.8 (1.7) | 17.9 (2.9) | 1.57 (1.50 to 1.75) | 2.10 (2.08 to 2.16) |
+| 256 MB, no CPU limit | 13.7 (0.5) | 13.6 (0.3) | 15.5 (1.9) | 18.2 (1.2) | 1.61 (1.52 to 1.65) | 2.13 (2.06 to 2.26) |
+
+What this says: CPU is what moves latency. At 0.1 CPU the mean is about 8 times higher and the first
+recommendation takes about 21 s instead of about 2 s. There is no detectable effect of the RAM tier: the
+256 MB versus 512 MB difference in the mean is inside the round-to-round range in both CPU settings.
+Under 0.1 CPU (a CFS quota, throttled in 100 ms slices) latency is bimodal, close to 100 ms and close to
+190 ms, so the percentiles swing a lot between rounds; read them with the range next to them. The mean also
+kept falling across rounds at 0.1 CPU (512 MB: 156.6, 125.6, 118.5, 108.6, 107.8 ms), so the first rounds
+are slower than the steady state. The cgroup `cpu.stat` confirmed the throttle (1,859 of 1,873 periods
+throttled at 512 MB, 1,917 of 1,936 at 256 MB, none without the limit). Docker Desktop on WSL2 gives a
+same-machine comparison between scenarios, not a production promise: client, API and Postgres share the
+host, and a managed free-tier provider will differ.
 
 Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
 
