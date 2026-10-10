@@ -63,7 +63,7 @@ Para despachar mais de um especialista ao mesmo tempo, siga [`.claude/rules/para
 
 ## Arquitetura — regras invioláveis
 
-As 44 regras do `SpotifyDataAnalysis.ArchitectureTests` (ArchUnitNET) validam boa parte disto. **Nunca afrouxe uma regra existente para fazer um teste passar** — isso é regressão, não ajuste.
+As 45 regras do `SpotifyDataAnalysis.ArchitectureTests` (ArchUnitNET) validam boa parte disto. **Nunca afrouxe uma regra existente para fazer um teste passar** — isso é regressão, não ajuste.
 
 - **Monólito modular**, módulos por bounded context: `Catalog`, `Analytics`, `Prediction`. Cada um com `Domain · Application · Infrastructure · Contracts`.
 - **Single-tenant / uso próprio.** Não existe isolamento por `companyId`/tenant. Não introduza filtro global de tenant sem decisão explícita.

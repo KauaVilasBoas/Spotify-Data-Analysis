@@ -497,7 +497,7 @@ reflexão.
 
 ## O que o build defende sozinho
 
-São **44 regras** ArchUnitNET, e elas falham o `dotnet test` no instante em que:
+São **45 regras** ArchUnitNET, e elas falham o `dotnet test` no instante em que:
 
 - o `Domain` de um módulo toca `Domain`, `Application` ou `Infrastructure` de outro;
 - o `Domain` referencia EF Core, Dapper ou ASP.NET;

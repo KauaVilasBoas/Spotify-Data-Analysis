@@ -144,6 +144,16 @@ public sealed class PredictionModuleIsolationTests
         rule.Check(Architecture);
     }
 
+    [Fact]
+    public void PredictionProductionAssemblies_ShouldNotDeclareTypes_NamedAsEvaluationHarness()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(PredictionDomain, PredictionContracts, PredictionApplication, PredictionInfrastructure)
+            .Should().NotHaveNameMatching(@"^Recommender(Quality|Evaluation)");
+
+        rule.Check(Architecture);
+    }
+
     // ---- (b) Limpeza da fronteira pública (Contracts) do Prediction ----
 
     [Fact]
