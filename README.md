@@ -309,6 +309,8 @@ endpoint no longer served. The re-measurement below was taken 2026-09-12 on the 
 | Mean sibling cosine | `off \| dedupe=off \| content` | 0.998244 | **0.999028** | the most sensitive break detector in the suite |
 | Same work twice in one top-N | `off \| dedupe=off \| content` | not measured | **1,768 / 1,895** | the pain the collapse exists to remove |
 | Same work twice in one top-N | `off \| dedupe=on \| content` | not measured | **0 / 1,895** | the collapse's proof of value, finally a number |
+| Top-10 entirely duplicates | `off \| dedupe=off \| content` | 0 *(8-member cap, a structural zero)* | **1,473 / 1,895** *(measured 2026-10-10)* | for most seeds in large groups the whole list was the seed's own work |
+| Top-10 entirely duplicates | `off \| dedupe=on \| content` | not measured | **0 / 1,895** *(measured 2026-10-10)* | the collapse removes the worst case completely |
 
 Coherence carries its **standard deviation** because comparing two configurations by bare means cannot
 tell an effect from a draw of the sample. With σ and n, the reader computes the standard error and
@@ -323,7 +325,8 @@ groups, 19,388 tracks, 36,940 pairs, largest group 54**, the same number that si
 The 2026-08-13 run capped groups at **8 members**, which made "top-10 entirely duplicates" *arithmetically*
 impossible: with top-10, a seed needs 10 siblings to saturate its own list. Removing the cap and measuring
 the **111 groups of 11+ tracks** (1,895 seeds, 18,892 of the 36,940 pairs) is what turned that indicator
-from a structural zero into a real reading.
+from a structural zero into a real reading: with the collapse off, 1,473 of those 1,895 seeds get a top-10
+made of nothing but other versions of the seed itself, and with it on, none do.
 
 #### Two findings from the re-measurement, both closed
 
