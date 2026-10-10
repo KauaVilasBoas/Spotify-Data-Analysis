@@ -1,9 +1,8 @@
 using System.Data;
 using Dapper;
 using SpotifyDataAnalysis.Infrastructure.Data;
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// Monta o insumo da avaliação do recomendador (E4.4) lendo o schema <c>catalog</c> com Dapper: a amostra FIXA de
@@ -15,7 +14,7 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.Eva
 /// runtime e da ordem física da tabela, e — ao contrário de sortear em memória — nunca materializa o catálogo
 /// inteiro no processo, o que a restrição de free tier proíbe.</para>
 ///
-/// <para><b>Sem porta/interface de propósito:</b> o avaliador do domínio não depende desta classe (recebe a amostra
+/// <para><b>Sem porta/interface de propósito:</b> o avaliador não depende desta classe (recebe a amostra
 /// pronta), então uma interface aqui só existiria para ser implementada uma vez — cerimônia sem ganho de
 /// testabilidade.</para>
 /// </summary>

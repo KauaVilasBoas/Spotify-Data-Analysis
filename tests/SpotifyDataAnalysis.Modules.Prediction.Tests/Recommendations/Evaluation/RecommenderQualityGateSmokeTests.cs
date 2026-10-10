@@ -1,5 +1,4 @@
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 using Xunit.Abstractions;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;

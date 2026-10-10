@@ -1,6 +1,6 @@
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// O insumo FIXO da avaliação do recomendador (E4.4): as sementes sorteadas do catálogo e os grupos de

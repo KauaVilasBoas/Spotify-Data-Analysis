@@ -4,11 +4,9 @@ using Dapper;
 using Microsoft.Extensions.Configuration;
 using SpotifyDataAnalysis.Infrastructure.Data;
 using SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
-using SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.Evaluation;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 

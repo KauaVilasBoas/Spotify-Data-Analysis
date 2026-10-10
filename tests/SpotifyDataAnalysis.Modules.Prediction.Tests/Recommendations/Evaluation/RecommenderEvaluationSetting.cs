@@ -1,7 +1,8 @@
 using System.Globalization;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// Uma CONFIGURAÇÃO de ranking sob avaliação — o eixo que a calibração do E4.4 varre: cosine puro (o piso) ou

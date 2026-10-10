@@ -1,7 +1,6 @@
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;

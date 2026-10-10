@@ -25,6 +25,8 @@ public sealed class PredictionModuleIsolationTests
 {
     private static readonly Architecture Architecture = AssemblyRegistry.Architecture;
 
+    private const string EvaluationNamespacePattern = @"^SpotifyDataAnalysis\.(.+\.)?Evaluation(\..+)?$";
+
     private static readonly ClrAssembly PredictionDomain =
         typeof(Modules.Prediction.Domain.PredictionDomainAssemblyReference).Assembly;
 
@@ -128,6 +130,16 @@ public sealed class PredictionModuleIsolationTests
             .Types().That().ResideInAssembly(PredictionDomain)
             .Should().NotDependOnAnyTypesThat()
             .ResideInNamespace("Microsoft.ML");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void PredictionProductionAssemblies_ShouldNotDeclareTypes_InEvaluationNamespaces()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(PredictionDomain, PredictionContracts, PredictionApplication, PredictionInfrastructure)
+            .Should().NotResideInNamespaceMatching(EvaluationNamespacePattern);
 
         rule.Check(Architecture);
     }

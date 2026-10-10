@@ -1,7 +1,7 @@
 using System.Globalization;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// O gate de qualidade do recomendador (E4.4): reprova o motor quando os proxies degradam. Os limiares foram

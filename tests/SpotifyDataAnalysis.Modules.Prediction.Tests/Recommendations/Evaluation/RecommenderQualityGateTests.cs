@@ -1,4 +1,3 @@
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;

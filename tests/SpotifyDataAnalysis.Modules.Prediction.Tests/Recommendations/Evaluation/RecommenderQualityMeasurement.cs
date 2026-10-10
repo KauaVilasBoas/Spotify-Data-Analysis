@@ -1,4 +1,6 @@
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
+
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// O resultado dos proxies que dependem da configuração de gênero (1 e 2), medidos sobre UMA amostra e UMA

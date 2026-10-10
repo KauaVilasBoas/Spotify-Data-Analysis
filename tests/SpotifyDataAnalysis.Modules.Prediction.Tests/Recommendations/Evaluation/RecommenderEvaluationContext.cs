@@ -1,14 +1,14 @@
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// Os insumos que o top-N de PRODUÇÃO consome além do índice de similaridade: a chave de dedup e a popularidade de
 /// cada faixa (E4.7) e o sinal colaborativo de cada semente (E4.6). Sem eles, a avaliação só consegue medir o
 /// ranking cru do E4.1/E4.3 — que é exatamente o que o E4.4 mediu e o que deixou de ser o comportamento default.
 ///
-/// <para><b>Por que é um dado de entrada, e não uma porta:</b> o avaliador é um serviço de domínio sem estado; abrir
+/// <para><b>Por que é um dado de entrada, e não uma porta:</b> o avaliador é um serviço sem estado; abrir
 /// conexão ou conhecer SQL aqui inverteria a dependência. O harness carrega tudo UMA vez e passa pronto — o mesmo
 /// contrato do <see cref="RecommenderEvaluationSample"/>.</para>
 ///

@@ -1,12 +1,13 @@
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 using SpotifyDataAnalysis.SharedKernel.Exceptions;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// O instrumento de medição do recomendador (E4.4): calcula os três proxies verificáveis (DP-B) sobre um
-/// <see cref="SimilarityIndex"/> já montado e uma amostra fixa. É um serviço de domínio SEM ESTADO — não guarda
+/// <see cref="SimilarityIndex"/> já montado e uma amostra fixa. É um serviço SEM ESTADO — não guarda
 /// índice, não guarda catálogo, não abre conexão; recebe tudo e devolve números.
 ///
 /// <para><b>Por que não aloca nada relevante (free tier):</b> a única estrutura por semente é um
@@ -363,7 +364,7 @@ public sealed class RecommenderQualityEvaluator
     /// <para>A política de gênero é derivada da <paramref name="setting"/> exatamente como o handler a deriva (com o
     /// fallback gracioso do E4.3). Devolve <see langword="null"/> quando a semente não está no índice.</para>
     ///
-    /// <para><b>Estático de propósito:</b> este serviço de domínio não tem estado, e um membro de instância que não
+    /// <para><b>Estático de propósito:</b> este serviço não tem estado, e um membro de instância que não
     /// toca estado acenderia mais um CA1822 — a regra está no tier de migração do <c>Directory.Build.props</c> com
     /// contagem registrada, e essa contagem só pode descer.</para>
     /// </summary>
