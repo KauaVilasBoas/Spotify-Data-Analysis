@@ -52,7 +52,8 @@ jobs:
         run: dotnet build SpotifyDataAnalysis.sln -c Release --no-restore
 
       # verbosity=normal e obrigatorio: e o que faz cada teste ignorado aparecer nomeado no log,
-      # com o motivo do skip (os [PostgresFact] exigem Postgres real e sao pulados de proposito).
+      # com o motivo do skip (os [PostgresFact]/[CatalogPostgresFact] exigem Postgres real e o
+      # [KaggleDatasetFact] exige o dataset.csv gitignored; todos sao pulados de proposito).
       - name: Test (Release)
         run: >
           dotnet test SpotifyDataAnalysis.sln -c Release --no-build
@@ -69,7 +70,7 @@ jobs:
           RESULTS_DIR="${{ runner.temp }}/test-results"
           IGNORADOS=$(grep -rhoP '(?<=outcome="NotExecuted" testName=")[^"]+' "$RESULTS_DIR" 2>/dev/null | sort || true)
           TOTAL=$(printf '%s' "$IGNORADOS" | grep -c . || true)
-          MOTIVO='[PostgresFact] requer Postgres real (variavel ConnectionStrings__SpotifyDb ausente no CI por decisao DP-1 do card E6.1).'
+          MOTIVO='[PostgresFact]/[CatalogPostgresFact] requerem Postgres real (ConnectionStrings__SpotifyDb ausente no CI, DP-1 do E6.1); [KaggleDatasetFact] requer o dataset.csv gitignored na raiz.'
           {
             echo "=============================================="
             echo "Testes ignorados: $TOTAL"
