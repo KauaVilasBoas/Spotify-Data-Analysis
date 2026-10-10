@@ -1,46 +1,64 @@
 <#
 .SYNOPSIS
-    Mede latência (p50/p95/p99) e cold start do endpoint de recomendação em container, nas quatro
+    Mede latência (média/p50/p95/p99) e cold start do endpoint de recomendação em container, nas quatro
     combinações {512 MB, 256 MB} x {--cpus 0.1, sem throttle}, e valida a própria medição.
 
 .DESCRIPTION
-    Metodologia reprodutível para a seção de free-tier do README/DEPLOY.md (E6.9, refeita no E6.12).
-    UM comando, sem passo manual: ver .EXAMPLE.
+    Metodologia reprodutível para a seção de free-tier do README/DEPLOY.md (E6.9, refeita no E6.12,
+    segunda fase: validade pelo eixo de CPU, com sementes amostradas). UM comando, sem passo manual:
+    ver .EXAMPLE.
 
     FERRAMENTA DE CARGA
     -------------------
-    bombardier 1.2.6, imagem pública alpine/bombardier fixada por digest (tag 1.2.6, digest
-    sha256:7be639b288fce624fee54e2ef95c35685f90fc9ed1399812cf856b4b7c6c55ab; o JSON grava o digest
-    REAL lido do Docker para a imagem usada, que muda se alguém passar -LoadImage), executada
-    em um container descartável (docker run --rm) NA MESMA REDE DOCKER da API, falando com a API pelo
-    nome do container. Os percentis (p50/p95/p99) vêm da ferramenta (-l -o json), nenhum é calculado em
-    PowerShell. Nada é instalado nem versionado: só Docker é necessário. O cliente deixou de ser o
-    Invoke-WebRequest (confundidor do E6.9: PowerShell + rede somados ao número da aplicação).
+    k6, imagem oficial grafana/k6 fixada por digest (v2.3.0, digest
+    sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603 no valor padrão de
+    -LoadImage; o JSON grava o digest REAL lido do Docker e a versão lida de "k6 version" para a imagem
+    usada, que mudam se alguém passar -LoadImage). Roda em container descartável (docker run --rm) NA
+    MESMA REDE DOCKER da API, falando com ela pelo nome do container; o script do k6,
+    deploy/measure-latency.k6.js (texto, versionado), é montado somente leitura. Média, p50, p95 e p99
+    vêm do k6 (summaryTrendStats declarado no .js; o resumo sai em JSON, numa linha "K6SUMMARY" do
+    stdout), nenhum é calculado em PowerShell. A duração é a http_req_duration do k6 (envio, espera e
+    recebimento; a conexão keep-alive é reaproveitada, então o handshake não entra). Nada é instalado:
+    só Docker é necessário.
 
     CARGA
     -----
-    1 conexão (-c 1), requisições sequenciais, o cenário honesto de uma demo em free tier. Uma única
-    semente (a primeira da seleção determinística). A varredura do índice, feita uma vez por requisição
-    na janela máxima, não depende da semente. O pós-processamento (dedup, até 3 rodadas; cerca de 36%
-    das sementes precisam de mais de uma) e as 2 leituras de metadados no Postgres dependem dela e não
-    foram amostrados: o número vale para esta semente, não para a média do endpoint.
-    Só a estratégia "content" é medida; "blend" está fora desta medição.
+    1 usuário virtual (executor per-vu-iterations, vus=1), requisições sequenciais, o cenário honesto de
+    uma demo em free tier. As sementes são as 300 da seleção determinística (seed 'e4.4-proxies-v1',
+    ORDER BY md5, a mesma ordem sempre). Elas chegam ao k6 pela variável de ambiente SEEDS (ids
+    separados por vírgula) e a iteração i usa SEEDS[i]: a ordem é fixa. Cada rodada medida é UMA
+    passada sequencial pelas 300 (-SeedCount). Antes de medir, um container de pré-voo (512 MB, sem
+    throttle, fora da medição) confirma que as 300 sementes respondem 200; qualquer 404/422/outro
+    código aborta o script com a semente e o código, não entra como erro silencioso.
+    Só a estratégia "content" é medida; "blend" (que consulta a co-ocorrência no Postgres) está fora
+    desta medição.
 
-    AQUECIMENTO (DP-1)
-    ------------------
-    Antes de cada combinação, janelas de 20 requisições são descartadas (fora da amostra) até que o
-    desvio-padrão da janela caia abaixo de 10% da mediana (p50) da janela. PISO de 50 e TETO de 200
-    descartes: como a janela é de 20, o mínimo efetivo é 60 e o máximo 200. Se o teto for atingido sem
-    estabilizar, a combinação segue medida mas é marcada WarmupCapped=true na saída. O número de
-    descartes de cada combinação sai na saída estruturada. Média/desvio/mediana da janela vêm do bombardier.
+    AQUECIMENTO
+    -----------
+    Antes das rodadas de cada combinação, janelas de 20 requisições são descartadas (fora da amostra).
+    Cada janela repete as MESMAS 20 primeiras sementes na mesma ordem, de modo que a diferença entre
+    janelas é deriva de regime e não custo diferente de semente. Critério de estabilização: a MÉDIA
+    (do k6) de duas janelas consecutivas difere menos de 10% (|m_k - m_k-1| / m_k-1 < 0,10). PISO de
+    50 e TETO de 200 descartes: como a janela é de 20, o mínimo efetivo é 60 e o máximo 200. Janela
+    com resposta diferente de 200 não conta. Se o teto for atingido sem estabilizar, a combinação segue
+    medida mas é marcada WarmupCapped=true e a linha final do veredito avisa. O número de descartes e as
+    médias de cada janela saem na saída estruturada. O critério anterior (desvio da janela abaixo de
+    10% da mediana) nunca convergia sob cota de CFS, porque a latência é bimodal dentro da janela; a
+    média de janelas não depende disso. Ele é um critério de estabilidade da média, não prova de que o
+    JIT chegou ao tier final. As 20 sementes de aquecimento são as mesmas das 20 primeiras posições de
+    cada rodada medida, o que pode favorecê-las levemente (cache do Postgres).
 
     COLD START
     ----------
-    O cronômetro (Stopwatch, ms, sem truncar) inicia imediatamente ANTES do "docker run". Dois números:
-      (a) ColdStartHealthMs   : docker run até /health responder 200;
-      (b) ColdStartFirstRecMs : docker run até a primeira recomendação 200.
+    O cronômetro (Stopwatch, ms, sem truncar) inicia imediatamente ANTES do "docker run". Dois números,
+    medidos 3 vezes por combinação (3 "docker run" novos, o container anterior é parado e removido):
+      (a) tempo até /health responder 200;
+      (b) tempo até a primeira recomendação 200.
     O índice é montado em background no arranque (commits 32262b6/3651ba5), então (b) inclui a
-    espera dos 503. O polling roda no host (HttpClient, 25 ms), pela porta publicada.
+    espera dos 503. O polling roda no host (HttpClient, 25 ms), pela porta publicada. O JSON traz as
+    três medições; o console traz mediana e faixa (min a max). A carga (aquecimento e 5 rodadas) roda
+    no container do TERCEIRO arranque. Os arranques 2 e 3 acontecem com o cache de páginas do Postgres
+    e do disco já quentes pelo anterior: a faixa mostra isso, não o esconde.
 
     CPU
     ---
@@ -50,25 +68,33 @@
 
     RODADAS (DP-2)
     --------------
-    5 rodadas por combinação, N requisições por rodada (-RequestsPerRound), sempre no mesmo container
-    (o aquecimento vale para todas). Reporta p50/p95/p99 por rodada, mediana e amplitude (max-min).
+    5 rodadas por combinação (-Rounds), cada uma UMA passada pelas 300 sementes, sempre no mesmo
+    container (o aquecimento vale para todas). Por rodada: média, p50, p95, p99. Entre rodadas:
+    mediana e amplitude (max-min) de cada uma dessas quatro estatísticas.
 
-    SANIDADE BLOQUEANTE
+    VALIDADE BLOQUEANTE
     -------------------
-    Três checagens sobre os próprios dados, mais a prova de throttle (THROTTLE); se QUALQUER uma
-    falhar a medição é INVÁLIDA, o script imprime os números crus, sai com código 2 e nada deve ir
-    para o README. S1, S2 e S3 valem para p50, p95 e p99:
-      S1  em cada CPU, a mediana de 256 MB não pode ser MENOR que a de 512 MB;
-      S2  em cada CPU, a amplitude entre rodadas (a maior dos dois tiers) tem de ser MENOR que a
-          diferença entre as medianas dos tiers;
-      S3  a rodada 1 não pode ser sistematicamente a mais lenta. Falha se, em qualquer combinação,
-          a métrica (p50, p95 ou p99, cada uma por si) cai estritamente a cada rodada, OU a da rodada 1
-          supera o maior valor das rodadas 2..5 por mais que a amplitude das rodadas 2..5, OU a
-          rodada 1 é a mais lenta em todas as combinações.
+    Se QUALQUER uma falhar a medição é INVÁLIDA, o script imprime os números crus, sai com código 2 e
+    nada deve ir para o README. Elas substituem as antigas S1/S2 (que exigiam 256 MB mais lento que
+    512 MB, efeito que não existe: a aplicação usa cerca de 160 MiB e cabe nos dois tiers) e o eixo
+    medido passa a ser o da CPU. V1 e V2 usam a MÉDIA, de propósito: sob cota de CFS os percentis são
+    bimodais por natureza, então p50/p95/p99 são reportados com a amplitude ao lado, não gateados.
       THROTTLE  com Cpus > 0, HostConfig.NanoCpus tem de ser o pedido e nr_throttled do cpu.stat tem
           de ter crescido durante as rodadas; com Cpus = 0, NanoCpus tem de ser 0.
-    Uma diferença real entre 512 e 256 MB menor que o ruído torna a S2 insatisfazível por natureza;
-    se for o caso, o resultado é reportado como tal, não forçado.
+      V1  direção: em cada tier de RAM, a mediana (entre rodadas) da média a 0,1 CPU é MAIOR que a
+          sem throttle.
+      V2  sinal acima do ruído: em cada tier de RAM, a diferença entre as medianas da média das duas
+          configurações de CPU é MAIOR que a maior amplitude entre rodadas das duas.
+      V3  cobertura: as quatro combinações completas (3 cold starts e todas as rodadas) e zero resposta
+          diferente de 200 nas rodadas medidas, cada rodada com todas as requisições.
+
+    REPORTADO, NÃO BLOQUEANTE
+    -------------------------
+      Neutralidade de RAM  para cada configuração de CPU, a diferença entre as medianas da média de
+          256 e 512 MB com a maior amplitude ao lado, e "dentro do ruído" (|diferença| <= amplitude)
+          ou "fora do ruído".
+      Rodada 1 mais lenta  aviso quando, em uma combinação, a média da rodada 1 é a maior e supera a
+          maior das rodadas 2..N por mais que a amplitude das rodadas 2..N.
 
     PRÉ-REQUISITOS
     --------------
@@ -79,28 +105,30 @@
     - A imagem Docker do repositório: por padrão spotifydataanalysis-api:<commit curto do HEAD>.
       Se não existir, o script constrói a partir do Dockerfile na raiz do repositório.
 
-    LIMITAÇÕES CONHECIDAS (após o E6.12)
-    ------------------------------------
+    LIMITAÇÕES CONHECIDAS (após a segunda fase do E6.12)
+    ----------------------------------------------------
     Deixaram de ser limitação: aquecimento de uma requisição só; cronômetro do cold start iniciado
-    depois do docker run e truncado; ausência de limite de CPU; cliente Invoke-WebRequest.
+    depois do docker run e truncado; ausência de limite de CPU; cliente Invoke-WebRequest; semente
+    única; cold start de amostra única; critério de validade sobre o eixo de RAM.
     Continuam sendo:
-    1. Uma semente só, estratégia "content" só; "blend" (que consulta a co-ocorrência no Postgres) não é medida.
+    1. Só a estratégia "content"; "blend" (que consulta a co-ocorrência no Postgres) não é medida.
     2. Cliente e API dividem a mesma máquina; o Postgres também é o da máquina, fora de container e de
        qualquer limite de CPU/RAM. Latência de banco de um Postgres gerenciado remoto não está incluída.
     3. --cpus 0.1 é cota CFS (throttling em fatias de 100 ms), não uma vCPU lenta: o comportamento sob
-       um provedor de free tier pode diferir do de um host local.
-    4. O aquecimento mede estabilidade da latência por janelas de 20; não prova que o JIT chegou ao
-       tier final, só que a latência parou de se mover o suficiente para o critério da DP-1.
+       um provedor de free tier pode diferir do de um host local. Sob essa cota os percentis são
+       bimodais; por isso a validade é sobre a média.
+    4. O aquecimento mede estabilidade da média entre janelas de 20 sementes repetidas; não prova que o
+       JIT chegou ao tier final.
     5. A RAM lida é o uso corrente no fim da corrida (docker stats --no-stream), não o pico histórico.
-    6. O cold start depende do cache de páginas do Postgres e do disco do momento.
-    7. O cold start é amostra única (n = 1) por combinação e nenhuma sanidade o cobre.
-    8. A ordem das combinações é fixa (512 antes de 256 dentro de cada CPU): deriva lenta do host pode
-       aparecer como diferença entre tiers.
-    9. O S3 tem probabilidade não nula de reprovar por acaso (12 séries de 5 valores).
-    10. A connection string vai para o container por -e na linha de comando do docker run, visível em
-        docker inspect e na lista de processos do host. O script anterior já fazia assim; aceitável
-        para máquina de desenvolvimento.
-    11. A reescrita de Host=localhost para host.docker.internal não tem âncora e pressupõe Docker Desktop.
+    6. O cold start depende do cache de páginas do Postgres e do disco do momento (ver COLD START).
+    7. A ordem das combinações é fixa (512 antes de 256 dentro de cada CPU, CPU limitada antes da
+       livre): deriva lenta do host pode aparecer como diferença entre combinações.
+    8. A connection string vai para o container por -e na linha de comando do docker run, visível em
+       docker inspect e na lista de processos do host. O script anterior já fazia assim; aceitável
+       para máquina de desenvolvimento. (As sementes e a URL passadas ao k6 não são sensíveis.)
+    9. A reescrita de Host=localhost para host.docker.internal não tem âncora e pressupõe Docker Desktop.
+    10. Os 300 ids vão ao k6 pela linha de comando do docker run (cerca de 7 kB), dentro do limite do
+        Windows; um número muito maior de sementes exigiria arquivo montado.
 
 .PARAMETER ImageTag
     Tag da imagem Docker a usar. Padrão: "spotifydataanalysis-api:<commit curto do HEAD>".
@@ -115,15 +143,16 @@
 .PARAMETER Rounds
     Rodadas de medição por combinação. Padrão: 5 (DP-2).
 
-.PARAMETER RequestsPerRound
-    Requisições medidas por rodada. Padrão: 200.
+.PARAMETER SeedCount
+    Quantas sementes da seleção entram (e, portanto, requisições por rodada: uma passada). Padrão: 300.
+    Valores menores servem só para ensaiar o encanamento; a medição publicável usa 300.
 
 .PARAMETER Port
     Porta local publicada pelo container (usada só no polling do cold start). Padrão: 18080.
 
 .PARAMETER LoadImage
-    Imagem do gerador de carga. Padrão: alpine/bombardier@sha256:7be639b2...55ab (tag 1.2.6, digest
-    completo no valor padrão do parâmetro). O JSON grava o digest real lido do Docker para a imagem usada.
+    Imagem do gerador de carga. Padrão: grafana/k6@sha256:e66db15b...7603 (v2.3.0, digest completo no
+    valor padrão do parâmetro). O JSON grava o digest real lido do Docker para a imagem usada.
 
 .PARAMETER OutFile
     Arquivo JSON com a saída estruturada. Padrão: measure-latency-<commit>.json na pasta temporária
@@ -141,9 +170,16 @@
 
 .EXAMPLE
     # Só uma combinação, para depurar o script:
-    .\deploy\measure-latency.ps1 -Tiers @(512) -CpuLimits @(0) -Rounds 2
+    .\deploy\measure-latency.ps1 -Tiers @(512) -CpuLimits @(0) -Rounds 2 -SeedCount 20
 
 .NOTES
+    COMO RODAR: sem redirecionar fluxos. Se a imagem ainda não existe, o script a constrói com "docker
+    build", que escreve o progresso em stderr; no Windows PowerShell 5.1, redirecionar com *> ou 2>&1
+    transforma esse stderr em erro (NativeCommandError) e, com $ErrorActionPreference = "Stop", derruba
+    o script no build. Rodar direto (.\deploy\measure-latency.ps1) constrói e segue. Para guardar a saída
+    em arquivo use Start-Transcript, ou construa a imagem antes (docker build -t spotifydataanalysis-api:<commit> .)
+    e então redirecione à vontade, pois o script passa a usar a imagem existente.
+
     O script NÃO toca em containers de outros projetos: só cria e remove, pelo nome exato, o container
     "spotifyda-latency-measure" e a rede "spotifyda-latency-net". Ambos são derrubados ao final,
     mesmo em caso de erro. Nenhuma connection string ou senha é gravada em arquivo ou exibida em log.
@@ -154,9 +190,9 @@ param(
     [int[]]    $Tiers     = @(512, 256),
     [double[]] $CpuLimits = @(0.1, 0),
     [int]      $Rounds    = 5,
-    [int]      $RequestsPerRound = 200,
+    [int]      $SeedCount = 300,
     [int]      $Port      = 18080,
-    [string]   $LoadImage = "alpine/bombardier@sha256:7be639b288fce624fee54e2ef95c35685f90fc9ed1399812cf856b4b7c6c55ab",
+    [string]   $LoadImage = "grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603",
     [string]   $OutFile   = "",
     [string]   $RepoRoot  = (Split-Path $PSScriptRoot -Parent)
 )
@@ -237,7 +273,7 @@ else {
 # ---------------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "Buscando a seleção determinística de sementes do banco (seed='e4.4-proxies-v1'); só a primeira é usada na carga..."
+Write-Host "Buscando a seleção determinística de sementes do banco (seed='e4.4-proxies-v1'); as $SeedCount primeiras entram na carga..."
 
 $SeedSql = @"
 SELECT t.id
@@ -277,10 +313,11 @@ $env:PGPASSWORD = $dbPass
 $rawIds = & $PsqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -A -c $SeedSql 2>&1
 $Seeds  = $rawIds | Where-Object { $_ -match '^[A-Za-z0-9]{15,30}$' }
 
-if ($Seeds.Count -lt 10) {
-    Write-Error "ERRO: menos de 10 sementes retornadas do banco ($($Seeds.Count)). Verifique a connection string e o banco."
+if ($Seeds.Count -lt $SeedCount -or $SeedCount -lt 20) {
+    Write-Error "ERRO: o banco devolveu $($Seeds.Count) sementes e a medição pede $SeedCount (mínimo 20, o tamanho da janela de aquecimento). Verifique a connection string e o banco."
     exit 1
 }
+$Seeds = @($Seeds | Select-Object -First $SeedCount)
 Write-Host "  $($Seeds.Count) sementes carregadas."
 
 # ---------------------------------------------------------------------------
@@ -292,6 +329,8 @@ Write-Host "  catalog.tracks no banco: $TrackCount faixas"
 
 $SeedId  = $Seeds[0]
 $RecPath = "/api/recommendations/track/${SeedId}?limit=10&strategy=content"
+$SeedList = $Seeds -join ','
+$WarmWindow = 20
 
 $ContainerName = "spotifyda-latency-measure"
 $LoadName      = "spotifyda-latency-load"
@@ -344,23 +383,25 @@ function Get-Amplitude([double[]]$v) {
     return [double]($m.Maximum - $m.Minimum)
 }
 
-# Roda o bombardier (container descartável, mesma rede da API). Os percentis vêm da ferramenta.
-# O JSON do bombardier reporta latência em microssegundos.
+# Roda o k6 (container descartável, mesma rede da API, 1 VU) sobre as primeiras $requests sementes,
+# em ordem. Média e percentis vêm do k6 (linha K6SUMMARY do stdout), em ms.
 function Invoke-Load([int]$requests) {
-    $out = docker run --rm --name $LoadName --network $NetworkName $LoadImage -c 1 -t 60s -l -p r -o json -n $requests "$InternalUrl$RecPath"
-    if ($LASTEXITCODE -ne 0) { throw "bombardier falhou (exit $LASTEXITCODE): $out" }
-    $res = ($out -join "`n" | ConvertFrom-Json).result
-    $p = $res.latency.percentiles
+    $out = docker run --rm --name $LoadName --network $NetworkName -v "${PSScriptRoot}:/scripts:ro" `
+        -e "BASE_URL=$InternalUrl" -e "SEEDS=$SeedList" -e "ITERATIONS=$requests" `
+        $LoadImage run --quiet --no-color /scripts/measure-latency.k6.js 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "k6 falhou (exit $LASTEXITCODE): $out" }
+    $line = @($out | Where-Object { "$_" -like 'K6SUMMARY *' })
+    if ($line.Count -ne 1) { throw "k6 nao emitiu exatamente uma linha K6SUMMARY (saida: $($out -join ' | '))" }
+    $res = ("$($line[0])".Substring(10)) | ConvertFrom-Json
     return [PSCustomObject]@{
         Requests = $requests
-        Ok       = [int]$res.req2xx
-        Errors   = $requests - [int]$res.req2xx
-        P50      = [Math]::Round([double]$p.'50' / 1000.0, 2)
-        P95      = [Math]::Round([double]$p.'95' / 1000.0, 2)
-        P99      = [Math]::Round([double]$p.'99' / 1000.0, 2)
-        MeanMs   = [Math]::Round([double]$res.latency.mean / 1000.0, 2)
-        StdDevMs = [Math]::Round([double]$res.latency.stddev / 1000.0, 2)
-        MaxMs    = [Math]::Round([double]$res.latency.max / 1000.0, 2)
+        Done     = [int]$res.requests
+        Non200   = [int]$res.non200
+        Mean     = [Math]::Round([double]$res.avg, 2)
+        P50      = [Math]::Round([double]$res.p50, 2)
+        P95      = [Math]::Round([double]$res.p95, 2)
+        P99      = [Math]::Round([double]$res.p99, 2)
+        MaxMs    = [Math]::Round([double]$res.max, 2)
     }
 }
 
@@ -385,13 +426,9 @@ function Get-CpuStat {
 $ContainerConnStr = $ConnStr -replace '(?i)Host\s*=\s*localhost', 'Host=host.docker.internal'
 $ContainerConnStr = $ContainerConnStr -replace '(?i)Host\s*=\s*127\.0\.0\.1', 'Host=host.docker.internal'
 
-function Measure-Combination([int]$tierMiB, [double]$cpus) {
-    $label = if ($cpus -gt 0) { "$tierMiB MB / --cpus $($cpus.ToString($Inv))" } else { "$tierMiB MB / sem throttle" }
-    Write-Host ""
-    Write-Host "================================================================"
-    Write-Host "COMBINACAO: $label"
-    Write-Host "================================================================"
-
+# Sobe o container e mede o cold start: o cronômetro inicia ANTES do docker run e não é truncado.
+# Devolve Status "OK" ou o motivo da falha (o container já foi removido nesse caso).
+function Start-Measured([int]$tierMiB, [double]$cpus) {
     Stop-MeasureContainer
 
     $runArgs = @('run', '-d', '--name', $ContainerName, '--network', $NetworkName,
@@ -401,48 +438,85 @@ function Measure-Combination([int]$tierMiB, [double]$cpus) {
     if ($cpus -gt 0) { $runArgs += @('--cpus', $cpus.ToString($Inv)) }
     $runArgs += $ImageTag
 
+    $r = [ordered]@{ Status = "OK"; HealthMs = $null; FirstRecMs = $null }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    docker @runArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) { $r.Status = "FALHA_START"; Stop-MeasureContainer; return [PSCustomObject]$r }
+
+    $deadline = 300000
+    while ($sw.Elapsed.TotalMilliseconds -lt $deadline) {
+        if ((Get-StatusCode "$HostUrl/health") -eq 200) { $r.HealthMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
+        Start-Sleep -Milliseconds 25
+    }
+    if ($null -eq $r.HealthMs) {
+        $r.Status = "TIMEOUT_HEALTH"
+        docker logs $ContainerName | Select-Object -Last 15 | ForEach-Object { Write-Host "    $_" }
+        Stop-MeasureContainer; return [PSCustomObject]$r
+    }
+    while ($sw.Elapsed.TotalMilliseconds -lt $deadline) {
+        $code = Get-StatusCode "$HostUrl$RecPath"
+        if ($code -eq 200) { $r.FirstRecMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
+        if ($code -in 404, 422) { throw "A semente $SeedId devolveu HTTP $code no endpoint de recomendacao: a medicao seria de erro, nao de latencia." }
+        Start-Sleep -Milliseconds 25
+    }
+    if ($null -eq $r.FirstRecMs) { $r.Status = "TIMEOUT_RECOMENDACAO"; Stop-MeasureContainer }
+    return [PSCustomObject]$r
+}
+
+# Pré-voo: todas as sementes têm de responder 200 antes de qualquer medição. Container descartável
+# (512 MB, sem throttle), fora das medições; a falha derruba o script com a semente e o código.
+function Test-Seeds {
+    Write-Host ""
+    Write-Host "Pre-voo: confirmando que as $($Seeds.Count) sementes respondem 200 ..."
+    $s = Start-Measured 512 0
+    if ($s.Status -ne "OK") { throw "Pre-voo: o container nao ficou pronto ($($s.Status))." }
+    $bad = @()
+    foreach ($id in $Seeds) {
+        $code = Get-StatusCode "$HostUrl/api/recommendations/track/${id}?limit=10&strategy=content"
+        if ($code -ne 200) { $bad += "$id=HTTP $code" }
+    }
+    Stop-MeasureContainer
+    if ($bad.Count -gt 0) { throw "Pre-voo: $($bad.Count) de $($Seeds.Count) sementes nao responderam 200: $($bad -join '; ')" }
+    Write-Host "  as $($Seeds.Count) sementes responderam 200."
+}
+
+function Measure-Combination([int]$tierMiB, [double]$cpus) {
+    $label = if ($cpus -gt 0) { "$tierMiB MB / --cpus $($cpus.ToString($Inv))" } else { "$tierMiB MB / sem throttle" }
+    Write-Host ""
+    Write-Host "================================================================"
+    Write-Host "COMBINACAO: $label"
+    Write-Host "================================================================"
+
     $combo = [ordered]@{
         Tier = $tierMiB; Cpus = $cpus; Label = $label; Status = "OK"
-        ColdStartHealthMs = $null; ColdStartFirstRecMs = $null
+        ColdStarts = @()
         WarmupDiscards = 0; WarmupCapped = $false; WarmupWindows = @()
         Rounds = @(); Throttle = $null; RamAfterRun = $null
     }
 
-    # Cold start: o cronômetro inicia ANTES do docker run e não é truncado.
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    docker @runArgs | Out-Null
-    if ($LASTEXITCODE -ne 0) { $combo.Status = "FALHA_START"; Stop-MeasureContainer; return [PSCustomObject]$combo }
+    # Cold start medido 3 vezes (3 docker run novos). A carga roda no container do terceiro arranque.
+    for ($i = 1; $i -le 3; $i++) {
+        $s = Start-Measured $tierMiB $cpus
+        if ($s.Status -ne "OK") { $combo.Status = "$($s.Status)_NO_ARRANQUE_$i"; return [PSCustomObject]$combo }
+        $combo.ColdStarts += [PSCustomObject]@{ Run = $i; HealthMs = $s.HealthMs; FirstRecMs = $s.FirstRecMs }
+        Write-Host "  Cold start $i/3: /health em $($s.HealthMs) ms; primeira recomendacao 200 em $($s.FirstRecMs) ms"
+        if ($i -lt 3) { Stop-MeasureContainer }
+    }
 
-    $deadline = 300000
-    while ($sw.Elapsed.TotalMilliseconds -lt $deadline) {
-        if ((Get-StatusCode "$HostUrl/health") -eq 200) { $combo.ColdStartHealthMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
-        Start-Sleep -Milliseconds 25
-    }
-    if ($null -eq $combo.ColdStartHealthMs) {
-        $combo.Status = "TIMEOUT_HEALTH"
-        docker logs $ContainerName | Select-Object -Last 15 | ForEach-Object { Write-Host "    $_" }
-        Stop-MeasureContainer; return [PSCustomObject]$combo
-    }
-    while ($sw.Elapsed.TotalMilliseconds -lt $deadline) {
-        $code = Get-StatusCode "$HostUrl$RecPath"
-        if ($code -eq 200) { $combo.ColdStartFirstRecMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
-        if ($code -in 404, 422) { throw "A semente $SeedId devolveu HTTP $code no endpoint de recomendacao: a medicao seria de erro, nao de latencia." }
-        Start-Sleep -Milliseconds 25
-    }
-    if ($null -eq $combo.ColdStartFirstRecMs) { $combo.Status = "TIMEOUT_RECOMENDACAO"; Stop-MeasureContainer; return [PSCustomObject]$combo }
-    Write-Host "  Cold start: /health em $($combo.ColdStartHealthMs) ms; primeira recomendacao 200 em $($combo.ColdStartFirstRecMs) ms"
-
-    # Aquecimento por critério estatístico (DP-1): janelas de 20 descartadas até desvio < 10% da mediana
-    # da janela, piso 50 e teto 200 descartes.
+    # Aquecimento: janelas de 20 requisições (as mesmas 20 primeiras sementes) descartadas até a média de
+    # duas janelas consecutivas diferir menos de 10%; piso de 50 e teto de 200 descartes.
     $windows = [System.Collections.Generic.List[object]]::new()
     $discards = 0
+    $prev = $null
     while ($true) {
-        $w = Invoke-Load 20
-        $discards += 20
-        $cv = if ($w.Ok -eq 20 -and $w.P50 -gt 0) { $w.StdDevMs / $w.P50 } else { [double]::PositiveInfinity }
-        $windows.Add([PSCustomObject]@{ Discards = $discards; P50 = $w.P50; StdDevMs = $w.StdDevMs; StdDevOverP50 = [Math]::Round($cv, 3); Errors = $w.Errors })
-        Write-Host "    aquecimento $discards descartes: p50=$($w.P50) ms stddev=$($w.StdDevMs) ms (stddev/p50=$([Math]::Round($cv, 3)))"
-        if ($discards -ge 50 -and $cv -lt 0.10) { break }
+        $w = Invoke-Load $WarmWindow
+        $discards += $WarmWindow
+        $valid = ($w.Non200 -eq 0 -and $w.Done -eq $WarmWindow -and $w.Mean -gt 0)
+        $delta = if ($valid -and $null -ne $prev) { [Math]::Abs($w.Mean - $prev) / $prev } else { [double]::PositiveInfinity }
+        $windows.Add([PSCustomObject]@{ Discards = $discards; Mean = $w.Mean; P50 = $w.P50; Non200 = $w.Non200; DeltaFromPrev = $(if ([double]::IsInfinity($delta)) { $null } else { [Math]::Round($delta, 3) }) })
+        Write-Host "    aquecimento $discards descartes: media=$($w.Mean) ms p50=$($w.P50) ms (variacao da media vs janela anterior: $(if ([double]::IsInfinity($delta)) { 'n/d' } else { [Math]::Round($delta, 3) }))"
+        $prev = if ($valid) { $w.Mean } else { $null }
+        if ($discards -ge 50 -and $delta -lt 0.10) { break }
         if ($discards -ge 200) { $combo.WarmupCapped = $true; break }
     }
     $combo.WarmupDiscards = $discards
@@ -454,10 +528,10 @@ function Measure-Combination([int]$tierMiB, [double]$cpus) {
     # Rodadas medidas, com o delta do cpu.stat como evidência de throttle.
     $cpuBefore = Get-CpuStat
     for ($r = 1; $r -le $Rounds; $r++) {
-        $res = Invoke-Load $RequestsPerRound
+        $res = Invoke-Load $SeedCount
         $res | Add-Member -NotePropertyName Round -NotePropertyValue $r
         $combo.Rounds += $res
-        Write-Host "    rodada ${r}/${Rounds}: p50=$($res.P50) ms  p95=$($res.P95) ms  p99=$($res.P99) ms  ok=$($res.Ok)/$($res.Requests)"
+        Write-Host "    rodada ${r}/${Rounds}: media=$($res.Mean) ms  p50=$($res.P50) ms  p95=$($res.P95) ms  p99=$($res.P99) ms  nao200=$($res.Non200)  feitas=$($res.Done)/$($res.Requests)"
         $status = docker inspect $ContainerName --format "{{.State.Status}}"
         if ($status -ne "running") { $combo.Status = "MORTO_NA_RODADA_$r (OOMKilled=$(docker inspect $ContainerName --format '{{.State.OOMKilled}}'))"; break }
     }
@@ -483,52 +557,44 @@ function Measure-Combination([int]$tierMiB, [double]$cpus) {
 # 6. Sanidade bloqueante
 # ---------------------------------------------------------------------------
 
-$Metrics = @('P50', 'P95', 'P99')
+$Metrics = @('Mean', 'P50', 'P95', 'P99')
 
 function Get-Series($combo, [string]$metric) { return [double[]]@($combo.Rounds | ForEach-Object { $_.$metric }) }
 
-function Test-Sanity($combos) {
+function Get-ColdSeries($combo, [string]$field) { return [double[]]@($combo.ColdStarts | ForEach-Object { $_.$field }) }
+
+function Test-Validity($combos) {
     $checks = [System.Collections.Generic.List[object]]::new()
-    $lowTier  = ($Tiers | Measure-Object -Minimum).Minimum
-    $highTier = ($Tiers | Measure-Object -Maximum).Maximum
-    $complete = @($combos | Where-Object { $_.Status -eq "OK" -and $_.Rounds.Count -eq $Rounds })
+    # Uma combinação é completa com 3 cold starts e todas as rodadas; V3 cobra o resto (nao200, requisições).
+    $complete = @($combos | Where-Object { $_.Status -eq "OK" -and $_.ColdStarts.Count -eq 3 -and $_.Rounds.Count -eq $Rounds })
+    $thrCpu  = @($CpuLimits | Where-Object { $_ -gt 0 })
+    $freeCpu = @($CpuLimits | Where-Object { $_ -eq 0 })
 
-    foreach ($cpus in $CpuLimits) {
-        $lo = $complete | Where-Object { $_.Tier -eq $lowTier  -and $_.Cpus -eq $cpus }
-        $hi = $complete | Where-Object { $_.Tier -eq $highTier -and $_.Cpus -eq $cpus }
-        foreach ($m in $Metrics) {
-            if ($null -eq $lo -or $null -eq $hi -or $lowTier -eq $highTier) {
-                $checks.Add([PSCustomObject]@{ Check = "S1"; Cpus = $cpus; Metric = $m; Pass = $false; Detail = "par de tiers incompleto, nao avaliavel" })
-                $checks.Add([PSCustomObject]@{ Check = "S2"; Cpus = $cpus; Metric = $m; Pass = $false; Detail = "par de tiers incompleto, nao avaliavel" })
-                continue
-            }
-            $sLo = Get-Series $lo $m; $sHi = Get-Series $hi $m
-            $medLo = Get-Median $sLo; $medHi = Get-Median $sHi
-            $diff  = $medLo - $medHi
-            $amp   = [Math]::Max((Get-Amplitude $sLo), (Get-Amplitude $sHi))
-            $checks.Add([PSCustomObject]@{ Check = "S1"; Cpus = $cpus; Metric = $m; Pass = ($medLo -ge $medHi)
-                Detail = "mediana $lowTier MB = $([Math]::Round($medLo,2)) ms, mediana $highTier MB = $([Math]::Round($medHi,2)) ms" })
-            $checks.Add([PSCustomObject]@{ Check = "S2"; Cpus = $cpus; Metric = $m; Pass = ($amp -lt $diff)
-                Detail = "amplitude entre rodadas (maior dos tiers) = $([Math]::Round($amp,2)) ms; diferenca entre tiers = $([Math]::Round($diff,2)) ms" })
+    foreach ($tier in $Tiers) {
+        $thr  = if ($thrCpu.Count -eq 1)  { $complete | Where-Object { $_.Tier -eq $tier -and $_.Cpus -eq $thrCpu[0] } }  else { $null }
+        $free = if ($freeCpu.Count -eq 1) { $complete | Where-Object { $_.Tier -eq $tier -and $_.Cpus -eq $freeCpu[0] } } else { $null }
+        if ($null -eq $thr -or $null -eq $free) {
+            foreach ($k in 'V1', 'V2') { $checks.Add([PSCustomObject]@{ Check = $k; Cpus = "-"; Metric = "Mean"; Pass = $false; Detail = "$tier MB: par {com throttle, sem throttle} incompleto, nao avaliavel" }) }
+            continue
         }
+        $sThr = Get-Series $thr 'Mean'; $sFree = Get-Series $free 'Mean'
+        $medThr = Get-Median $sThr; $medFree = Get-Median $sFree
+        $diff = $medThr - $medFree
+        $ampThr = Get-Amplitude $sThr; $ampFree = Get-Amplitude $sFree
+        $amp = [Math]::Max($ampThr, $ampFree)
+        $checks.Add([PSCustomObject]@{ Check = "V1"; Cpus = "-"; Metric = "Mean"; Pass = ($medThr -gt $medFree)
+            Detail = "$tier MB: mediana da media com --cpus $($thrCpu[0].ToString($Inv)) = $([Math]::Round($medThr,2)) ms; sem throttle = $([Math]::Round($medFree,2)) ms" })
+        $checks.Add([PSCustomObject]@{ Check = "V2"; Cpus = "-"; Metric = "Mean"; Pass = ($diff -gt $amp)
+            Detail = "$tier MB: diferenca entre medianas da media = $([Math]::Round($diff,2)) ms; maior amplitude entre rodadas = $([Math]::Round($amp,2)) ms (throttle $([Math]::Round($ampThr,2)), livre $([Math]::Round($ampFree,2)))" })
     }
 
-    foreach ($m in $Metrics) {
-        $firstSlowest = 0
-        foreach ($c in $complete) {
-            $s = Get-Series $c $m
-            $strictFall = $true
-            for ($i = 1; $i -lt $s.Count; $i++) { if (-not ($s[$i] -lt $s[$i - 1])) { $strictFall = $false } }
-            $rest = [double[]]$s[1..($s.Count - 1)]
-            $r1Outlier = ($s[0] - ($rest | Measure-Object -Maximum).Maximum) -gt (Get-Amplitude $rest)
-            $r1Max = ($s[0] -eq ($s | Measure-Object -Maximum).Maximum)
-            if ($r1Max) { $firstSlowest++ }
-            $checks.Add([PSCustomObject]@{ Check = "S3"; Cpus = $c.Cpus; Metric = $m; Pass = (-not $strictFall -and -not $r1Outlier)
-                Detail = "$($c.Tier) MB: rodadas=[$(($s | ForEach-Object { $_ }) -join ', ')] queda_estrita=$strictFall r1_acima_do_regime=$r1Outlier" })
-        }
-        $checks.Add([PSCustomObject]@{ Check = "S3"; Cpus = "todas"; Metric = $m; Pass = (-not ($complete.Count -gt 0 -and $firstSlowest -eq $complete.Count))
-            Detail = "rodada 1 foi a mais lenta em $firstSlowest de $($complete.Count) combinacoes" })
-    }
+    $expected = $Tiers.Count * $CpuLimits.Count
+    $non200 = 0; $short = 0
+    foreach ($c in $complete) { foreach ($rd in $c.Rounds) { $non200 += $rd.Non200; if ($rd.Done -ne $rd.Requests) { $short++ } } }
+    $v3ok = ($complete.Count -eq $expected) -and ($non200 -eq 0) -and ($short -eq 0)
+    $checks.Add([PSCustomObject]@{ Check = "V3"; Cpus = "todas"; Metric = "-"; Pass = $v3ok
+        Detail = "$($complete.Count) de $expected combinacoes completas (3 cold starts e $Rounds rodadas); respostas diferentes de 200 nas rodadas = $non200; rodadas com requisicoes faltando = $short" })
+
     foreach ($c in $complete) {
         if ($c.Cpus -gt 0) {
             $wanted = [long][Math]::Round($c.Cpus * 1e9)
@@ -540,10 +606,35 @@ function Test-Sanity($combos) {
         }
         $checks.Add([PSCustomObject]@{ Check = "THROTTLE"; Cpus = $c.Cpus; Metric = "-"; Pass = $pass; Detail = $detail })
     }
-    if ($complete.Count -ne ($Tiers.Count * $CpuLimits.Count)) {
-        $checks.Add([PSCustomObject]@{ Check = "COBERTURA"; Cpus = "todas"; Metric = "-"; Pass = $false; Detail = "$($complete.Count) de $($Tiers.Count * $CpuLimits.Count) combinacoes completas" })
-    }
     return $checks.ToArray()
+}
+
+# Indicadores reportados, nao bloqueantes: neutralidade de RAM (por configuração de CPU) e rodada 1 lenta.
+function Get-Indicators($combos) {
+    $out = [System.Collections.Generic.List[object]]::new()
+    $complete = @($combos | Where-Object { $_.Status -eq "OK" -and $_.Rounds.Count -eq $Rounds })
+    $lowTier  = ($Tiers | Measure-Object -Minimum).Minimum
+    $highTier = ($Tiers | Measure-Object -Maximum).Maximum
+    foreach ($cpus in $CpuLimits) {
+        $lo = $complete | Where-Object { $_.Tier -eq $lowTier  -and $_.Cpus -eq $cpus }
+        $hi = $complete | Where-Object { $_.Tier -eq $highTier -and $_.Cpus -eq $cpus }
+        if ($null -eq $lo -or $null -eq $hi -or $lowTier -eq $highTier) { continue }
+        $sLo = Get-Series $lo 'Mean'; $sHi = Get-Series $hi 'Mean'
+        $diff = (Get-Median $sLo) - (Get-Median $sHi)
+        $amp  = [Math]::Max((Get-Amplitude $sLo), (Get-Amplitude $sHi))
+        $out.Add([PSCustomObject]@{ Kind = "RAM"; Cpus = $cpus; InNoise = ([Math]::Abs($diff) -le $amp)
+            Detail = "cpus=${cpus}: mediana da media $lowTier MB menos $highTier MB = $([Math]::Round($diff,2)) ms; maior amplitude = $([Math]::Round($amp,2)) ms: $(if ([Math]::Abs($diff) -le $amp) { 'dentro do ruido' } else { 'fora do ruido' })" })
+    }
+    foreach ($c in $complete) {
+        if ($Rounds -lt 3) { continue }
+        $s = Get-Series $c 'Mean'
+        $rest = [double[]]$s[1..($s.Count - 1)]
+        $excess = $s[0] - ($rest | Measure-Object -Maximum).Maximum
+        $slow = $excess -gt (Get-Amplitude $rest)
+        $out.Add([PSCustomObject]@{ Kind = "RODADA1"; Cpus = $c.Cpus; Slow = $slow
+            Detail = "$($c.Label): media da rodada 1 = $($s[0]) ms; maior das demais = $([Math]::Round(($rest | Measure-Object -Maximum).Maximum,2)) ms; amplitude das demais = $([Math]::Round((Get-Amplitude $rest),2)) ms: $(if ($slow) { 'AVISO, rodada 1 mais lenta' } else { 'sem aviso' })" })
+    }
+    return $out.ToArray()
 }
 
 # ---------------------------------------------------------------------------
@@ -553,6 +644,12 @@ function Test-Sanity($combos) {
 docker pull $LoadImage | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "ERRO: nao foi possivel obter a imagem de carga '$LoadImage'."; exit 1 }
 $LoadImageDigest = (docker image inspect $LoadImage --format '{{index .RepoDigests 0}}' | Out-String).Trim()
+$LoadToolVersion = (docker run --rm $LoadImage version | Out-String).Trim()
+
+Write-Host ""
+Write-Host "Containers em execucao antes da medicao (qualquer um que consuma CPU contamina a medicao):"
+$Running = @(docker ps --format "  {{.Names}}  {{.Image}}  {{.Status}}")
+if ($Running.Count -eq 0) { Write-Host "  (nenhum)" } else { $Running | ForEach-Object { Write-Host $_ } }
 
 $RunStart = Get-Date
 $Combos = [System.Collections.Generic.List[object]]::new()
@@ -561,6 +658,7 @@ try {
     Remove-LoadContainer
     Remove-MeasureNetwork
     docker network create $NetworkName | Out-Null
+    Test-Seeds
     foreach ($cpus in $CpuLimits) {
         foreach ($tier in $Tiers) {
             $Combos.Add((Measure-Combination $tier $cpus))
@@ -575,8 +673,9 @@ finally {
 }
 $ElapsedMin = [Math]::Round(((Get-Date) - $RunStart).TotalMinutes, 1)
 
-$Checks = Test-Sanity $Combos.ToArray()
+$Checks = Test-Validity $Combos.ToArray()
 $Valid  = -not (@($Checks | Where-Object { -not $_.Pass }).Count)
+$Indicators = Get-Indicators $Combos.ToArray()
 
 # ---------------------------------------------------------------------------
 # 8. Relatório e saída estruturada
@@ -587,36 +686,44 @@ Write-Host "================================================================"
 Write-Host "RESULTADO FINAL"
 Write-Host "================================================================"
 Write-Host "Commit: $Commit (src limpo: $SrcClean)  Imagem: $ImageTag  Faixas no banco: $TrackCount"
-Write-Host "Carga: $LoadImageDigest, 1 conexao, $RequestsPerRound req/rodada, $Rounds rodadas, semente $SeedId"
+Write-Host "Carga: $LoadToolVersion ($LoadImageDigest), 1 VU, $SeedCount sementes por rodada (uma passada, mesma ordem), $Rounds rodadas"
 Write-Host "Docker VM: $DockerVm"
 Write-Host "Duracao total: $ElapsedMin min"
 Write-Host ""
-Write-Host "--- Cold start e aquecimento ---"
+Write-Host "--- Cold start (mediana e faixa de 3 arranques) e aquecimento ---"
 foreach ($c in $Combos) {
-    Write-Host ("  {0,-26} status={1}  health={2} ms  1a-recomendacao={3} ms  descartes={4}{5}" -f $c.Label, $c.Status, $c.ColdStartHealthMs, $c.ColdStartFirstRecMs, $c.WarmupDiscards, $(if ($c.WarmupCapped) { " (TETO ATINGIDO)" } else { "" }))
+    if ($c.ColdStarts.Count -eq 0) { Write-Host ("  {0,-26} status={1}" -f $c.Label, $c.Status); continue }
+    $h = Get-ColdSeries $c 'HealthMs'; $f = Get-ColdSeries $c 'FirstRecMs'
+    Write-Host ("  {0,-26} status={1}  /health: mediana={2} ms faixa={3}-{4}  1a-recomendacao: mediana={5} ms faixa={6}-{7}  descartes={8}{9}" -f $c.Label, $c.Status,
+        (Get-Median $h), ($h | Measure-Object -Minimum).Minimum, ($h | Measure-Object -Maximum).Maximum,
+        (Get-Median $f), ($f | Measure-Object -Minimum).Minimum, ($f | Measure-Object -Maximum).Maximum,
+        $c.WarmupDiscards, $(if ($c.WarmupCapped) { " (TETO ATINGIDO)" } else { "" }))
 }
 Write-Host ""
 Write-Host "--- Latencia por rodada (ms), mediana e amplitude entre rodadas ---"
 foreach ($c in $Combos) {
     if ($c.Rounds.Count -eq 0) { continue }
     Write-Host "  $($c.Label)"
-    foreach ($rd in $c.Rounds) { Write-Host ("    R{0}: p50={1,8} p95={2,8} p99={3,8}  ok={4}/{5}" -f $rd.Round, $rd.P50, $rd.P95, $rd.P99, $rd.Ok, $rd.Requests) }
+    foreach ($rd in $c.Rounds) { Write-Host ("    R{0}: media={1,8} p50={2,8} p95={3,8} p99={4,8}  nao200={5}  feitas={6}/{7}" -f $rd.Round, $rd.Mean, $rd.P50, $rd.P95, $rd.P99, $rd.Non200, $rd.Done, $rd.Requests) }
     $line = foreach ($m in $Metrics) { $s = Get-Series $c $m; "{0} mediana={1} amplitude={2}" -f $m, [Math]::Round((Get-Median $s), 2), [Math]::Round((Get-Amplitude $s), 2) }
     Write-Host "    $($line -join ' | ')"
     Write-Host "    throttle: NanoCpus=$($c.Throttle.NanoCpus) nr_throttled+=$($c.Throttle.NrThrottledDelta)/$($c.Throttle.NrPeriodsDelta) throttled_usec+=$($c.Throttle.ThrottledUsecDelta)  RAM=$($c.RamAfterRun)"
 }
 Write-Host ""
-Write-Host "--- Sanidade bloqueante ---"
+Write-Host "--- Validade bloqueante ---"
 foreach ($k in $Checks) {
     Write-Host ("  [{0}] {1} cpus={2} {3}: {4}" -f $(if ($k.Pass) { "OK  " } else { "FALHA" }), $k.Check, $k.Cpus, $k.Metric, $k.Detail)
 }
+Write-Host ""
+Write-Host "--- Indicadores nao bloqueantes ---"
+foreach ($i in $Indicators) { Write-Host "  [$($i.Kind)] $($i.Detail)" }
 
 if ([string]::IsNullOrEmpty($OutFile)) { $OutFile = Join-Path ([IO.Path]::GetTempPath()) "measure-latency-$Commit.json" }
 [PSCustomObject]@{
     Commit = $Commit; SrcClean = $SrcClean; Image = $ImageTag; TrackCount = $TrackCount; LoadImage = $LoadImage
-    LoadImageDigest = $LoadImageDigest
-    SeedId = $SeedId; RequestsPerRound = $RequestsPerRound; Rounds = $Rounds; DockerVm = $DockerVm
-    ElapsedMinutes = $ElapsedMin; Valid = $Valid; Combinations = $Combos.ToArray(); Sanity = $Checks
+    LoadImageDigest = $LoadImageDigest; LoadToolVersion = $LoadToolVersion
+    SeedCount = $SeedCount; Seeds = $Seeds; Rounds = $Rounds; DockerVm = $DockerVm
+    ElapsedMinutes = $ElapsedMin; Valid = $Valid; Combinations = $Combos.ToArray(); Validity = $Checks; Indicators = $Indicators
 } | ConvertTo-Json -Depth 8 | Set-Content -Path $OutFile -Encoding UTF8
 Write-Host ""
 Write-Host "Saida estruturada: $OutFile"
@@ -629,8 +736,8 @@ if ($Capped.Count -gt 0) {
 
 if (-not $Valid) {
     Write-Host ""
-    Write-Host "MEDICAO INVALIDA: ao menos uma sanidade falhou. NAO publique estes numeros." -ForegroundColor Red
+    Write-Host "MEDICAO INVALIDA: ao menos uma validade (THROTTLE, V1, V2, V3) falhou. NAO publique estes numeros." -ForegroundColor Red
     exit 2
 }
 Write-Host ""
-Write-Host "MEDICAO VALIDA: as tres sanidades e o THROTTLE passaram em todas as combinacoes$(if ($Capped.Count -gt 0) { ' (COM AVISO DE AQUECIMENTO ACIMA)' })." -ForegroundColor Green
+Write-Host "MEDICAO VALIDA: THROTTLE, V1, V2 e V3 passaram em todas as combinacoes$(if ($Capped.Count -gt 0) { ' (COM AVISO DE AQUECIMENTO ACIMA)' })." -ForegroundColor Green
