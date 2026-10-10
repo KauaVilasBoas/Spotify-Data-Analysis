@@ -9,7 +9,9 @@
 
     FERRAMENTA DE CARGA
     -------------------
-    bombardier 1.2.6, imagem pública alpine/bombardier:1.2.6 (digest sha256:7be639b2...55ab), executada
+    bombardier 1.2.6, imagem pública alpine/bombardier fixada por digest (tag 1.2.6, digest
+    sha256:7be639b288fce624fee54e2ef95c35685f90fc9ed1399812cf856b4b7c6c55ab; o JSON grava o digest
+    REAL lido do Docker para a imagem usada, que muda se alguém passar -LoadImage), executada
     em um container descartável (docker run --rm) NA MESMA REDE DOCKER da API, falando com a API pelo
     nome do container. Os percentis (p50/p95/p99) vêm da ferramenta (-l -o json), nenhum é calculado em
     PowerShell. Nada é instalado nem versionado: só Docker é necessário. O cliente deixou de ser o
@@ -18,9 +20,11 @@
     CARGA
     -----
     1 conexão (-c 1), requisições sequenciais, o cenário honesto de uma demo em free tier. Uma única
-    semente (a primeira da seleção determinística): o custo do endpoint é uma varredura completa do
-    índice, e o código da API não tem cache de resposta, então a semente não muda o trabalho feito.
-    Só a estratégia "content" é medida (a de menor custo; "blend" continua fora desta medição).
+    semente (a primeira da seleção determinística). A varredura do índice, feita uma vez por requisição
+    na janela máxima, não depende da semente. O pós-processamento (dedup, até 3 rodadas; cerca de 36%
+    das sementes precisam de mais de uma) e as 2 leituras de metadados no Postgres dependem dela e não
+    foram amostrados: o número vale para esta semente, não para a média do endpoint.
+    Só a estratégia "content" é medida; "blend" está fora desta medição.
 
     AQUECIMENTO (DP-1)
     ------------------
@@ -51,20 +55,24 @@
 
     SANIDADE BLOQUEANTE
     -------------------
-    Três checagens sobre os próprios dados; se QUALQUER uma falhar a medição é INVÁLIDA, o script
-    imprime os números crus, sai com código 2 e nada deve ir para o README. Valem para p50, p95 e p99:
+    Três checagens sobre os próprios dados, mais a prova de throttle (THROTTLE); se QUALQUER uma
+    falhar a medição é INVÁLIDA, o script imprime os números crus, sai com código 2 e nada deve ir
+    para o README. S1, S2 e S3 valem para p50, p95 e p99:
       S1  em cada CPU, a mediana de 256 MB não pode ser MENOR que a de 512 MB;
       S2  em cada CPU, a amplitude entre rodadas (a maior dos dois tiers) tem de ser MENOR que a
           diferença entre as medianas dos tiers;
       S3  a rodada 1 não pode ser sistematicamente a mais lenta. Falha se, em qualquer combinação,
-          o p50 cai estritamente a cada rodada, OU o p50 da rodada 1 supera o maior das rodadas 2..5
-          por mais que a amplitude das rodadas 2..5, OU a rodada 1 é a mais lenta nas quatro combinações.
+          a métrica (p50, p95 ou p99, cada uma por si) cai estritamente a cada rodada, OU a da rodada 1
+          supera o maior valor das rodadas 2..5 por mais que a amplitude das rodadas 2..5, OU a
+          rodada 1 é a mais lenta em todas as combinações.
+      THROTTLE  com Cpus > 0, HostConfig.NanoCpus tem de ser o pedido e nr_throttled do cpu.stat tem
+          de ter crescido durante as rodadas; com Cpus = 0, NanoCpus tem de ser 0.
     Uma diferença real entre 512 e 256 MB menor que o ruído torna a S2 insatisfazível por natureza;
     se for o caso, o resultado é reportado como tal, não forçado.
 
     PRÉ-REQUISITOS
     --------------
-    - Docker Desktop em execução.
+    - Docker Desktop em execução, com cgroup v2 APENAS (o script aborta em cgroup v1).
     - Variável de ambiente ConnectionStrings__SpotifyDb com a connection string do banco.
       O script FALHA com mensagem clara se a variável estiver ausente.
     - psql.exe acessível em $env:PATH ou no caminho padrão do PostgreSQL (o banco só é LIDO).
@@ -85,6 +93,14 @@
        tier final, só que a latência parou de se mover o suficiente para o critério da DP-1.
     5. A RAM lida é o uso corrente no fim da corrida (docker stats --no-stream), não o pico histórico.
     6. O cold start depende do cache de páginas do Postgres e do disco do momento.
+    7. O cold start é amostra única (n = 1) por combinação e nenhuma sanidade o cobre.
+    8. A ordem das combinações é fixa (512 antes de 256 dentro de cada CPU): deriva lenta do host pode
+       aparecer como diferença entre tiers.
+    9. O S3 tem probabilidade não nula de reprovar por acaso (12 séries de 5 valores).
+    10. A connection string vai para o container por -e na linha de comando do docker run, visível em
+        docker inspect e na lista de processos do host. O script anterior já fazia assim; aceitável
+        para máquina de desenvolvimento.
+    11. A reescrita de Host=localhost para host.docker.internal não tem âncora e pressupõe Docker Desktop.
 
 .PARAMETER ImageTag
     Tag da imagem Docker a usar. Padrão: "spotifydataanalysis-api:<commit curto do HEAD>".
@@ -106,10 +122,11 @@
     Porta local publicada pelo container (usada só no polling do cold start). Padrão: 18080.
 
 .PARAMETER LoadImage
-    Imagem do gerador de carga. Padrão: alpine/bombardier:1.2.6.
+    Imagem do gerador de carga. Padrão: alpine/bombardier@sha256:7be639b2...55ab (tag 1.2.6, digest
+    completo no valor padrão do parâmetro). O JSON grava o digest real lido do Docker para a imagem usada.
 
 .PARAMETER OutFile
-    Arquivo JSON com a saída estruturada. Padrão: measure-latency-<commit>.json em $env:TEMP
+    Arquivo JSON com a saída estruturada. Padrão: measure-latency-<commit>.json na pasta temporária
     (fora do repositório). Não contém connection string.
 
 .PARAMETER RepoRoot
@@ -139,7 +156,7 @@ param(
     [int]      $Rounds    = 5,
     [int]      $RequestsPerRound = 200,
     [int]      $Port      = 18080,
-    [string]   $LoadImage = "alpine/bombardier:1.2.6",
+    [string]   $LoadImage = "alpine/bombardier@sha256:7be639b288fce624fee54e2ef95c35685f90fc9ed1399812cf856b4b7c6c55ab",
     [string]   $OutFile   = "",
     [string]   $RepoRoot  = (Split-Path $PSScriptRoot -Parent)
 )
@@ -195,6 +212,11 @@ if ($LASTEXITCODE -ne 0) {
 $Commit   = (git -C $RepoRoot rev-parse --short HEAD | Out-String).Trim()
 $SrcClean = -not (git -C $RepoRoot status --porcelain -- src Directory.Build.props Dockerfile | Out-String).Trim()
 $DockerVm = (docker info --format "NCPU={{.NCPU}} MemTotal={{.MemTotal}} cgroup=v{{.CgroupVersion}}" | Out-String).Trim()
+$CgroupVersion = (docker info --format "{{.CgroupVersion}}" | Out-String).Trim()
+if ($CgroupVersion -ne "2") {
+    Write-Error "ERRO: este script exige cgroup v2 (a prova de throttle le /sys/fs/cgroup/cpu.stat); o Docker reporta cgroup v'$CgroupVersion'."
+    exit 1
+}
 if (-not $ImageTag) { $ImageTag = "spotifydataanalysis-api:$Commit" }
 if (-not $SrcClean) { Write-Warning "src/, Directory.Build.props ou Dockerfile têm mudanças não commitadas: o commit medido NÃO descreve a imagem." }
 
@@ -215,7 +237,7 @@ else {
 # ---------------------------------------------------------------------------
 
 Write-Host ""
-Write-Host "Buscando 300 sementes determinísticas do banco (seed='e4.4-proxies-v1')..."
+Write-Host "Buscando a seleção determinística de sementes do banco (seed='e4.4-proxies-v1'); só a primeira é usada na carga..."
 
 $SeedSql = @"
 SELECT t.id
@@ -272,6 +294,7 @@ $SeedId  = $Seeds[0]
 $RecPath = "/api/recommendations/track/${SeedId}?limit=10&strategy=content"
 
 $ContainerName = "spotifyda-latency-measure"
+$LoadName      = "spotifyda-latency-load"
 $NetworkName   = "spotifyda-latency-net"
 $InternalUrl   = "http://${ContainerName}:8080"
 $HostUrl       = "http://localhost:$Port"
@@ -299,6 +322,11 @@ function Stop-MeasureContainer {
     }
 }
 
+function Remove-LoadContainer {
+    $exists = docker ps -a --filter "name=^${LoadName}$" --format "{{.Names}}"
+    if ($exists -eq $LoadName) { docker rm -f $LoadName | Out-Null }
+}
+
 function Remove-MeasureNetwork {
     $exists = docker network ls --filter "name=^${NetworkName}$" --format "{{.Name}}"
     if ($exists -eq $NetworkName) { docker network rm $NetworkName | Out-Null }
@@ -319,7 +347,7 @@ function Get-Amplitude([double[]]$v) {
 # Roda o bombardier (container descartável, mesma rede da API). Os percentis vêm da ferramenta.
 # O JSON do bombardier reporta latência em microssegundos.
 function Invoke-Load([int]$requests) {
-    $out = docker run --rm --network $NetworkName $LoadImage -c 1 -t 60s -l -p r -o json -n $requests "$InternalUrl$RecPath"
+    $out = docker run --rm --name $LoadName --network $NetworkName $LoadImage -c 1 -t 60s -l -p r -o json -n $requests "$InternalUrl$RecPath"
     if ($LASTEXITCODE -ne 0) { throw "bombardier falhou (exit $LASTEXITCODE): $out" }
     $res = ($out -join "`n" | ConvertFrom-Json).result
     $p = $res.latency.percentiles
@@ -339,9 +367,13 @@ function Invoke-Load([int]$requests) {
 function Get-CpuStat {
     $h = @{}
     $raw = docker exec $ContainerName cat /sys/fs/cgroup/cpu.stat
+    if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel ler /sys/fs/cgroup/cpu.stat no container (exit $LASTEXITCODE): a prova de throttle e impossivel." }
     foreach ($line in $raw) {
         $kv = "$line" -split '\s+'
         if ($kv.Count -eq 2) { $h[$kv[0]] = [long]$kv[1] }
+    }
+    foreach ($k in 'nr_periods', 'nr_throttled', 'throttled_usec', 'usage_usec') {
+        if (-not $h.ContainsKey($k)) { throw "cpu.stat sem a chave '$k' (saida: $($raw -join ' | ')): a prova de throttle e impossivel." }
     }
     return $h
 }
@@ -392,7 +424,9 @@ function Measure-Combination([int]$tierMiB, [double]$cpus) {
         Stop-MeasureContainer; return [PSCustomObject]$combo
     }
     while ($sw.Elapsed.TotalMilliseconds -lt $deadline) {
-        if ((Get-StatusCode "$HostUrl$RecPath") -eq 200) { $combo.ColdStartFirstRecMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
+        $code = Get-StatusCode "$HostUrl$RecPath"
+        if ($code -eq 200) { $combo.ColdStartFirstRecMs = [Math]::Round($sw.Elapsed.TotalMilliseconds, 1); break }
+        if ($code -in 404, 422) { throw "A semente $SeedId devolveu HTTP $code no endpoint de recomendacao: a medicao seria de erro, nao de latencia." }
         Start-Sleep -Milliseconds 25
     }
     if ($null -eq $combo.ColdStartFirstRecMs) { $combo.Status = "TIMEOUT_RECOMENDACAO"; Stop-MeasureContainer; return [PSCustomObject]$combo }
@@ -495,6 +529,17 @@ function Test-Sanity($combos) {
         $checks.Add([PSCustomObject]@{ Check = "S3"; Cpus = "todas"; Metric = $m; Pass = (-not ($complete.Count -gt 0 -and $firstSlowest -eq $complete.Count))
             Detail = "rodada 1 foi a mais lenta em $firstSlowest de $($complete.Count) combinacoes" })
     }
+    foreach ($c in $complete) {
+        if ($c.Cpus -gt 0) {
+            $wanted = [long][Math]::Round($c.Cpus * 1e9)
+            $pass = ($c.Throttle.NanoCpus -eq $wanted) -and ($c.Throttle.NrThrottledDelta -gt 0)
+            $detail = "$($c.Tier) MB: NanoCpus=$($c.Throttle.NanoCpus) (pedido $wanted), nr_throttled+=$($c.Throttle.NrThrottledDelta) de $($c.Throttle.NrPeriodsDelta) periodos"
+        } else {
+            $pass = ($c.Throttle.NanoCpus -eq 0)
+            $detail = "$($c.Tier) MB: NanoCpus=$($c.Throttle.NanoCpus) (esperado 0, sem throttle)"
+        }
+        $checks.Add([PSCustomObject]@{ Check = "THROTTLE"; Cpus = $c.Cpus; Metric = "-"; Pass = $pass; Detail = $detail })
+    }
     if ($complete.Count -ne ($Tiers.Count * $CpuLimits.Count)) {
         $checks.Add([PSCustomObject]@{ Check = "COBERTURA"; Cpus = "todas"; Metric = "-"; Pass = $false; Detail = "$($complete.Count) de $($Tiers.Count * $CpuLimits.Count) combinacoes completas" })
     }
@@ -505,9 +550,15 @@ function Test-Sanity($combos) {
 # 7. Execução
 # ---------------------------------------------------------------------------
 
+docker pull $LoadImage | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Error "ERRO: nao foi possivel obter a imagem de carga '$LoadImage'."; exit 1 }
+$LoadImageDigest = (docker image inspect $LoadImage --format '{{index .RepoDigests 0}}' | Out-String).Trim()
+
 $RunStart = Get-Date
 $Combos = [System.Collections.Generic.List[object]]::new()
 try {
+    Stop-MeasureContainer
+    Remove-LoadContainer
     Remove-MeasureNetwork
     docker network create $NetworkName | Out-Null
     foreach ($cpus in $CpuLimits) {
@@ -518,7 +569,9 @@ try {
 }
 finally {
     Stop-MeasureContainer
+    Remove-LoadContainer
     Remove-MeasureNetwork
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
 $ElapsedMin = [Math]::Round(((Get-Date) - $RunStart).TotalMinutes, 1)
 
@@ -534,7 +587,7 @@ Write-Host "================================================================"
 Write-Host "RESULTADO FINAL"
 Write-Host "================================================================"
 Write-Host "Commit: $Commit (src limpo: $SrcClean)  Imagem: $ImageTag  Faixas no banco: $TrackCount"
-Write-Host "Carga: $LoadImage, 1 conexao, $RequestsPerRound req/rodada, $Rounds rodadas, semente $SeedId"
+Write-Host "Carga: $LoadImageDigest, 1 conexao, $RequestsPerRound req/rodada, $Rounds rodadas, semente $SeedId"
 Write-Host "Docker VM: $DockerVm"
 Write-Host "Duracao total: $ElapsedMin min"
 Write-Host ""
@@ -558,15 +611,21 @@ foreach ($k in $Checks) {
     Write-Host ("  [{0}] {1} cpus={2} {3}: {4}" -f $(if ($k.Pass) { "OK  " } else { "FALHA" }), $k.Check, $k.Cpus, $k.Metric, $k.Detail)
 }
 
-if ([string]::IsNullOrEmpty($OutFile)) { $OutFile = Join-Path $env:TEMP "measure-latency-$Commit.json" }
+if ([string]::IsNullOrEmpty($OutFile)) { $OutFile = Join-Path ([IO.Path]::GetTempPath()) "measure-latency-$Commit.json" }
 [PSCustomObject]@{
     Commit = $Commit; SrcClean = $SrcClean; Image = $ImageTag; TrackCount = $TrackCount; LoadImage = $LoadImage
-    LoadImageDigestNote = "sha256:7be639b288fce624fee54e2ef95c35685f90fc9ed1399812cf856b4b7c6c55ab"
+    LoadImageDigest = $LoadImageDigest
     SeedId = $SeedId; RequestsPerRound = $RequestsPerRound; Rounds = $Rounds; DockerVm = $DockerVm
     ElapsedMinutes = $ElapsedMin; Valid = $Valid; Combinations = $Combos.ToArray(); Sanity = $Checks
 } | ConvertTo-Json -Depth 8 | Set-Content -Path $OutFile -Encoding UTF8
 Write-Host ""
 Write-Host "Saida estruturada: $OutFile"
+
+$Capped = @($Combos | Where-Object { $_.WarmupCapped } | ForEach-Object { $_.Label })
+if ($Capped.Count -gt 0) {
+    Write-Host ""
+    Write-Host "AVISO: aquecimento bateu no teto de 200 descartes SEM estabilizar em: $($Capped -join '; '). Os numeros dessas combinacoes nao sao de regime estavel." -ForegroundColor Yellow
+}
 
 if (-not $Valid) {
     Write-Host ""
@@ -574,4 +633,4 @@ if (-not $Valid) {
     exit 2
 }
 Write-Host ""
-Write-Host "MEDICAO VALIDA: as tres sanidades passaram em todas as combinacoes." -ForegroundColor Green
+Write-Host "MEDICAO VALIDA: as tres sanidades e o THROTTLE passaram em todas as combinacoes$(if ($Capped.Count -gt 0) { ' (COM AVISO DE AQUECIMENTO ACIMA)' })." -ForegroundColor Green
