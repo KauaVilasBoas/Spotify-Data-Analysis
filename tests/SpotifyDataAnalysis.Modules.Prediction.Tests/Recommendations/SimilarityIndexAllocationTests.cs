@@ -10,6 +10,7 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations;
 public sealed class SimilarityIndexAllocationTests
 {
     private const int TopN = 10;
+    private const string SeedTrackId = "t000000";
     private const int MeasuredCalls = 20;
     private const long CeilingBytesPerCall = 16 * 1024;
 
@@ -35,11 +36,11 @@ public sealed class SimilarityIndexAllocationTests
 
     private static double AllocatedBytesPerCall(SimilarityIndex index)
     {
-        index.FindNearestTo("t000000", TopN);
+        Assert.Equal(TopN, index.FindNearestTo(SeedTrackId, TopN)?.Count);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < MeasuredCalls; i++)
-            index.FindNearestTo("t000000", TopN);
+            index.FindNearestTo(SeedTrackId, TopN);
 
         return (GC.GetAllocatedBytesForCurrentThread() - before) / (double)MeasuredCalls;
     }
@@ -47,7 +48,7 @@ public sealed class SimilarityIndexAllocationTests
     [Theory]
     [InlineData(2_000)]
     [InlineData(20_000)]
-    public void FindNearestTo_AllocationDoesNotGrowWithIndexSize(int indexSize)
+    public void FindNearestTo_DoesNotAllocatePerCandidate(int indexSize)
     {
         double bytesPerCall = AllocatedBytesPerCall(BuildIndex(indexSize));
 
