@@ -7,7 +7,7 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluatio
 /// <summary>
 /// Monta o insumo da avaliação do recomendador (E4.4) lendo o schema <c>catalog</c> com Dapper: a amostra FIXA de
 /// sementes, os grupos de quase-duplicatas e o censo que contextualiza os números. Mesma fronteira do E3.1/E4.1 —
-/// SQL puro, zero referência .NET a tipos do Catalog (posição guardada pelos ArchTests).
+/// SQL puro, zero referência .NET a tipos do Catalog.
 ///
 /// <para><b>Reprodutibilidade por SQL, não por Random:</b> a amostragem ordena por <c>md5(semente || chave)</c>.
 /// É determinística (a mesma semente textual devolve sempre as mesmas faixas), independe de cultura, de versão do
@@ -21,7 +21,7 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluatio
 internal sealed class CatalogRecommenderEvaluationSampleSource : BaseDataAccess
 {
     /// <summary>
-    /// O predicado de ELEGIBILIDADE, idêntico em regra ao <c>WHERE</c> do <see cref="CatalogSimilarityFeatureSource"/>:
+    /// O predicado de ELEGIBILIDADE, idêntico em regra ao <c>WHERE</c> do <see cref="SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.CatalogSimilarityFeatureSource"/>:
     /// só faixa com as NOVE features contínuas presentes entra no índice, logo amostrar de um universo mais amplo
     /// produziria sementes que o avaliador só teria como descartar. Restatado aqui (e não extraído do SQL do E4.1)
     /// para não reescrever uma consulta de produção já validada em smoke por conveniência cosmética.
