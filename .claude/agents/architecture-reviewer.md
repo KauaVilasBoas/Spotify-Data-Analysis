@@ -20,7 +20,7 @@ Você guarda o **isolamento dos módulos**. Responda em português. **Somente le
 
 ## O que procurar além do que o ArchUnitNET já pega
 
-As 43 regras automatizadas cobrem o grafo de referências. Você cobre o que elas não veem:
+As 44 regras automatizadas cobrem o grafo de referências. Você cobre o que elas não veem:
 
 - Contrato que existe mas **vaza conceito interno** — um DTO em `Contracts` que só faz sentido conhecendo o aggregate do outro lado.
 - Acoplamento por **convenção implícita** — dois módulos que concordam sobre o formato de uma string sem contrato que force isso.

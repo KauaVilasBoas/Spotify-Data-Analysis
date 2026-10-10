@@ -497,7 +497,7 @@ reflexão.
 
 ## O que o build defende sozinho
 
-São **43 regras** ArchUnitNET, e elas falham o `dotnet test` no instante em que:
+São **44 regras** ArchUnitNET, e elas falham o `dotnet test` no instante em que:
 
 - o `Domain` de um módulo toca `Domain`, `Application` ou `Infrastructure` de outro;
 - o `Domain` referencia EF Core, Dapper ou ASP.NET;
@@ -528,8 +528,6 @@ porque são exatamente onde a intuição erra.
 | pipeline "Validation → Logging → Transaction" | **Logging → Validation → Transaction**. O primeiro registrado é o mais externo, e `LoggingBehavior` é registrado primeiro | log envolve a validação, então uma requisição que falha na validação **aparece** no log. Na ordem documentada, não apareceria |
 | `TransactionBehavior` no pipeline | **não é registrado globalmente**, é por módulo de escrita, porque depende de `IUnitOfWork` | queries nunca pagam transação, e isso é escolha |
 | roteamento diz "api-endpoint-specialist: Host/Api: endpoint" | os controllers moram em **`*.Application/Controllers/`** de cada módulo | ao adicionar endpoint, você mexe no módulo, não no Host |
-| "as 42 regras do ArchitectureTests" | são **43** desde `d50238e` | contagem, não conceito |
-
 Nenhuma dessas é bug. São documentação desatualizada, e a lista existe para você não
 perder tempo procurando controller no Host.
 

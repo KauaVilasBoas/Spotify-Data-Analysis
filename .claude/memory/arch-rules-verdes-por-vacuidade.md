@@ -22,9 +22,10 @@ E4.8/E1.13/E6.9 acrescentou o primeiro tipo novo ao SharedKernel em vários épi
 **Havia uma quinta armadilha no mesmo padrão:** `ResideInNamespace("Microsoft.AspNetCore")`
 nunca detectaria nada nem com o subject correto, porque nenhum tipo do ASP.NET mora
 no namespace raiz. Corrigida no `SharedKernelPurityTests` com
-`ResideInNamespaceMatching`; **as três regras equivalentes de Catalog, Analytics e
-Prediction continuam com o exato** (`*ModuleIsolationTests.cs`) e seguem incapazes
-de detectar violação.
+`ResideInNamespaceMatching`, e as três regras equivalentes de Catalog, Analytics e
+Prediction (`*ModuleIsolationTests.cs`) só foram corrigidas num segundo commit
+(`aca5ede`): a primeira correção consertou um arquivo e deixou o mesmo defeito vivo
+nos outros três.
 
 **O que isso significa na prática:** contagem de regras não é cobertura. Regra de
 arquitetura nova só conta como prova depois de um par vermelho/verde com violação
