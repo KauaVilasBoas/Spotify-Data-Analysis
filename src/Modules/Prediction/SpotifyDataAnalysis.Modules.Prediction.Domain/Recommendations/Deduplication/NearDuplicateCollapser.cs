@@ -111,6 +111,9 @@ public sealed class NearDuplicateCollapser
             else
             {
                 target.Absorb(candidate);
+
+                if (!candidate.DuplicateKey.IsEmpty)
+                    byKey.TryAdd(candidate.DuplicateKey.Value, target);
             }
         }
 
