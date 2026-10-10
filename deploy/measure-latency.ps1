@@ -18,8 +18,9 @@
     deploy/measure-latency.k6.js (texto, versionado), é montado somente leitura. Média, p50, p95 e p99
     vêm do k6 (summaryTrendStats declarado no .js; o resumo sai em JSON, numa linha "K6SUMMARY" do
     stdout), nenhum é calculado em PowerShell. A duração é a http_req_duration do k6 (envio, espera e
-    recebimento; a conexão keep-alive é reaproveitada, então o handshake não entra). Nada é instalado:
-    só Docker é necessário.
+    recebimento; a conexão keep-alive é reaproveitada, então o handshake não entra). Nenhum binário
+    de carga é instalado nem versionado no host; o host precisa de Docker, git, psql e de um Postgres
+    acessível (ver PRÉ-REQUISITOS).
 
     CARGA
     -----
@@ -98,6 +99,7 @@
 
     PRÉ-REQUISITOS
     --------------
+    - git no PATH (o commit medido é lido de "git rev-parse"), a pasta do repositório e o Dockerfile.
     - Docker Desktop em execução, com cgroup v2 APENAS (o script aborta em cgroup v1).
     - Variável de ambiente ConnectionStrings__SpotifyDb com a connection string do banco.
       O script FALHA com mensagem clara se a variável estiver ausente.
@@ -118,7 +120,12 @@
        um provedor de free tier pode diferir do de um host local. Sob essa cota os percentis são
        bimodais; por isso a validade é sobre a média.
     4. O aquecimento mede estabilidade da média entre janelas de 20 sementes repetidas; não prova que o
-       JIT chegou ao tier final.
+       JIT chegou ao tier final. Sob cota de CFS ele converge ANTES do regime: na medição de 10/10 a
+       média por rodada a 0,1 CPU ainda caía na rodada 5 (512 MB: 156,6; 125,6; 118,5; 108,6; 107,8 ms),
+       então a mediana das 5 rodadas é um teto do regime, não o regime. Candidatos de melhoria, não
+       implementados: aquecer com sementes distintas ou por tempo mínimo de relógio, exigir três janelas
+       consecutivas dentro de 10%, e publicar a mediana das últimas rodadas. O indicador "rodada 1 mais
+       lenta" só compara a rodada 1 com as demais e não enxerga uma queda monótona da rodada 2 em diante.
     5. A RAM lida é o uso corrente no fim da corrida (docker stats --no-stream), não o pico histórico.
     6. O cold start depende do cache de páginas do Postgres e do disco do momento (ver COLD START).
     7. A ordem das combinações é fixa (512 antes de 256 dentro de cada CPU, CPU limitada antes da
@@ -180,9 +187,23 @@
     em arquivo use Start-Transcript, ou construa a imagem antes (docker build -t spotifydataanalysis-api:<commit> .)
     e então redirecione à vontade, pois o script passa a usar a imagem existente.
 
-    O script NÃO toca em containers de outros projetos: só cria e remove, pelo nome exato, o container
-    "spotifyda-latency-measure" e a rede "spotifyda-latency-net". Ambos são derrubados ao final,
-    mesmo em caso de erro. Nenhuma connection string ou senha é gravada em arquivo ou exibida em log.
+    CÓDIGOS DE SAÍDA: 0 = medição válida (THROTTLE, V1, V2, V3 passaram); 2 = medição inválida (alguma
+    validade falhou ou uma combinação ficou incompleta, por exemplo container morto por OOM); 3 = ENSAIO
+    (Rounds menor que 5 ou SeedCount menor que 300): só prova o encanamento, é rotulado "ENSAIO" na saída e
+    em Rehearsal=true no JSON, e nunca é resultado. Erros de pré-condição saem com 1.
+
+    LIMPEZA E SEGREDOS: o script NÃO toca em recursos de outros projetos: só cria e remove, pelo nome
+    exato, o container da API "spotifyda-latency-measure", o container do k6 "spotifyda-latency-load" e a
+    rede "spotifyda-latency-net". Os três são derrubados ao final, em caso de exceção ou Ctrl+C. NÃO em
+    caso de kill do processo ou fechamento da janela: aí sobram o container da API, o do k6 e a rede até
+    a próxima execução, que os remove pelo nome. A connection string e a senha não são gravadas em
+    arquivo nem impressas pelo script; PGPASSWORD só existe durante as chamadas ao psql. A exceção é o
+    diagnóstico de TIMEOUT_HEALTH, que imprime as últimas 15 linhas do "docker logs" do container da
+    API (conteúdo da aplicação, que normalmente não traz a connection string, mas não é filtrado). A
+    connection string fica visível em "docker inspect" do container (ver limitação 8).
+
+    O PRÉ-VOO percorre as 300 sementes antes de qualquer combinação e portanto aquece o cache de páginas
+    do Postgres e do SO para elas: isso vale para todas as combinações e para os cold starts.
 #>
 [CmdletBinding()]
 param(
@@ -309,8 +330,15 @@ $dbName   = $connMap["Database"]
 $dbUser   = $connMap["Username"]
 $dbPass   = $connMap["Password"]
 
+# PGPASSWORD só existe durante as duas chamadas ao psql e é removida em qualquer saída (inclusive erro).
 $env:PGPASSWORD = $dbPass
-$rawIds = & $PsqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -A -c $SeedSql 2>&1
+try {
+    $rawIds = & $PsqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -A -c $SeedSql 2>&1
+    $TrackCount = (& $PsqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -A -c "SELECT count(*) FROM catalog.tracks;" | Out-String).Trim()
+}
+finally {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+}
 $Seeds  = $rawIds | Where-Object { $_ -match '^[A-Za-z0-9]{15,30}$' }
 
 if ($Seeds.Count -lt $SeedCount -or $SeedCount -lt 20) {
@@ -324,7 +352,6 @@ Write-Host "  $($Seeds.Count) sementes carregadas."
 # 4. Banco (somente leitura) e funções auxiliares
 # ---------------------------------------------------------------------------
 
-$TrackCount = (& $PsqlExe -h $dbHost -p $dbPort -U $dbUser -d $dbName -t -A -c "SELECT count(*) FROM catalog.tracks;" | Out-String).Trim()
 Write-Host "  catalog.tracks no banco: $TrackCount faixas"
 
 $SeedId  = $Seeds[0]
@@ -386,12 +413,22 @@ function Get-Amplitude([double[]]$v) {
 # Roda o k6 (container descartável, mesma rede da API, 1 VU) sobre as primeiras $requests sementes,
 # em ordem. Média e percentis vêm do k6 (linha K6SUMMARY do stdout), em ms.
 function Invoke-Load([int]$requests) {
-    $out = docker run --rm --name $LoadName --network $NetworkName -v "${PSScriptRoot}:/scripts:ro" `
-        -e "BASE_URL=$InternalUrl" -e "SEEDS=$SeedList" -e "ITERATIONS=$requests" `
-        $LoadImage run --quiet --no-color /scripts/measure-latency.k6.js 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "k6 falhou (exit $LASTEXITCODE): $out" }
+    # stderr do k6 é capturado (2>&1 com "Continue", senão o PowerShell 5.1 o trata como erro fatal) e
+    # entra na mensagem de falha. Nesse caminho só há URL interna e ids de faixa, nenhuma credencial.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $all = @(docker run --rm --name $LoadName --network $NetworkName -v "${PSScriptRoot}:/scripts:ro" `
+            -e "BASE_URL=$InternalUrl" -e "SEEDS=$SeedList" -e "ITERATIONS=$requests" `
+            $LoadImage run --quiet --no-color /scripts/measure-latency.k6.js 2>&1)
+        $k6Exit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $prevEap }
+    $out = @($all | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+    $err = @($all | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+    if ($k6Exit -ne 0) { throw "k6 falhou (exit $k6Exit). stdout: $($out -join ' | ') stderr (ultimas linhas): $(@($err | Select-Object -Last 15) -join ' | ')" }
     $line = @($out | Where-Object { "$_" -like 'K6SUMMARY *' })
-    if ($line.Count -ne 1) { throw "k6 nao emitiu exatamente uma linha K6SUMMARY (saida: $($out -join ' | '))" }
+    if ($line.Count -ne 1) { throw "k6 nao emitiu exatamente uma linha K6SUMMARY (stdout: $($out -join ' | '); stderr, ultimas linhas: $(@($err | Select-Object -Last 15) -join ' | '))" }
     $res = ("$($line[0])".Substring(10)) | ConvertFrom-Json
     return [PSCustomObject]@{
         Requests = $requests
@@ -528,12 +565,18 @@ function Measure-Combination([int]$tierMiB, [double]$cpus) {
     # Rodadas medidas, com o delta do cpu.stat como evidência de throttle.
     $cpuBefore = Get-CpuStat
     for ($r = 1; $r -le $Rounds; $r++) {
+        # Container morto numa rodada encerra o laço; a combinação é devolvida incompleta, com OOMKilled.
         $res = Invoke-Load $SeedCount
         $res | Add-Member -NotePropertyName Round -NotePropertyValue $r
         $combo.Rounds += $res
         Write-Host "    rodada ${r}/${Rounds}: media=$($res.Mean) ms  p50=$($res.P50) ms  p95=$($res.P95) ms  p99=$($res.P99) ms  nao200=$($res.Non200)  feitas=$($res.Done)/$($res.Requests)"
         $status = docker inspect $ContainerName --format "{{.State.Status}}"
         if ($status -ne "running") { $combo.Status = "MORTO_NA_RODADA_$r (OOMKilled=$(docker inspect $ContainerName --format '{{.State.OOMKilled}}'))"; break }
+    }
+    if ($combo.Status -ne "OK") {
+        Write-Host "  AVISO: $($combo.Status); combinacao incompleta, V3 reprova." -ForegroundColor Yellow
+        Stop-MeasureContainer
+        return [PSCustomObject]$combo
     }
     $cpuAfter = Get-CpuStat
 
@@ -669,12 +712,12 @@ finally {
     Stop-MeasureContainer
     Remove-LoadContainer
     Remove-MeasureNetwork
-    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
 $ElapsedMin = [Math]::Round(((Get-Date) - $RunStart).TotalMinutes, 1)
 
 $Checks = Test-Validity $Combos.ToArray()
 $Valid  = -not (@($Checks | Where-Object { -not $_.Pass }).Count)
+$Rehearsal = ($Rounds -lt 5 -or $SeedCount -lt 300)
 $Indicators = Get-Indicators $Combos.ToArray()
 
 # ---------------------------------------------------------------------------
@@ -683,7 +726,7 @@ $Indicators = Get-Indicators $Combos.ToArray()
 
 Write-Host ""
 Write-Host "================================================================"
-Write-Host "RESULTADO FINAL"
+Write-Host "RESULTADO FINAL$(if ($Rehearsal) { ' (ENSAIO, NAO E RESULTADO)' })"
 Write-Host "================================================================"
 Write-Host "Commit: $Commit (src limpo: $SrcClean)  Imagem: $ImageTag  Faixas no banco: $TrackCount"
 Write-Host "Carga: $LoadToolVersion ($LoadImageDigest), 1 VU, $SeedCount sementes por rodada (uma passada, mesma ordem), $Rounds rodadas"
@@ -707,7 +750,7 @@ foreach ($c in $Combos) {
     foreach ($rd in $c.Rounds) { Write-Host ("    R{0}: media={1,8} p50={2,8} p95={3,8} p99={4,8}  nao200={5}  feitas={6}/{7}" -f $rd.Round, $rd.Mean, $rd.P50, $rd.P95, $rd.P99, $rd.Non200, $rd.Done, $rd.Requests) }
     $line = foreach ($m in $Metrics) { $s = Get-Series $c $m; "{0} mediana={1} amplitude={2}" -f $m, [Math]::Round((Get-Median $s), 2), [Math]::Round((Get-Amplitude $s), 2) }
     Write-Host "    $($line -join ' | ')"
-    Write-Host "    throttle: NanoCpus=$($c.Throttle.NanoCpus) nr_throttled+=$($c.Throttle.NrThrottledDelta)/$($c.Throttle.NrPeriodsDelta) throttled_usec+=$($c.Throttle.ThrottledUsecDelta)  RAM=$($c.RamAfterRun)"
+    if ($null -ne $c.Throttle) { Write-Host "    throttle: NanoCpus=$($c.Throttle.NanoCpus) nr_throttled+=$($c.Throttle.NrThrottledDelta)/$($c.Throttle.NrPeriodsDelta) throttled_usec+=$($c.Throttle.ThrottledUsecDelta)  RAM=$($c.RamAfterRun)" }
 }
 Write-Host ""
 Write-Host "--- Validade bloqueante ---"
@@ -723,7 +766,7 @@ if ([string]::IsNullOrEmpty($OutFile)) { $OutFile = Join-Path ([IO.Path]::GetTem
     Commit = $Commit; SrcClean = $SrcClean; Image = $ImageTag; TrackCount = $TrackCount; LoadImage = $LoadImage
     LoadImageDigest = $LoadImageDigest; LoadToolVersion = $LoadToolVersion
     SeedCount = $SeedCount; Seeds = $Seeds; Rounds = $Rounds; DockerVm = $DockerVm
-    ElapsedMinutes = $ElapsedMin; Valid = $Valid; Combinations = $Combos.ToArray(); Validity = $Checks; Indicators = $Indicators
+    ElapsedMinutes = $ElapsedMin; Rehearsal = $Rehearsal; Valid = $Valid; Combinations = $Combos.ToArray(); Validity = $Checks; Indicators = $Indicators
 } | ConvertTo-Json -Depth 8 | Set-Content -Path $OutFile -Encoding UTF8
 Write-Host ""
 Write-Host "Saida estruturada: $OutFile"
@@ -734,6 +777,17 @@ if ($Capped.Count -gt 0) {
     Write-Host "AVISO: aquecimento bateu no teto de 200 descartes SEM estabilizar em: $($Capped -join '; '). Os numeros dessas combinacoes nao sao de regime estavel." -ForegroundColor Yellow
 }
 
+$Incomplete = @($Combos | Where-Object { $_.Status -ne "OK" })
+if ($Incomplete.Count -gt 0) {
+    Write-Host ""
+    Write-Host "MEDICAO INVALIDA: combinacao(oes) incompleta(s): $(($Incomplete | ForEach-Object { "$($_.Label) = $($_.Status)" }) -join '; '). NAO publique estes numeros." -ForegroundColor Red
+    exit 2
+}
+if ($Rehearsal) {
+    Write-Host ""
+    Write-Host "ENSAIO (Rounds=$Rounds, SeedCount=$SeedCount; a medicao publicavel exige Rounds >= 5 e SeedCount >= 300): so prova o encanamento. Veredito de validade: $(if ($Valid) { 'todas as validades passaram' } else { 'ao menos uma falhou' }). NAO e resultado, NAO publique." -ForegroundColor Cyan
+    exit 3
+}
 if (-not $Valid) {
     Write-Host ""
     Write-Host "MEDICAO INVALIDA: ao menos uma validade (THROTTLE, V1, V2, V3) falhou. NAO publique estes numeros." -ForegroundColor Red
