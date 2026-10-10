@@ -9,13 +9,13 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 /// imputação se retroalimentaria. Ao final, calcula a mediana exata por (gênero, feature) e global.
 ///
 /// <b>Trade-off de memória, assumido:</b> a mediana exata exige guardar as observações (~114k linhas × 12
-/// features ≈ dezenas de MB). É aceitável para um dataset local e mantém o resultado exato e reproduzível;
+/// features ≈ 11 MB medidos no dataset real). É aceitável para um dataset local e mantém o resultado exato e reproduzível;
 /// se o volume crescer uma ordem de grandeza, a saída é um estimador de quantil por streaming (t-digest),
 /// trocando exatidão por memória constante.
 ///
 /// Cada observação é guardada <b>uma vez só</b>: no bucket do seu gênero, ou no das linhas sem gênero. A
 /// mediana global não tem bucket próprio — é a mediana da união de todos eles, montada em <see cref="Build"/>
-/// (mesmo multiconjunto, logo o mesmo valor, bit a bit).
+/// (mesmo multiconjunto, logo o mesmo valor).
 /// </summary>
 public sealed class AudioFeatureMedianProfileBuilder
 {
@@ -68,13 +68,13 @@ public sealed class AudioFeatureMedianProfileBuilder
 
         foreach (AudioFeature feature in AudioFeatureAccessor.All)
         {
-            List<double>[] sources = _byGenre.Values
-                .Select(buckets => buckets.GetValueOrDefault(feature))
-                .Append(_withoutGenre.GetValueOrDefault(feature))
-                .OfType<List<double>>()
-                .ToArray();
+            int total = _withoutGenre.TryGetValue(feature, out List<double>? ungrouped) ? ungrouped.Count : 0;
 
-            int total = sources.Sum(source => source.Count);
+            foreach (Dictionary<AudioFeature, List<double>> buckets in _byGenre.Values)
+            {
+                if (buckets.TryGetValue(feature, out List<double>? values))
+                    total += values.Count;
+            }
 
             if (total == 0)
                 continue;
@@ -82,10 +82,19 @@ public sealed class AudioFeatureMedianProfileBuilder
             double[] union = new double[total];
             int offset = 0;
 
-            foreach (List<double> source in sources)
+            if (ungrouped is not null)
             {
-                source.CopyTo(union, offset);
-                offset += source.Count;
+                ungrouped.CopyTo(union, offset);
+                offset += ungrouped.Count;
+            }
+
+            foreach (Dictionary<AudioFeature, List<double>> buckets in _byGenre.Values)
+            {
+                if (!buckets.TryGetValue(feature, out List<double>? values))
+                    continue;
+
+                values.CopyTo(union, offset);
+                offset += values.Count;
             }
 
             medians[feature] = Median(union);

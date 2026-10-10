@@ -88,9 +88,41 @@ public sealed class AudioFeatureMedianProfileBuilderExactnessTests
         }
     }
 
+    private static int ObservedCount(IEnumerable<KaggleAudioFeaturesRow> rows, AudioFeature feature)
+        => rows.Count(row => AudioFeatureAccessor.ValueOf(row, feature) is not null);
+
     [Fact]
     public void EveryMedian_OnADeterministicFixture_EqualsTheSortEverythingReference()
-        => AssertEveryMedianIsExact(DeterministicRows());
+    {
+        List<KaggleAudioFeaturesRow> rows = DeterministicRows();
+
+        int[] globalCounts = AudioFeatureAccessor.All.Select(feature => ObservedCount(rows, feature)).ToArray();
+
+        int[] genreCounts = rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.Genre))
+            .GroupBy(row => row.Genre!.Trim().ToLowerInvariant())
+            .SelectMany(group => AudioFeatureAccessor.All.Select(feature => ObservedCount(group, feature)))
+            .ToArray();
+
+        Assert.Contains(globalCounts, count => count % 2 == 0);
+        Assert.Contains(globalCounts, count => count % 2 == 1);
+        Assert.Contains(genreCounts, count => count > 0 && count % 2 == 0);
+        Assert.Contains(genreCounts, count => count % 2 == 1);
+
+        AssertEveryMedianIsExact(rows);
+    }
+
+    [Fact]
+    public void Build_WithoutAnyObservation_YieldsAProfileWithNoMedian()
+    {
+        AudioFeatureMedianProfile profile = new AudioFeatureMedianProfileBuilder().Build();
+
+        foreach (AudioFeature feature in AudioFeatureAccessor.All)
+        {
+            Assert.Null(profile.MedianFor(feature, null));
+            Assert.Null(profile.MedianFor(feature, "rock"));
+        }
+    }
 
     [Fact]
     public void EveryMedian_WhenNoRowHasAGenre_EqualsTheSortEverythingReference()
