@@ -156,7 +156,8 @@ public sealed class RecommenderQualityGate
     /// <param name="similarityEngineDuplicates">Proxy 3 com <c>dedupe=false</c>: o motor de similaridade nu.</param>
     /// <param name="dedupedDuplicates">
     /// Proxy 3 com <c>dedupe=true</c>: o top-N que o endpoint realmente devolve, medido sobre a
-    /// <see cref="CalibrationPopulationOfDedupedDuplicates"/> (E4.14).
+    /// <see cref="CalibrationPopulationOfDedupedDuplicates"/> (E4.14) e com ao menos uma semente avaliada — zero
+    /// sementes satisfaz o limiar zero por vacuidade.
     /// </param>
     /// <param name="resultSize">
     /// Proxy 4 (E4.9) — a distribuição do tamanho do resultado, medida na MESMA configuração e no MESMO top-N de
@@ -218,13 +219,15 @@ public sealed class RecommenderQualityGate
             "dedupe=true (E4.8, DP-2).");
 
         RequireConfiguration(
-            dedupedDuplicates.SeedPopulation == CalibrationPopulationOfDedupedDuplicates,
-            "O indicador de repetição no top-N (E4.8) só significa alguma coisa sobre a população que calibrou o " +
-            $"limiar zero dele — {CalibrationPopulationOfDedupedDuplicates}, os grupos de 11+ faixas. Recebido " +
-            $"{dedupedDuplicates.SeedPopulation} ({dedupedDuplicates.SeedsEvaluated} sementes em " +
-            $"{dedupedDuplicates.GroupsEvaluated} grupos): duas versões da mesma obra no mesmo top-N exigem um grupo " +
-            "de três ou mais membros, então numa população só de pares, ou sem grupo avaliado, o zero é satisfeito " +
-            "por vacuidade e o dedup quebrado não reprovaria o build.");
+            dedupedDuplicates.SeedPopulation == CalibrationPopulationOfDedupedDuplicates
+            && dedupedDuplicates.SeedsEvaluated > 0,
+            "O indicador de repetição no top-N (E4.8) só é cobrado de uma medição que DECLARA a população que " +
+            $"calibrou o limiar zero dele — {CalibrationPopulationOfDedupedDuplicates}, os grupos de 11+ faixas — e " +
+            $"que avaliou ao menos uma semente. Recebido {dedupedDuplicates.SeedPopulation} com " +
+            $"{dedupedDuplicates.SeedsEvaluated} sementes em {dedupedDuplicates.GroupsEvaluated} grupos. Fora dessa " +
+            "população o zero pode ser aritmético (duas versões da mesma obra no mesmo top-N exigem um grupo de três " +
+            "ou mais membros), e sobre zero sementes ele é satisfeito por vacuidade: nos dois casos o dedup quebrado " +
+            "não reprovaria o build.");
 
         RequireConfiguration(
             resultSize.Setting == boosted.Setting && resultSize.TopN == boosted.TopN,

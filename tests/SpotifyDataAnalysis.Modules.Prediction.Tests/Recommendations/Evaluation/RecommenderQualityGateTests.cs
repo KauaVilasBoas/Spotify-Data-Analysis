@@ -394,7 +394,7 @@ public sealed class RecommenderQualityGateTests
             () => _gate.Evaluate(
                 MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), soPares, MeasuredResultSize()));
 
-        Assert.Contains("vacuidade", exception.Message, StringComparison.Ordinal);
+        AssertRefusedByTheRedundancyPopulationGuard(exception);
     }
 
     /// <summary>
@@ -410,9 +410,58 @@ public sealed class RecommenderQualityGateTests
             SeedPopulation = RecommenderEvaluationPopulation.Unspecified
         };
 
-        Assert.Throws<DomainException>(
+        DomainException exception = Assert.Throws<DomainException>(
             () => _gate.Evaluate(
                 MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), semPopulacao, MeasuredResultSize()));
+
+        AssertRefusedByTheRedundancyPopulationGuard(exception);
+    }
+
+    /// <summary>
+    /// A porta que o rótulo sozinho deixava aberta: a população DECLARADA é a de calibração, mas nenhum grupo tinha
+    /// membro no índice, então o indicador vale 0 sobre ZERO sementes avaliadas. Medido em 2026-10-10 com um grupo fora
+    /// do índice: 0 sementes avaliadas, 0 repetições com o dedup ligado ou desligado, e o gate aprovava. O rótulo não
+    /// muda esse número, só é carregado: ele diz de onde a amostra veio, não que ela mediu alguma coisa.
+    ///
+    /// <para>Aqui a população e o <c>dedupe</c> são os aprovados: o que recusa é exclusivamente a contagem de
+    /// sementes.</para>
+    /// </summary>
+    [Fact]
+    public void Recusa_o_indicador_de_repeticao_medido_sobre_zero_sementes_mesmo_na_populacao_de_calibracao()
+    {
+        DuplicateProximityProxy semSementes = MeasuredDedupedDuplicates() with
+        {
+            GroupsEvaluated = 0,
+            SeedsEvaluated = 0,
+            MeanRecall = 0.0,
+            HitRate = 0.0,
+            MeanFirstSiblingRank = 0.0,
+            MeanSiblingCosine = 0.0
+        };
+
+        Assert.Equal(RecommenderQualityGate.CalibrationPopulationOfDedupedDuplicates, semSementes.SeedPopulation);
+        Assert.True(semSementes.Setting.Dedupe);
+        Assert.Equal(0, semSementes.SeedsWithRedundantSiblings);
+
+        DomainException exception = Assert.Throws<DomainException>(
+            () => _gate.Evaluate(
+                MeasuredCosineOnly(), MeasuredBoosted(), MeasuredDuplicates(), semSementes, MeasuredResultSize()));
+
+        AssertRefusedByTheRedundancyPopulationGuard(exception);
+    }
+
+    /// <summary>
+    /// Confere que quem recusou foi a guarda do indicador de repetição, e não outra que tenha disparado antes: só a
+    /// mensagem dela fala em "limiar zero" e nomeia a população de calibração deste indicador. "Vacuidade" não serve de
+    /// âncora, porque a guarda do proxy 4 usa a mesma palavra.
+    /// </summary>
+    private static void AssertRefusedByTheRedundancyPopulationGuard(DomainException exception)
+    {
+        Assert.Contains("limiar zero", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            RecommenderQualityGate.CalibrationPopulationOfDedupedDuplicates.ToString(),
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
