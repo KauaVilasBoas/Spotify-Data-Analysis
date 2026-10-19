@@ -1,5 +1,6 @@
 import type { RecommendationItem } from '@/api/prediction'
 import { TrackArt } from '@/components/data/TrackArt'
+import { genreInfluencedRanking } from '@/components/recommendations/shared-genre'
 import { blendScoreDecompositionLabel, scoreLabel } from '@/components/recommendations/score-labels'
 import { formatDecimal, formatInteger, formatSignedDecimal } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -11,6 +12,7 @@ interface RecommendationItemCardProps {
   item: RecommendationItem
   rank: number
   showBlend: boolean
+  requestedGenreMode: string
 }
 
 function FeatureRow({
@@ -46,7 +48,7 @@ function FeatureRow({
   )
 }
 
-function RecommendationItemCard({ item, rank, showBlend }: RecommendationItemCardProps) {
+function RecommendationItemCard({ item, rank, showBlend, requestedGenreMode }: RecommendationItemCardProps) {
   return (
     <li className="animate-rise border-b border-line/50 px-5 py-4 last:border-b-0">
       <div className="flex items-start gap-4">
@@ -77,11 +79,16 @@ function RecommendationItemCard({ item, rank, showBlend }: RecommendationItemCar
               <> · {item.album}</>
             )}
           </p>
-          {item.sharedGenre !== null && (
-            <p className="text-xs text-text-faint">
-              Shared genre: <span className="text-text-dim">{item.sharedGenre}</span>
-            </p>
-          )}
+          {item.sharedGenre !== null &&
+            (genreInfluencedRanking(requestedGenreMode, item.genreBoost) ? (
+              <p className="text-xs text-text-faint">
+                Shared genre: <span className="text-text-dim">{item.sharedGenre}</span>
+              </p>
+            ) : (
+              <p className="text-xs italic text-text-faint/70">
+                Same genre as the seed ({item.sharedGenre}), not used in the ranking
+              </p>
+            ))}
         </div>
 
         {/* Score e decomposição */}
@@ -165,9 +172,10 @@ function RecommendationItemCard({ item, rank, showBlend }: RecommendationItemCar
 interface RecommendationListProps {
   items: RecommendationItem[]
   showBlend: boolean
+  requestedGenreMode: string
 }
 
-export function RecommendationList({ items, showBlend }: RecommendationListProps) {
+export function RecommendationList({ items, showBlend, requestedGenreMode }: RecommendationListProps) {
   if (items.length === 0) {
     return (
       <p className="px-5 py-8 text-sm text-text-faint">
@@ -184,6 +192,7 @@ export function RecommendationList({ items, showBlend }: RecommendationListProps
           item={item}
           rank={index + 1}
           showBlend={showBlend}
+          requestedGenreMode={requestedGenreMode}
         />
       ))}
     </ul>

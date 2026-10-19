@@ -113,6 +113,7 @@ export function RecommendationsPage() {
                         <RecommendationList
                           items={rec.recommendations}
                           showBlend={showBlend}
+                          requestedGenreMode={rec.requestedGenreMode}
                         />
                       </div>
                     </Panel>
