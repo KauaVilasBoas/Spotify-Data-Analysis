@@ -21,6 +21,9 @@ namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations;
 /// </summary>
 public sealed class CachedTrackSimilarityIndexProviderTests
 {
+    /// <summary>Teto de espera dos pontos de sincronização: se a regra "uma montagem só" quebrar, a segunda montagem bloqueia para sempre — o teste tem de falhar por exceção, não travar.</summary>
+    private static readonly TimeSpan ConcurrencyTimeout = TimeSpan.FromSeconds(10);
+
     private static SimilarityFeatureVector Vec(double seed) =>
         SimilarityFeatureVector.Create(
             Enumerable.Range(1, SimilarityFeatures.Dimension).Select(i => i + seed).ToArray());
@@ -154,7 +157,7 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         await started.Task;
 
         // Requisição chegando durante a montagem deve receber ServiceUnavailableException imediatamente.
-        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync());
+        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync().WaitAsync(ConcurrencyTimeout));
         Assert.NotNull(ex.RetryAfterSeconds);
         Assert.True(ex.RetryAfterSeconds > 0);
 
@@ -196,12 +199,15 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         // está dentro de BuildIndexAsync e retém o _gate do provider — sem Task.Delay.
         await started.Task;
 
-        // Dispara o segundo warm-up em paralelo — deve ser descartado pelo double-check do semáforo.
-        Task warmUp2 = Task.Run(async () => await provider.WarmUpAsync(CancellationToken.None));
+        // Dispara o segundo warm-up em paralelo — deve ser descartado pelo double-check do semáforo. Sem Task.Run de
+        // propósito: a chamada roda síncrona até o primeiro await (a espera no _gate retido), então ele já está na fila
+        // do semáforo antes do Release abaixo — se fosse agendado no pool, poderia só começar depois da montagem e
+        // cair no fast path, sem exercitar o double-check.
+        Task warmUp2 = provider.WarmUpAsync(CancellationToken.None);
 
         // Libera o build para terminar.
         buildGate.Release();
-        await Task.WhenAll(warmUp1, warmUp2);
+        await Task.WhenAll(warmUp1, warmUp2).WaitAsync(ConcurrencyTimeout);
 
         // Assert: source varrido exatamente uma vez (não duas), e índice com 1 faixa.
         Assert.Equal(1, blockingSource.StreamCallCount);
@@ -247,7 +253,7 @@ public sealed class CachedTrackSimilarityIndexProviderTests
         await started.Task;
 
         // Neste ponto: estado é Building, _index ainda é null — 503 esperada.
-        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync());
+        var ex = await Assert.ThrowsAsync<ServiceUnavailableException>(() => provider.GetIndexAsync().WaitAsync(ConcurrencyTimeout));
         Assert.NotNull(ex.RetryAfterSeconds);
 
         // Libera o warm-up: estado transita para Ready, _index publicado.
