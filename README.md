@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <b>89,740</b> tracks &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>807</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
+  <b>89,740</b> tracks &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>826</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
 </p>
 
 <p align="center">
@@ -675,7 +675,7 @@ block, and no component may reintroduce motion outside that umbrella.
 | Frontend | React 19, Vite 8, TypeScript 6 (`strict`, `noUncheckedIndexedAccess`), Tailwind 4, shadcn/ui, ECharts 6, TanStack Query, cmdk for the command palette, Motion |
 | Security | Security headers, HSTS, forwarded-headers hardening, unknown-query-parameter rejection, RFC 7807, secrets only in User Secrets or environment variables |
 | Observability | Serilog with JSON console output, correlation ids end to end, request logging, `/health` with a Postgres probe |
-| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **807 tests across 7 projects** |
+| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **826 tests across 7 projects** |
 | CI | GitHub Actions: clean-clone build in Release, full test run, and a step that **names every skipped test and the reason**, so "green" never means "did not run" |
 
 ---
@@ -832,7 +832,7 @@ docker run --rm -m 512m --memory-swap 512m -p 8080:8080 `
 ### Tests
 
 ```powershell
-dotnet test                                             # 807 tests
+dotnet test                                             # 826 tests
 dotnet test tests/SpotifyDataAnalysis.ArchitectureTests  # 45 boundary rules, fast
 ```
 
