@@ -1,6 +1,7 @@
 using SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Contracts.Recommendations;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations;
+using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending;
 using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Deduplication;
 
 namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
@@ -97,38 +98,203 @@ public sealed class RecommendationFunnelParityTests
         Assert.NotEqual(off, boost);
     }
 
+    // --- blend (strategy=blend) ---
+
+    private const double AlternativeBlendWeight = 0.8;
+
+    // Todas as combinações de dedupe, gênero (boost/off) e peso do blend (default e outro) em cada cenário de over-fetch.
+    public static TheoryData<int, int, bool, bool, double> BlendParityCases()
+    {
+        var data = new TheoryData<int, int, bool, bool, double>();
+        foreach ((int siblings, int distinct) in new[] { (3, 40), (25, 15), (70, 20) })
+            foreach (bool dedupe in DedupeSettingsFor(siblings))
+                foreach (bool boost in new[] { true, false })
+                    foreach (double weight in new[] { GetTrackRecommendationsQuery.DefaultBlendWeight, AlternativeBlendWeight })
+                        data.Add(siblings, distinct, dedupe, boost, weight);
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(BlendParityCases))]
+    public async Task Blend_endpoint_e_avaliador_devolvem_os_mesmos_ids_na_mesma_ordem(
+        int siblings, int distinct, bool dedupe, bool boost, double weight)
+    {
+        Fixture fixture = BlendScenario(siblings, distinct);
+
+        string[] endpoint = await EndpointRankingFor(
+            fixture, dedupe, boost ? GenreRankingModeContract.Boost : GenreRankingModeContract.Off,
+            RecommendationStrategyContract.Blend, weight);
+
+        Assert.Equal(endpoint, EvaluatorRankingFor(fixture, Setting(dedupe, boost, weight)).Ids);
+    }
+
+    /// <summary>Sem isto a paridade do blend passaria com o blend sem efeito: no endpoint, blend e content têm de ordenar diferente.</summary>
+    [Theory]
+    [MemberData(nameof(BlendParityCases))]
+    public async Task Fixture_faz_o_blend_ordenar_diferente_do_content_no_endpoint(
+        int siblings, int distinct, bool dedupe, bool boost, double weight)
+    {
+        Fixture fixture = BlendScenario(siblings, distinct);
+        GenreRankingModeContract mode = boost ? GenreRankingModeContract.Boost : GenreRankingModeContract.Off;
+
+        string[] content = await EndpointRankingFor(
+            fixture, dedupe, mode, RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+        string[] blend = await EndpointRankingFor(fixture, dedupe, mode, RecommendationStrategyContract.Blend, weight);
+
+        Assert.NotEqual(content, blend);
+    }
+
+    /// <summary>O mesmo do lado do avaliador: o blend dele também tem de mudar o ranking, senão a igualdade seria content = content.</summary>
+    [Theory]
+    [MemberData(nameof(BlendParityCases))]
+    public void Fixture_faz_o_blend_ordenar_diferente_do_content_no_avaliador(
+        int siblings, int distinct, bool dedupe, bool boost, double weight)
+    {
+        Fixture fixture = BlendScenario(siblings, distinct);
+
+        string[] content = EvaluatorRankingFor(fixture, Setting(dedupe, boost, weight: null)).Ids;
+        string[] blend = EvaluatorRankingFor(fixture, Setting(dedupe, boost, weight)).Ids;
+
+        Assert.NotEqual(content, blend);
+    }
+
+    /// <summary>Sem isto a paridade com DOIS pesos seria a mesma prova duas vezes: o peso tem de mexer na ordem.</summary>
+    [Theory]
+    [InlineData(3, 40)]
+    [InlineData(25, 15)]
+    [InlineData(70, 20)]
+    public async Task Fixture_faz_o_peso_do_blend_reordenar_o_ranking(int siblings, int distinct)
+    {
+        Fixture fixture = BlendScenario(siblings, distinct);
+
+        string[] byDefault = await EndpointRankingFor(
+            fixture, dedupe: false, GenreRankingModeContract.Off, RecommendationStrategyContract.Blend,
+            GetTrackRecommendationsQuery.DefaultBlendWeight);
+        string[] byAlternative = await EndpointRankingFor(
+            fixture, dedupe: false, GenreRankingModeContract.Off, RecommendationStrategyContract.Blend,
+            AlternativeBlendWeight);
+
+        Assert.NotEqual(byDefault, byAlternative);
+    }
+
+    // --- genreMode = SameGenreOnly (content) ---
+
+    // Dedupe ligado/desligado em cada cenário de over-fetch.
+    public static TheoryData<int, int, bool> SameGenreOnlyCases()
+    {
+        var data = new TheoryData<int, int, bool>();
+        foreach ((int siblings, int distinct) in new[] { (3, 40), (25, 15), (70, 20) })
+            foreach (bool dedupe in DedupeSettingsFor(siblings))
+                data.Add(siblings, distinct, dedupe);
+
+        return data;
+    }
+
+    // Sem dedupe, 10 ou mais irmãs ocupam o top-10 inteiro e nenhum blend ou filtro de gênero consegue mexer nele: o caso
+    // seria verde por vacuidade (as guardas provaram). Sem dedupe só entra o cenário com poucas irmãs.
+    private static bool[] DedupeSettingsFor(int siblings) => siblings < Limit ? [true, false] : [true];
+
+    [Theory]
+    [MemberData(nameof(SameGenreOnlyCases))]
+    public async Task SameGenreOnly_endpoint_e_avaliador_devolvem_os_mesmos_ids_na_mesma_ordem(
+        int siblings, int distinct, bool dedupe)
+    {
+        Fixture fixture = Scenario(siblings, distinct);
+
+        string[] endpoint = await EndpointRankingFor(
+            fixture, dedupe, GenreRankingModeContract.SameGenreOnly,
+            RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+
+        Assert.Equal(endpoint, EvaluatorRankingFor(fixture, SameGenreOnlySetting(dedupe)).Ids);
+    }
+
+    /// <summary>Guarda 1: sem candidato de outro gênero no ranking sem filtro, o filtro não tem o que remover.</summary>
+    [Theory]
+    [MemberData(nameof(SameGenreOnlyCases))]
+    public async Task Fixture_tem_candidato_de_outro_genero_no_ranking_sem_filtro(
+        int siblings, int distinct, bool dedupe)
+    {
+        Fixture fixture = Scenario(siblings, distinct);
+
+        string[] unfiltered = await EndpointRankingFor(
+            fixture, dedupe, GenreRankingModeContract.Off,
+            RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+
+        Assert.Contains(unfiltered, id => fixture.GenreOf[id] != "pop");
+    }
+
+    /// <summary>Guarda 2: o SameGenreOnly muda o ranking em relação ao off — remove candidatos de verdade.</summary>
+    [Theory]
+    [MemberData(nameof(SameGenreOnlyCases))]
+    public async Task Fixture_faz_o_SameGenreOnly_remover_candidatos_em_relacao_ao_off(
+        int siblings, int distinct, bool dedupe)
+    {
+        Fixture fixture = Scenario(siblings, distinct);
+
+        string[] unfiltered = await EndpointRankingFor(
+            fixture, dedupe, GenreRankingModeContract.Off,
+            RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+        string[] filtered = await EndpointRankingFor(
+            fixture, dedupe, GenreRankingModeContract.SameGenreOnly,
+            RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+
+        Assert.NotEqual(unfiltered, filtered);
+    }
+
     // --- fixture ---
 
-    private static async Task<string[]> EndpointRanking(Fixture fixture, bool dedupe, bool boost)
+    private static Task<string[]> EndpointRanking(Fixture fixture, bool dedupe, bool boost) =>
+        EndpointRankingFor(
+            fixture, dedupe, boost ? GenreRankingModeContract.Boost : GenreRankingModeContract.Off,
+            RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight);
+
+    private static async Task<string[]> EndpointRankingFor(
+        Fixture fixture, bool dedupe, GenreRankingModeContract mode,
+        RecommendationStrategyContract strategy, double blendWeight)
     {
         var handler = new GetTrackRecommendationsQueryHandler(
-            new StubIndexProvider(fixture.Index), new StubMetadataSource(fixture.Rows), new EmptyCoOccurrenceSource());
+            new StubIndexProvider(fixture.Index), new StubMetadataSource(fixture.Rows),
+            new StubCoOccurrenceSource(fixture.CoOccurring));
 
         TrackRecommendationsResponse response = await handler.HandleAsync(new GetTrackRecommendationsQuery(
-            "seed", Limit, ExplainTopK: 3,
-            boost ? GenreRankingModeContract.Boost : GenreRankingModeContract.Off,
-            dedupe, RecommendationStrategyContract.Content, GetTrackRecommendationsQuery.DefaultBlendWeight));
+            "seed", Limit, ExplainTopK: 3, mode, dedupe, strategy, blendWeight));
 
         return response.Recommendations.Select(item => item.TrackId).ToArray();
     }
 
-    private static EvaluatorResult EvaluatorRanking(Fixture fixture, bool dedupe, bool boost)
+    private static RecommenderEvaluationSetting Setting(bool dedupe, bool boost, double? weight)
     {
         RecommenderEvaluationSetting setting = (boost
                 ? RecommenderEvaluationSetting.BoostedBy(GenreAffinityPolicy.DefaultBoostWeight)
                 : RecommenderEvaluationSetting.CosineOnly())
             .WithDedupe(dedupe);
 
+        return weight is double blendWeight ? setting.WithBlend(blendWeight) : setting;
+    }
+
+    private static RecommenderEvaluationSetting SameGenreOnlySetting(bool dedupe) =>
+        RecommenderEvaluationSetting.SameGenreOnly().WithDedupe(dedupe);
+
+    private static EvaluatorResult EvaluatorRanking(Fixture fixture, bool dedupe, bool boost) =>
+        EvaluatorRankingFor(fixture, Setting(dedupe, boost, weight: null));
+
+    private static EvaluatorResult EvaluatorRankingFor(Fixture fixture, RecommenderEvaluationSetting setting)
+    {
         var attributes = fixture.Rows.ToDictionary(
             row => row.TrackId,
             row => new EvaluationTrackAttributes(RecommendationDuplicateKey.From(row.Name, row.Artist), row.Popularity),
             StringComparer.Ordinal);
 
-        var context = new RecommenderEvaluationContext(
-            attributes, new Dictionary<string, IReadOnlyList<SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Blending.BlendCollaborativeCandidate>>());
+        var collaborative = new Dictionary<string, IReadOnlyList<BlendCollaborativeCandidate>>(StringComparer.Ordinal)
+        {
+            ["seed"] = fixture.CoOccurring
+                .Select(track => new BlendCollaborativeCandidate(track.TrackId, track.CoPlaylists, track.Jaccard))
+                .ToArray()
+        };
 
         EndpointTopN top = RecommenderQualityEvaluator.RankAsEndpointWould(
-            fixture.Index, "seed", Limit, setting, context)!;
+            fixture.Index, "seed", Limit, setting, new RecommenderEvaluationContext(attributes, collaborative))!;
 
         return new EvaluatorResult(top.Neighbors.Select(neighbor => neighbor.TrackId).ToArray(), top.RoundsUsed);
     }
@@ -136,7 +302,38 @@ public sealed class RecommendationFunnelParityTests
     private sealed record EvaluatorResult(string[] Ids, int RoundsUsed);
 
     private sealed record Fixture(
-        SimilarityIndex Index, IReadOnlyList<TrackMetadataRow> Rows, IReadOnlyDictionary<string, string> NameOf);
+        SimilarityIndex Index, IReadOnlyList<TrackMetadataRow> Rows, IReadOnlyDictionary<string, string> NameOf,
+        IReadOnlyList<CoOccurringTrack>? Collaborative = null)
+    {
+        public IReadOnlyList<CoOccurringTrack> CoOccurring => Collaborative ?? [];
+
+        public IReadOnlyDictionary<string, string> GenreOf =>
+            Rows.ToDictionary(row => row.TrackId, row => row.Genre!, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// O cenário de <see cref="Scenario"/> mais sinal colaborativo DE VERDADE: faixas distantes no áudio (que o content
+    /// jamais poria no topo), uma irmã e um gêmeo recebem Jaccard alto, e "collabOnly" só existe no colaborativo (está
+    /// no catálogo, fora do índice de áudio). Ordenado por Jaccard decrescente, como a fonte real devolve.
+    /// </summary>
+    private static Fixture BlendScenario(int siblings, int distinct)
+    {
+        Fixture content = Scenario(siblings, distinct);
+
+        List<TrackMetadataRow> rows =
+            [.. content.Rows, Row("collabOnly", "Obra collabOnly", "Artista collabOnly", "pop", 90)];
+        string[] ids = ["collabOnly", "far14", "far13", "far12", "far11", "far10", "dup00", "twinPop"];
+        double[] jaccards = [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.45, 0.30];
+
+        CoOccurringTrack[] collaborative = ids
+            .Zip(jaccards, (id, jaccard) => new CoOccurringTrack(id, (int)(jaccard * 100), jaccard))
+            .OrderByDescending(track => track.Jaccard)
+            .ToArray();
+
+        return new Fixture(
+            content.Index, rows, rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal),
+            collaborative);
+    }
 
     /// <summary>
     /// A semente, <paramref name="siblings"/> versões da MESMA obra (mais parecidas com a semente que qualquer outra
@@ -234,10 +431,10 @@ public sealed class RecommendationFunnelParityTests
                 .ToDictionary(id => id, id => _rows[id], StringComparer.Ordinal));
     }
 
-    private sealed class EmptyCoOccurrenceSource : ITrackCoOccurrenceSource
+    private sealed class StubCoOccurrenceSource(IReadOnlyList<CoOccurringTrack> tracks) : ITrackCoOccurrenceSource
     {
         public Task<IReadOnlyList<CoOccurringTrack>> FindCoOccurringAsync(
             string seedTrackId, int limit, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<CoOccurringTrack>>([]);
+            Task.FromResult<IReadOnlyList<CoOccurringTrack>>(tracks.Take(limit).ToArray());
     }
 }

@@ -85,6 +85,10 @@ public sealed record RecommenderEvaluationSetting
             GenreRankingMode.Boost, boostWeight, dedupe: false, blendWeight: null);
     }
 
+    /// <summary>Filtro duro de gênero: só sobrevive quem compartilha o gênero utilizável da semente.</summary>
+    public static RecommenderEvaluationSetting SameGenreOnly() =>
+        new(GenreRankingMode.SameGenreOnly, boostWeight: 0.0, dedupe: false, blendWeight: null);
+
     /// <summary>A mesma configuração, com o dedup do E4.7 ligado ou desligado no top-N medido.</summary>
     public RecommenderEvaluationSetting WithDedupe(bool dedupe = true) =>
         new(Mode, BoostWeight, dedupe, BlendWeight);
