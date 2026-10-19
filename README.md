@@ -7,9 +7,6 @@
 </p>
 
 <p align="center">
-  <a href="https://REPLACE-WITH-DEMO-URL">
-    <img src="https://img.shields.io/badge/Live_demo-online-1DB954?labelColor=06070a" alt="Live demo"/>
-  </a>
   <a href="https://github.com/KauaVilasBoas/Spotify-Data-Analysis/actions/workflows/ci.yml">
     <img src="https://github.com/KauaVilasBoas/Spotify-Data-Analysis/actions/workflows/ci.yml/badge.svg" alt="CI"/>
   </a>
@@ -21,24 +18,28 @@
     <img src="https://img.shields.io/badge/Conventional_Commits-1.0.0-FE5196?logo=conventionalcommits&logoColor=white&labelColor=06070a" alt="Conventional Commits"/>
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-MIT-1DB954?labelColor=06070a" alt="MIT"/>
+    <img src="https://img.shields.io/badge/License-MIT-1DB954?labelColor=06070a" alt="MIT License"/>
   </a>
 </p>
+<!-- LIVE DEMO: when the public deploy (E6) is up, add its badge here and a link under the hero image. -->
 
 <p align="center">
-  <b>89,740</b> tracks &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>826</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
+  <b>89,740</b> tracks &nbsp;·&nbsp; <b>113</b> genres &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>889</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
 </p>
 
 <p align="center">
   <a href="#what-is-this">Why</a> &nbsp;·&nbsp;
-  <a href="#architecture-at-a-glance">Architecture</a> &nbsp;·&nbsp;
-  <a href="#the-data-pipeline">Pipeline</a> &nbsp;·&nbsp;
-  <a href="#measured-not-claimed">Measurements</a> &nbsp;·&nbsp;
-  <a href="#quality-gates">Gates</a> &nbsp;·&nbsp;
-  <a href="#engineering-decisions">Decisions</a> &nbsp;·&nbsp;
-  <a href="#design-system">Design</a> &nbsp;·&nbsp;
-  <a href="#getting-started">Run it</a> &nbsp;·&nbsp;
-  <a href="#known-limitations">Limits</a>
+  <a href="#screenshots">Screens</a> &nbsp;·&nbsp;
+  <a href="#what-the-data-says">Insights</a> &nbsp;·&nbsp;
+  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp;
+  <a href="#results">Results</a> &nbsp;·&nbsp;
+  <a href="#stack">Stack</a> &nbsp;·&nbsp;
+  <a href="#quickstart">Quickstart</a> &nbsp;·&nbsp;
+  <a href="#documentation">Docs</a>
+</p>
+
+<p align="center">
+  <img src=".github/readme/overview.png" alt="Overview screen: 89,740 tracks analysed, 100% with measured audio features, the live FastTree model at R² 0.393 and MAE 11.54, permutation importance led by genre, and Pearson correlations of every audio feature against popularity" width="100%"/>
 </p>
 
 ---
@@ -67,60 +68,125 @@ because measurement showed that `0.15` made 82% of seeds return a single-genre t
 wearing a boost costume. The model's quality gate is *relative to a baseline* rather than an absolute
 MAE threshold, because only the comparison answers "did it learn anything?".
 
-### Highlights
-
-- **Two-sided quality gate on the recommender.** This is the design decision I would defend first. A
-  floor-only gate ("coherence at least X") is trivially satisfied by cranking the genre boost until it
-  becomes a hard filter, which would reward the exact failure being diagnosed. So coherence is charged
-  on three fronts: an absolute floor, a **minimum lift** over pure cosine (the boost must be doing
-  something), and a **saturation ceiling** (it must not erase genre diversity). Too little weight
-  fails the lift; too much fails the saturation.
-- **Honest baselines, reported as a table.** The model is measured against *two* baselines
-  (always-predict-the-mean, and a linear SDCA regressor) on a held-out test set, with 5-fold
-  cross-validation and a fixed seed. Two runs with the same seed produced an identical MAE down to the
-  last decimal.
-- **Provenance is a first-class type.** `measured`, `imputed` and `absent` never share a colour, a
-  label or a code path. Imputed tracks are excluded from training by a named policy
-  (`ImputedFeaturePolicy.ExcludeImputed`), because median imputation compresses variance and lets the
-  model learn "this feature equals genre X's median" as a genre proxy: right answer, wrong reason.
-- **Explainable recommendations.** Every item carries its cosine score, the genre boost *separately*
-  so the boost is auditable, the top-K features that pulled it close with their original values, how
-  many playlists it co-occurs in, and which signal backed it (`content`, `collaborative` or
-  `blended`). Degradations are never silent: the response echoes the *effective* strategy and genre
-  mode.
-- **Collaborative signal without user data.** Item-item co-occurrence mined from 37,121 real
-  playlists, Jaccard-scored and **materialised** into `prediction.track_cooccurrence` (1,481,511
-  pairs) by a batch step. The request path reads that table; it never self-joins over jsonb.
-- **Boundaries enforced by the build.** 45 ArchUnitNET facts fail `dotnet test` the moment a module
-  reaches into another module's internals, or Domain touches EF Core, Dapper or ASP.NET.
-- **Measured operations.** RAM and OOM behaviour were verified in container at 256 MB and 512 MB (no
-  CPU throttle). The conclusion is recorded in [`deploy/DEPLOY.md`](deploy/DEPLOY.md): the similarity
-  index fits in 256 MB and the free-tier bottleneck is **CPU and disk, not RAM**. Latency and cold
-  start were measured at 0.1 CPU and without a limit; see "Free-tier footprint" below.
-
 ---
 
-## Live demo
+## Screenshots
 
-**[REPLACE-WITH-DEMO-URL](https://REPLACE-WITH-DEMO-URL)**, read-only, seeded with the full public
-dataset. The API exposes `/health`; Swagger is development-only by design.
+Every screen reads the live API. Nothing below is a fixture or a mock-up.
 
-<!--
-  SCREENSHOTS: drop three PNGs in docs/screenshots/ and uncomment this block.
-    overview.png   the Overview page (the big number above the fold plus top tracks)
-    insights.png   the Insights page (correlation panel plus distribution histogram)
-    catalog.png    the Catalog page (track search plus the detail panel with generated art)
-
-![Overview](docs/screenshots/overview.png)
-
-| Insights | Catalog |
+| Insights | Model |
 |---|---|
-| ![Insights](docs/screenshots/insights.png) | ![Catalog](docs/screenshots/catalog.png) |
--->
+| <img src=".github/readme/insights.png" alt="Insights screen: Pearson correlations, an audio-feature distribution, mean popularity by genre and the most popular tracks"/> | <img src=".github/readme/model.png" alt="Model screen: the FastTree regression against its mean baseline and the permutation importance of every feature"/> |
+| Correlations, distributions, popularity by genre and the top of the ranking, each panel stating its sample and its caveats. | The served model against its baseline, and what it actually learned: genre carries it. |
+
+| Recommendations | Catalog |
+|---|---|
+| <img src=".github/readme/recommendations.png" alt="Recommendations screen for the seed Creep by Radiohead, blend strategy, showing the parameters, what the API applied and the explained results"/> | <img src=".github/readme/catalog.png" alt="Catalog screen with Creep by Radiohead selected: generated cover art, popularity 85, and its nine measured audio features"/> |
+| Tracks similar to "Creep" under `strategy=blend`. Every item shows its score, its audio cosine, and the three features that pulled it close. | Track detail with the measured audio profile. The dataset has no cover images, so each sleeve is generated from the track's identity and audio profile. |
 
 ---
 
-## Architecture at a glance
+## What the data says
+
+Six readings from the seeded catalogue, pulled from the running API and read-only SQL on 2026-10-19.
+The endpoint or query behind every number is in
+[ENGINEERING.md](ENGINEERING.md#reproducing-the-readme-insights).
+
+### 1. No audio feature explains popularity on its own
+
+Pearson r against popularity, over 89,740 tracks per feature: the strongest is `instrumentalness` at
+**-0.127**, then `loudness` (+0.072) and `danceability` (+0.064). The other six sit inside ±0.05
+(left panel of the Insights screenshot).
+
+> Weak *linear* signal everywhere. At this stage the project's own prediction was that the model gate
+> would fail. It did not, and the next chart is why.
+
+### 2. Genre does
+
+```mermaid
+%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "#1DB954"}}}}%%
+xychart-beta horizontal
+    title "Permutation importance: mean R² drop when the feature is shuffled"
+    x-axis ["Genre", "Instrumentalness", "Loudness", "Acousticness", "DurationMs", "Valence", "Energy", "Danceability", "Speechiness", "Liveness", "Explicit", "Tempo"]
+    y-axis "Mean R² drop (test split, 17,978 tracks)" 0 --> 0.6
+    bar [0.559, 0.019, 0.018, 0.017, 0.016, 0.015, 0.015, 0.015, 0.010, 0.009, 0.006, 0.005]
+```
+
+> Shuffling genre costs the model **0.559** of R². Shuffling the best audio feature costs **0.019**,
+> about 30 times less. Adding the genre block alone took MAE from 15.17 to 11.54.
+
+### 3. Genres live on different scales
+
+```mermaid
+%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "#1DB954"}}}}%%
+xychart-beta horizontal
+    title "Mean popularity: the five highest and five lowest of 113 genres"
+    x-axis ["k-pop", "pop-film", "metal", "chill", "latino", "detroit-techno", "latin", "jazz", "romance", "iranian"]
+    y-axis "Mean popularity (0 to 100)" 0 --> 70
+    bar [59.4, 59.1, 56.4, 53.7, 51.8, 11.1, 9.9, 9.8, 3.5, 2.2]
+```
+
+> A **27x** spread between the highest genre mean (`k-pop`, 59.4 over 916 tracks) and the lowest
+> (`iranian`, 2.2 over 988). The source's `latino` and `latin` labels sit 42 points apart.
+
+### 4. The target is zero-inflated, and the zeros cluster by genre
+
+The catalogue's mean popularity is 33.2 and its median 33, but **9,447 of 89,740 tracks (10.5%) score
+exactly 0**. In five genres the zeros are the majority:
+
+| Genre | Tracks | At popularity 0 | Share | Mean | Max |
+|---|---:|---:|---:|---:|---:|
+| `jazz` | 524 | 409 | **78.1%** | 9.8 | 77 |
+| `iranian` | 988 | 648 | **65.6%** | 2.2 | 33 |
+| `romance` | 904 | 555 | **61.4%** | 3.5 | 35 |
+| `country` | 946 | 554 | **58.6%** | 17.3 | 89 |
+| `latin` | 759 | 432 | **56.9%** | 9.9 | 98 |
+| *whole catalogue* | 89,740 | 9,447 | 10.5% | 33.2 | 100 |
+
+> `latin` has a track at 98 and more than half of its tracks at 0. A mean of 9.9 describes neither.
+
+### 5. Genre still cannot see fame
+
+"Creep" (Radiohead, `alt-rock`, measured features) sits at **85** in the catalogue. Model v6 predicts
+**40.6** for it.
+
+> R² is 0.393 for a reason: marketing, editorial playlisting and artist fame are not in an audio
+> vector, and the artist columns that could carry them are all zeros (see
+> [Known limitations](#known-limitations)).
+
+### 6. The collaborative signal is sparse, and it is most of the disk
+
+```mermaid
+%%{init: {"themeVariables": {"pie1": "#1DB954", "pie2": "#4169E1", "pie3": "#f0a742", "pie4": "#3d4552"}}}%%
+pie showData title Database on disk, 388 MB in total (MiB)
+    "prediction.track_cooccurrence" : 253.6
+    "catalog.tracks" : 94.7
+    "catalog.playlists" : 14.6
+    "everything else" : 25.2
+```
+
+> Co-occurrence touches **9,664 of 89,740 tracks (10.8%)** but takes **254 of the 388 MB (65%)**.
+> That ratio, not the absolute size, is the argument for pruning it by `co_playlists` before the
+> catalogue grows.
+
+---
+
+## How it works
+
+1. **Ingest.** The Spotify Web API removed its audio-features endpoint in November 2024, so a CLI loads
+   two public Kaggle datasets into `catalog.*`: tracks with measured audio features and genre, their
+   artists and albums, and 37,121 real playlists matched to tracks by a normalised artist and title key.
+   The live Spotify adapter (Client Credentials, retry and backoff, `429` handling) remains for
+   idempotent playlist ingestion through the Outbox.
+2. **Analyse.** The Analytics module is a pure read-side: raw PostgreSQL through Dapper for summaries,
+   rankings, distributions and correlations, served under `/api/insights/*`.
+3. **Predict.** Prediction trains a FastTree regressor in ML.NET against two baselines on a
+   deterministic split, elects the feature set by a domain rule, versions the model as `bytea`, and
+   serves `/api/predictions/popularity`.
+4. **Recommend.** An in-memory similarity index (z-score, cosine, kNN) is built in the background at
+   startup. On request it can blend in Jaccard co-occurrence materialised from those playlists, collapses
+   near-duplicate versions of the same work, and explains every item it returns.
+5. **Show.** A React 19 SPA reads all of it, and no screen invents its own loading or error state.
 
 ```mermaid
 flowchart TB
@@ -176,87 +242,39 @@ flowchart TB
 
 <sub><b>Reading the diagram.</b> The Host composes modules by assembly scan (<code>ModuleLoader</code>, ordered by <code>IModule.Order</code>); each module's <code>IModule</code> lives in its Infrastructure project, so the dependency direction stays Infrastructure → Application → Domain and the Host never sees a module's Domain. Thick arrows are EF Core / Dapper I/O; dashed arrows are background access and data coupling. <b>Analytics deliberately has no schema of its own</b>: it reads <code>catalog.*</code> with raw SQL. That is coupling by <i>data</i>, not by code, since no Analytics assembly references any Catalog type, which is exactly what the architecture tests assert. Calling it out is the point; pretending otherwise would be the smell.</sub>
 
----
+The full data pipeline, from each source CSV through every seeder to the served endpoints, is drawn in
+[ENGINEERING.md](ENGINEERING.md#the-data-pipeline). A request-level walkthrough of one endpoint, class
+by class, is in [ARQUITETURA.md](ARQUITETURA.md) (Portuguese).
 
-## The data pipeline
+### Highlights
 
-The Spotify Web API **removed the audio-features endpoint in November 2024**, and that single
-constraint shaped the whole project. Audio features come from a public Kaggle dataset instead, and the
-playlist co-occurrence signal from a second one. Neither CSV is versioned here.
-
-```mermaid
-flowchart LR
-    subgraph SRC["Sources"]
-        KG[/"Kaggle · Spotify Tracks<br/><sub>maharshipandya · ~114k rows<br/>audio features + genre</sub>"/]
-        PI[/"Kaggle · Spotify Playlists<br/><sub>Pichl et al. · ~1.18 GB<br/>user_id · playlist · artist · track</sub>"/]
-        API[/"Spotify Web API<br/><sub>Client Credentials · retry/backoff<br/>429 + Retry-After · pagination</sub>"/]
-    end
-
-    subgraph ING["Ingestion · Catalog"]
-        SC["seed-catalog<br/><sub>tracks + measured features</sub>"]
-        SR["seed-references<br/><sub>artists + albums, linked</sub>"]
-        SP["seed-playlists<br/><sub>streamed, grouped, matched<br/>by normalised TrackMatchKey</sub>"]
-        IN["IngestPlaylistCommand<br/><sub>idempotent · Outbox</sub>"]
-        MT["TrackMatcher<br/><sub>track_id → artist+title → +duration</sub>"]
-        IM["MedianAudioFeatureImputer<br/><sub>genre median → global median<br/>marks IsImputed</sub>"]
-    end
-
-    CATDB[("catalog.*<br/><sub>89,740 tracks · 29,811 artists<br/>57,637 albums · 37,121 playlists · 113 genres</sub>")]
-
-    subgraph ML["Prediction"]
-        DS["TrainingDatasetAssembler<br/><sub>deterministic hash split, seed 20260730<br/>71,762 train / 17,978 test</sub>"]
-        TR["FastTree regression<br/><sub>plus mean and linear baselines</sub>"]
-        EL["FeatureSetChampionElection<br/><sub>a block survives only if it wins<br/>at least 2% MAE on its own</sub>"]
-        MV[("prediction.model_versions<br/><sub>bytea + metrics + feature importance</sub>")]
-        SI["SimilarityIndex<br/><sub>z-score → cosine → kNN top-N<br/>built in memory on first call</sub>"]
-    end
-
-    CO["build-cooccurrence<br/><sub>pairs in 2+ playlists → Jaccard</sub>"]
-    CODB[("prediction.track_cooccurrence<br/><sub>1,481,511 pairs · 254 MB</sub>")]
-
-    subgraph OUT["Served"]
-        EDA["/api/insights/*<br/><sub>Dapper · ROW_NUMBER() + COUNT(*) OVER()</sub>"]
-        PRED["/api/predictions/popularity"]
-        REC["/api/recommendations/track/:id<br/><sub>strategy=content or blend</sub>"]
-    end
-
-    KG --> SC --> CATDB
-    KG --> SR --> CATDB
-    PI --> SP --> CATDB
-    API --> IN --> CATDB
-    SC -.-> MT
-    SP -.-> MT
-    MT -.-> IM -.-> CATDB
-
-    CATDB --> DS --> TR --> EL --> MV --> PRED
-    CATDB --> SI --> REC
-    CATDB --> CO --> CODB --> REC
-    CATDB --> EDA
-
-    classDef src   fill:#06070a,stroke:#f0a742,color:#fde68a
-    classDef step  fill:#0b0c10,stroke:#1DB954,color:#d1fae5
-    classDef ml    fill:#0b0c10,stroke:#a78bfa,color:#ede9fe
-    classDef out   fill:#0b0c10,stroke:#3b82f6,color:#dbeafe
-    classDef db    fill:#4169E1,stroke:#93c5fd,color:#ffffff,stroke-width:3px
-
-    class KG,PI,API src
-    class SC,SR,SP,IN,MT,IM,CO step
-    class DS,TR,EL,SI ml
-    class EDA,PRED,REC out
-    class CATDB,MV,CODB db
-```
-
-**Track matching** is a chain of strategies, not a single join: exact `track_id` first, then
-normalised `artist + title`, then `title + duration` to break homonyms. Every run reports its **match
-rate**, fallback share, duplicates and imputation rate, because a load that silently half-worked is a
-load that failed.
+- **Two-sided quality gate on the recommender.** This is the design decision I would defend first. A
+  floor-only coherence gate is satisfied by cranking the genre boost until it becomes a hard filter. So
+  coherence is charged three ways: an absolute floor, a **minimum lift** over pure cosine, and a
+  **saturation ceiling**. Too little weight fails the lift; too much fails the saturation.
+- **Honest baselines.** The model is measured against *two* baselines (always-predict-the-mean and a
+  linear SDCA regressor) on a held-out test set, with 5-fold cross-validation and a fixed seed. Two runs
+  with the same seed produced an identical MAE down to the last decimal.
+- **Provenance is a first-class type.** `measured`, `imputed` and `absent` never share a colour, a
+  label or a code path, and imputed tracks are excluded from training by a named policy.
+- **Explainable recommendations.** Every item carries its cosine score and the genre boost
+  *separately*, the top features that pulled it close in their original units, and the signal that
+  backed it. Degradations are never silent.
+- **Collaborative signal without user data.** Item-item co-occurrence mined from 37,121 real playlists,
+  Jaccard-scored and **materialised** by a batch step. The request path never self-joins over jsonb.
+- **Boundaries enforced by the build.** 45 ArchUnitNET facts fail `dotnet test` the moment a module
+  reaches into another module's internals, or Domain touches EF Core, Dapper or ASP.NET.
+- **Measured operations.** RAM and OOM verified in a container at 256 MB and 512 MB; latency and cold
+  start measured at 0.1 CPU and without a limit. The conclusion: the free-tier bottleneck is CPU and
+  disk, not RAM.
 
 ---
 
-## Measured, not claimed
+## Results
 
-Everything below is reproduced by `dotnet test` (deterministic fixtures) or by re-running the training
-endpoint against the seeded catalogue with the recorded seed.
+Every number below is reproduced by `dotnet test` (deterministic fixtures) or by re-running the
+training endpoint against the seeded catalogue with the recorded seed. The full tables, each with the
+configuration that produced it, are in [ENGINEERING.md](ENGINEERING.md#measured-not-claimed).
 
 ### Popularity model: champion election
 
@@ -271,391 +289,37 @@ Same split, same seed (`20260730`), same trainer (FastTree). Four feature sets m
 | **+ B**: genre one-hot (113 plus an `<unknown>` bucket) | **0.3927** | **11.5396** | **16.0240** | **+23.92%** | ✅ **champion** |
 | A + B | 0.3949 | 11.5076 | 15.9945 | n/a | carries a rejected block |
 
-**Champion: base plus genre.** Against the mean baseline that is **MAE 33.1% lower**. 5-fold
-cross-validation puts R² dispersion at **0.0046**, which is what licenses reading the
-feature-importance ranking as a learned mechanism rather than a ranking of noise.
+**Champion: base plus genre**, with **MAE 33.1% below** the mean baseline. 5-fold cross-validation puts
+R² dispersion at **0.0046**, which is what licenses reading the feature-importance chart above as a
+learned mechanism rather than a ranking of noise.
 
-The result contradicted the project's own prior. At the EDA stage the strongest Pearson correlation
-against popularity was **0.127**, and the prediction on record was that the gate would fail. Weak
-*linear* correlation is not absence of signal: FastTree picks up non-linearity and feature interaction
-that Pearson cannot see, and `duration_ms` / `explicit` were not even in the correlation run.
+### Recommender: measured by proxies
 
-**Feature importance** is measured once at training time by permutation over the test set (5
-permutations per slot), stored as jsonb alongside the version and served by `GET /api/model/current`.
-The 113 genre columns are aggregated into a single `Genre` row, where means add and dispersions add in
-quadrature, because each permutation is an independent draw. The endpoint's own documentation states
-the caveat: with correlated features (Energy against Loudness, measured at EDA time), low importance
-means *"the model did not need this column given the rest of the vector"*, never *"this quantity is
-unrelated to popularity"*.
+There is no user ground truth, so quality is measured by proxies over the real catalogue: a fixed,
+seeded sample of 300 seeds (top-10), plus the 1,895 seeds that sit inside the 111 duplicate groups of
+11 or more tracks.
 
-### Recommender: three verifiable proxies
-
-There is no user ground truth, so quality is measured by proxies over the real catalogue. Fixed,
-seeded sample (`e4.4-proxies-v1`): **300 seeds, top-10**.
-
-**Every number below carries the configuration that produced it.** The first measurement, taken
-2026-08-13, predated two things that are now on by default: the near-duplicate collapse (`dedupe=true`)
-and the collaborative blend. Numbers without their configuration described, for two epics, a system the
-endpoint no longer served. The re-measurement below was taken 2026-09-12 on the same seeded sample.
-
-| Proxy | Config | 2026-08-13 | 2026-09-12 | Reads as |
-|---|---|---:|---:|---|
-| Genre coherence | `off \| dedupe=on \| content` | 0.1347 *(dedupe=off)* | **0.1140 ± 0.1734** | the floor the boost is measured against |
-| Genre coherence | `boost 0.050 \| dedupe=on \| content` | 0.5833 *(dedupe=off)* | **0.5563 ± 0.3608** | 4.88x lift, the boost is actually breaking ties |
-| Genre saturation | `boost 0.050 \| dedupe=on \| content` | 0.3100 | **0.2800** | minority, so still a boost and not a filter |
-| Self-exclusion violations | both of the above | 0 / 300 | **0 / 300** | the seed never recommends itself |
-| Duplicate recall | `off \| dedupe=off \| content` | 0.6108 *(8-member cap)* | **0.6464** *(no cap)* | near-duplicates land in the top-K |
-| Duplicate hit rate | `off \| dedupe=off \| content` | 0.6745 *(8-member cap)* | **0.7037** *(no cap)* | share of seeds with at least one sibling found |
-| Mean sibling cosine | `off \| dedupe=off \| content` | 0.998244 | **0.999028** | the most sensitive break detector in the suite |
-| Same work twice in one top-N | `off \| dedupe=off \| content` | not measured | **1,768 / 1,895** | the pain the collapse exists to remove |
-| Same work twice in one top-N | `off \| dedupe=on \| content` | not measured | **0 / 1,895** | the collapse's proof of value, finally a number |
-| Top-10 entirely duplicates | `off \| dedupe=off \| content` | 0 *(8-member cap, a structural zero)* | **1,473 / 1,895** *(measured 2026-10-10)* | for most seeds in large groups the whole list was the seed's own work |
-| Top-10 entirely duplicates | `off \| dedupe=on \| content` | not measured | **0 / 1,895** *(measured 2026-10-10)* | the collapse removes the worst case completely |
-
-Coherence carries its **standard deviation** because comparing two configurations by bare means cannot
-tell an effect from a draw of the sample. With σ and n, the reader computes the standard error and
-decides whether a delta is signal.
-
-Proxy 3 (duplicate proximity) is **always measured with genre switched off**, because it is the only
-non-circular guard. Genre coherence measured over a genre-boosted ranking partly measures the boost
-itself; duplicate proximity does not use genre at all, so if normalisation or the cosine break, it is
-the first to fall. It is anchored on `catalog.tracks.match_key`, verified by SQL before use: **7,015
-groups, 19,388 tracks, 36,940 pairs, largest group 54**, the same number that sized the dedup work.
-
-The 2026-08-13 run capped groups at **8 members**, which made "top-10 entirely duplicates" *arithmetically*
-impossible: with top-10, a seed needs 10 siblings to saturate its own list. Removing the cap and measuring
-the **111 groups of 11+ tracks** (1,895 seeds, 18,892 of the 36,940 pairs) is what turned that indicator
-from a structural zero into a real reading: with the collapse off, 1,473 of those 1,895 seeds get a top-10
-made of nothing but other versions of the seed itself, and with it on, none do.
-
-#### Two findings from the re-measurement, both closed
-
-**The blend was dropping the genre boost from the final ordering, and the instrument that measured it
-was doing the same thing.** The blender re-ranked by min-max rescaled *cosine*, not by the hybrid score,
-so `genreMode=boost` shaped which candidates were fetched but no longer ordered them. On the 37 of 300
-seeds that actually have co-occurrence, coherence fell from **0.5324 ± 0.3480** (content) to
-**0.1676 ± 0.2537** at `blendWeight=0.35`. What made the finding harder to spot: the
-`RecommenderQualityEvaluator` contained the same bug in two places (`neighbor.CosineSimilarity` where
-the contract required `neighbor.Similarity`, the hybrid score), so the evaluation harness itself was
-measuring the blend with naked cosine. The numbers were describing a system that was not what was
-running. After the fix (commit `be1d6c0`, card E4.10), on those same 37 seeds, the effect goes from
-**-5.15σ to +0.30σ** at `blendWeight=0.35` and from -3.96σ to +0.80σ at `blendWeight=0.60`. The -5.15σ
-reproduces the original signal, which validates the measurement method. Product decision: the boost
-enters the sort key, and the score exposed to the caller is exactly the value that ordered the list.
-
-**Near-duplicate collapse was returning fewer results than requested, now fixed by adaptive over-fetch.**
-A seed inside a large duplicate group had a 3x over-fetch made almost entirely of its own siblings,
-which collapsed into a single entry. Measured on the live endpoint at
-`genreMode=boost&dedupe=true&limit=10`: **679 of the 1,895 seeds in 11+ groups got fewer than 10
-recommendations and 227 got exactly one**. The fix (commit `e5ab833`, card E4.9) over-fetches once in
-the maximum window and post-processes a prefix per round, which is exact rather than approximate because
-the heap breaks all ties by `trackId`. Cap of 3 rounds; across 1,895 seeds: 64.2% resolved in round 1,
-29.7% in round 2, 6.2% in round 3, zero seeds hit the cap without resolving. Outcome: **below 10
-recommendations 679 to 0; exactly 1 recommendation 227 to 0; average list size 7.87 to 10.00**. The
-gate grew from 7 to 9 thresholds (the two new ones being `MaximumShortResultRate = 0.05` and
-`MaximumSeedsWithSingleResult = 0`); none of the previous seven thresholds regressed or had their
-target moved.
+| Proxy | Without | With | Reads as |
+|---|---:|---:|---|
+| Genre coherence, without and with the `0.05` genre boost | 0.1140 | **0.5563** | 4.88x lift, the boost is actually breaking ties |
+| Genre saturation (top-N all one genre), with the boost | n/a | **0.2800** | a minority, so a boost and not a filter |
+| Same work twice in one top-N, without and with the near-duplicate collapse | 1,768 / 1,895 | **0 / 1,895** | the pain the collapse exists to remove |
+| Fewer than 10 results, without and with adaptive over-fetch | 679 / 1,895 | **0 / 1,895** | a seed in a large duplicate group still gets its top-10 |
+| Self-exclusion violations | n/a | **0 / 300** | the seed never recommends itself |
 
 ### Free-tier footprint
 
-Container `spotifydataanalysis-api` against Postgres with the full dataset. Full runbook and methodology
-in [`deploy/DEPLOY.md`](deploy/DEPLOY.md), including known limitations of the current measurement.
+The similarity index fits in **256 MB** with no OOM across 1,800 sequential requests, and the whole
+database is **388 MB** on disk. The free-tier bottleneck here is **CPU and disk, not RAM**. Latency and
+cold start by CPU tier, with the methodology and its caveats, are in
+[ENGINEERING.md](ENGINEERING.md#free-tier-footprint) and [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
 
-The RAM table below was measured against commit `e5ab833` (adaptive over-fetch, E4.9) with the version
-of `deploy/measure-latency.ps1` from commit `53d78e4` (2026-09-13): 300 deterministic seeds, 3 rounds,
-1,800 sequential requests per tier. The current script no longer reproduces that table: it measures
-latency and cold start (second table below), not RAM, and it does not run the `blend` strategy. RAM was
-read from `docker stats` after the full run (current usage at that moment, not historical peak). No
-CPU throttle was applied, and the Docker VM had 20 CPUs, so these RAM numbers do not represent the real
-free-tier constraint, where CPU is the bottleneck.
+### Quality gates
 
-| Scenario | RAM after run | OOM |
-|---|---:|:--:|
-| 512 MB, no CPU limit | 310.9 MiB | no |
-| 256 MB, no CPU limit | 148.3 MiB | no |
-
-Latency and cold start of `GET /api/recommendations/track/{id}?limit=10&strategy=content`, measured
-2026-10-10 against application commit `d7bc20a` (89,740 tracks in the database), with
-`deploy/measure-latency.ps1` as of commit `a38e8c6`. Docker Desktop on WSL2, VM with 20 CPUs and 16 GB.
-Load generator: k6 v2.3.0 (`grafana/k6` container, pinned by digest) on the same Docker network as the
-API, one virtual user, sequential requests. Each round is one pass over the 300 deterministic seeds
-(`e4.4-proxies-v1`, same order every time), 5 rounds per scenario. Before the first scenario, a pre-flight
-container requested all 300 seeds, so every measurement, cold starts included, ran with the Postgres and OS
-caches already warm for those seeds. Each scenario then starts the container 3 times (cold start, timed
-from the `docker run` call) and the load runs on the third start. Before the rounds, requests are
-discarded as warm-up in windows of 20 (the same 20 seeds each time) until the mean of two consecutive
-windows differs by less than 10%, with a floor of 50 and a cap of 200; 80 to 100 were discarded, and the
-cap was never reached. Scenarios always run in the same order (0.1 CPU before no limit, 512 MB before
-256 MB). The `blend` strategy is not measured.
-
-Latency columns: median across the 5 rounds, with the range across rounds (max minus min) in parentheses.
-Cold start columns: median of the 3 starts, with the range (min to max) in parentheses.
-
-| Scenario | Mean (ms) | p50 (ms) | p95 (ms) | p99 (ms) | Cold start to `/health` (s) | Cold start to first recommendation (s) |
-|---|---:|---:|---:|---:|---:|---:|
-| 512 MB, 0.1 CPU | 118.5 (48.8) | 101.2 (5.0) | 192.6 (113.2) | 201.0 (304.4) | 18.5 (18.5 to 19.4) | 20.8 (20.7 to 21.8) |
-| 256 MB, 0.1 CPU | 116.1 (45.9) | 101.2 (6.1) | 192.3 (111.3) | 292.4 (299.4) | 19.3 (18.7 to 19.6) | 21.5 (20.9 to 21.9) |
-| 512 MB, no CPU limit | 14.2 (0.8) | 14.1 (0.7) | 15.8 (1.7) | 17.9 (2.9) | 1.57 (1.50 to 1.75) | 2.10 (2.08 to 2.16) |
-| 256 MB, no CPU limit | 13.7 (0.5) | 13.6 (0.3) | 15.5 (1.9) | 18.2 (1.2) | 1.61 (1.52 to 1.65) | 2.13 (2.06 to 2.26) |
-
-Mean latency per round at 0.1 CPU (ms), rounds 1 to 5:
-
-| Scenario | R1 | R2 | R3 | R4 | R5 |
-|---|---:|---:|---:|---:|---:|
-| 512 MB, 0.1 CPU | 156.6 | 125.6 | 118.5 | 108.6 | 107.8 |
-| 256 MB, 0.1 CPU | 149.3 | 153.2 | 109.4 | 116.1 | 107.3 |
-
-What this says: CPU is what moves latency. The mean at 0.1 CPU was still falling when the measurement
-ended, so the median of the 5 rounds is an upper bound on the regime, not the regime itself, and the
-ratio to the unthrottled mean depends on the round: from about 7.6 times (round 5) to about 10.4 times
-(round 1) at 512 MB, and from 7.7 to 10.7 times at 256 MB. The first recommendation takes about 21 s at
-0.1 CPU against about 2 s without a limit.
-
-RAM tier: the 256 MB versus 512 MB difference in the mean (256 MB slightly faster in both CPU settings:
--2.4 ms at 0.1 CPU, -0.5 ms without a limit) is inside the range across rounds (about 45 ms at 0.1 CPU,
-about 1 ms without a limit). Only an effect larger than that range could have been detected, and because
-256 MB always ran after 512 MB, a small effect of the RAM tier cannot be separated from an order effect.
-The application used about 150 to 170 MiB at the 256 MB tier, so no large effect was expected.
-
-Under 0.1 CPU (a CFS quota, throttled in 100 ms slices) the latency looks bimodal, near 100 ms and near
-190 ms. That is inferred from p50 and p95; the script keeps no histogram. The p99 reaches 292 ms (median)
-at 256 MB and about 490 ms in round 1 of both tiers, which suggests a tail beyond the second mode. The
-percentiles swing a lot between rounds; read them with the range next to them. With the limit set,
-`cpu.stat` of the container's cgroup confirmed the throttle (1,859 of 1,873 periods throttled at 512 MB,
-1,917 of 1,936 at 256 MB). Without the limit, the script only checks that the container was started with
-no CPU limit (`NanoCpus` equal to 0). Docker Desktop on WSL2 gives a same-machine comparison between
-scenarios, not a production promise: client, API and Postgres share the host, and a managed free-tier
-provider will differ.
-
-Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
-
-| Relation | Rows | On disk |
-|---|---:|---:|
-| `prediction.track_cooccurrence` | 1,481,511 | **254 MB** |
-| `catalog.tracks` | 89,740 | 95 MB |
-| `catalog.playlists` | 37,121 | 15 MB |
-| **database total** | | **388 MB** |
-
-**Verdict on the ~0.5 GB free-tier budget: it fits, with 124 MB of headroom (76% used).** The blend is
-what consumes it — the co-occurrence matrix alone is 65% of the database and half the budget, to serve
-a signal that covers **9,664 of 89,740 tracks (10.8%)**, and only **37 of the 300 sampled seeds**. That
-ratio, not the absolute size, is the argument for pruning the matrix by a minimum `co_playlists` before
-the catalogue grows again.
-
-Image: 349 MB. The similarity index fits comfortably in 256 MB with no OOM across 1,800 requests. The
-conclusion, *CPU and disk rather than RAM*, is what drove the index to be built in the background at
-startup (E6.9), with the endpoint answering 503 until it is ready.
-
----
-
-## Quality gates
-
-Two gates run inside `dotnet test`. Both are **relative**, and both were calibrated *after* the first
-measurement. That is a lesson learned the hard way, when an earlier R²-based gate was written before
-measuring and passed by a margin of 0.0019.
-
-### Model gate: `ModelQualityGate`
-
-```
-PASS  ⟺  model.MAE ≤ baseline.MAE × (1 - 0.05)
-```
-
-Relative to the always-predict-the-mean baseline, **not** an absolute MAE threshold. Only the
-comparison answers "did it learn?" without knowing the target's variance in advance, and it stays
-valid if the catalogue changes. A rule like `MAE < 12` would be hostage to an invented number.
-
-**R² deliberately does not enter the gate.** With a target this noisy, since popularity is driven by
-marketing and editorial playlisting rather than by audio alone, a low R² is the expected result and
-not a defect. It is reported as information.
-
-A baseline with zero MAE (constant target) fails every model that is not equally perfect. There is no
-percentage to extract from zero, and passing there would mean passing by division by zero.
-
-### Recommender gate: `RecommenderQualityGate`
-
-Nine thresholds, all pinned to measured values, each bound to the configuration that validates it,
-with coherence charged from **both sides**:
-
-| Threshold | Value | Validating config | Measured | Why this side exists |
-|---|---:|---|---:|---|
-| `MinimumGenreCoherence` | 0.40 | `boost 0.050 \| dedupe=on \| content` | 0.5563 | floor, detects the space collapsing, with slack for sample noise |
-| `MinimumCoherenceLiftOverCosineOnly` | 2.0x | both sides at the same `dedupe` | 4.88x | the boost must still break ties, so too small a weight fails here |
-| `MaximumGenreSaturation` | 0.50 | `boost 0.050 \| dedupe=on \| content` | 0.2800 | **ceiling**: above this the boost decides the list for most seeds and becomes indistinguishable from a hard filter (a weight of 0.08 already fails here) |
-| `MinimumDuplicateRecall` | 0.45 | `off \| dedupe=off \| content` | 0.6464 | non-circular guard |
-| `MinimumDuplicateHitRate` | 0.50 | `off \| dedupe=off \| content` | 0.7037 | non-circular guard |
-| `MinimumSiblingCosine` | 0.98 | `off \| dedupe=off \| content` | 0.999028 | moves only if normalisation or the cosine break |
-| `MaximumSeedsWithRedundantSiblings` | 0 | `off \| dedupe=on \| content`, leaders of the 11+ duplicate groups | 0 / 1,895 | the collapse's own promise: the same work never takes two slots |
-| `MaximumShortResultRate` | 0.05 | `boost 0.050 \| dedupe=on \| content`, members of the 11+ duplicate groups | 0.0000 (0 / 1,895) | the collapse must not shrink the list: a seed inside a large duplicate group still gets the top-N it asked for |
-| `MaximumSeedsWithSingleResult` | 0 | same as above | 0 | a one-item list does not read as a design choice, it reads as a broken recommender, so it is counted apart |
-
-The 2026-09-12 re-measurement **changed no threshold value**. All six original thresholds still hold on
-today's default configuration, with room to spare; what changed is that each one now names the config
-that validates it, and a seventh was added for the collapse. The eighth and ninth came with the adaptive
-over-fetch (E4.9).
-
-The gate **refuses**, with an exception rather than a verdict, to be handed the wrong configuration:
-recall and hit-rate measured on an already-deduplicated ranking, a redundancy indicator measured without
-the collapse, a lift compared across different `dedupe` settings, or a blended measurement. It also
-refuses the wrong **population**. The last three thresholds only mean something on the seeds that
-calibrated them: on a sample made of duplicate pairs the redundancy count is zero by arithmetic, with
-the collapse on or off, because two versions of the same work in one top-N need a seed and two siblings;
-and on randomly drawn seeds the short-list rate is close to zero with or without the adaptive
-over-fetch. A measurement that declares another population, or none, is rejected, and so is a redundancy
-count taken over zero seeds. A mis-wired gate does not get the number wrong, it gets the *question*
-wrong, and would return a confident pass about a different quantity.
-
-> Self-exclusion is not a threshold. Any violation in any run is a failure, because the acceptable
-> value is zero.
-
-Failures travel as ready-to-read text carrying the measured value *and* the threshold, because the
-consumer is a human reading a red test, and an error code would force them to translate back a number
-that had already been measured.
-
----
-
-## Data provenance
-
-**`measured`, `imputed` and `absent` never share a colour, a label or a code path.** That rule
-survives every refactor; breaking it is a defect, not a change of taste.
-
-| Stage | Rule |
-|---|---|
-| Ingestion | A missing feature is filled with the **genre median** (global median as backstop) and the track is stamped `IsImputed`. Nothing is filled in silence. |
-| Training | `ImputedFeaturePolicy.ExcludeImputed` is the default. Median imputation compresses variance and injects a genre-correlated artefact, so the model could learn "this feature equals genre X's median" and use it as a genre proxy, scoring well for the wrong reason. `IncludeImputed` exists only for the robustness read. |
-| Recommendation | An imputed seed sets `seedIsImputed` and raises a warning; imputed candidates never receive the genre boost. |
-| UI | `--measured`, `--imputed` and `--absent` are distinct tokens, each segment carries its own name in the legend, and **a percentage never appears without its absolute value and base** (`100.0%` next to `89,740 of 89,740 tracks`). |
-
-The same instinct applies to API degradation. `strategy=blend` with an empty co-occurrence matrix
-falls back to content-based and says so, in `effectiveStrategy`, `collaborativeSignalUnavailable` and
-`warnings`. A seed with no usable genre falls back to pure cosine and sets
-`genreFellBackToCosineOnly`. **The consumer is never degraded in silence.**
-
----
-
-## Engineering decisions
-
-Every decision started as a card on the [Trello board](https://trello.com/b/1nHOJ9P1).
-
-| Decision | Rationale |
-|---|---|
-| **Kaggle for audio features, not the Spotify API** | Spotify removed the audio-features endpoint in November 2024. The domain models the *source* (`Source`, `IsImputed`) instead of pretending one exists, and the ingestion layer is a multi-source adapter. The constraint is documented, not hidden. |
-| **A feature block must earn its place** | `FeatureBlockGainPolicy`: a block stays only if it wins at least 2% MAE on its own, against the same split and seed. Key, mode and time-signature measured 0.12% *worse* and were deleted; genre measured 23.92% better and stayed. The election is a **domain rule** (`FeatureSetChampionElection`), unit-testable without ML.NET. |
-| **Gate relative to a baseline, never absolute** | See [Quality gates](#quality-gates). An absolute `MAE < 12` is an invented number that breaks the moment the catalogue changes. |
-| **Two-sided gate on the recommender** | A floor-only coherence gate is satisfied by raising the boost weight until it becomes a hard filter, so it would reward the exact failure being diagnosed. Floor plus lift plus saturation ceiling closes both ends. |
-| **Genre boost weight 0.15 to 0.05** | At 0.15, **82%** of seeds returned a single-genre top-10: a hard filter in disguise, making `boost` indistinguishable from `sameGenreOnly` and erasing the relaxation axis the endpoint exposes. 0.05 is the largest weight whose saturation stays a minority (0.31) while quadrupling coherence over pure cosine. |
-| **Co-occurrence materialised, never computed per request** | `build-cooccurrence` forms the pairs appearing in two or more playlists, scores Jaccard, and writes 1,481,511 rows to `prediction.track_cooccurrence`. The request path reads that table. A self-join over jsonb per request would be correct and unusable. It is idempotent: truncate and rebuild. |
-| **Collaborative is opt-in** | `strategy=content` is the default. The collaborative signal is only applied when asked for, so an endpoint that already had a contract never changes behaviour silently. |
-| **Analytics couples to Catalog by data, on purpose** | The read-side queries `catalog.*` with Dapper. No Analytics assembly references a Catalog type, so the isolation rules stay green, and the diagram says so out loud. Hiding it behind a redundant projection would have bought ceremony, not a boundary. |
-| **EF write, Dapper read** | Invariants and transactional writes get change tracking, snake_case mapping and the unit of work. Rankings, distributions and correlations get raw PostgreSQL with query, handler and result record sealed in one file, paginated by `ROW_NUMBER() + COUNT(*) OVER()`. No ORM on the hot read path. |
-| **Bulk load bypasses the Outbox** | The seeders write through a raw `DbContext` in batches. Seeding is *data loading*, not business ingestion: 89,740 domain events for a CSV import would be noise, not an audit trail. `IngestPlaylistCommand`, the real business path, does go through the Outbox. |
-| **`COUNT(*) OVER()` is `bigint`, so it maps to `long`** | Postgres returns `bigint`, and Dapper materialising it into `int` throws at runtime. Eighteen green tests did not catch it, because none of them ran against a real Postgres. The fix came with an explicit cast, plus the lesson that read-side SQL needs a real database in the loop. |
-| **An unknown query parameter is a 400, not a shrug** | ASP.NET silently ignores query parameters an action does not declare, so `?searchTerm=abba` against `/api/tracks` (which filters by `search`) returned the *entire catalogue* as a success. A global action filter now rejects it with RFC 7807. A wrong request must not look like a right one. |
-| **Forwarded headers, config-driven** | Behind a TLS-terminating proxy the API must read scheme, host and client IP from `X-Forwarded-*` before anything else reads them, and must **not** run the HTTPS redirect, which is the edge's job. Proxy trust is environment-scoped configuration: no hard-coded IPs, and no accepting forged headers from arbitrary origins. |
-| **ML.NET never crosses the boundary** | Application sees `IPopularityModelTrainer` and its own records. Permutation importance runs in Infrastructure and the ranking crosses as a POCO. No ML.NET type reaches Application, Domain or Contracts, and the architecture suite asserts it. |
-| **`TreatWarningsAsErrors` solution-wide** | Set in `Directory.Build.props` and never relaxed in CI. |
-
----
-
-## Design system
-
-The SPA has a written visual contract ([`frontend/DESIGN.md`](frontend/DESIGN.md)) that every screen
-reuses instead of inventing its own palette, radius or loading state.
-
-**Concept: elevated Spotify-native.** It should read like an internal data tool built *by* Spotify,
-not a generic dashboard and not an ironic imitation. Near-black blue background, surfaces that rise by
-shadow rather than by border, brand green used as **signal and never as decoration**, and numbers big
-enough to tell the story on their own.
-
-### Tokens
-
-| | Token | Hex | Role |
-|---|---|---|---|
-| ![](https://img.shields.io/badge/06070a-06070a?style=flat-square) | `--void` | `#06070a` | Application background |
-| ![](https://img.shields.io/badge/0a0c10-0a0c10?style=flat-square) ![](https://img.shields.io/badge/1f242e-1f242e?style=flat-square) | `--surface-0..3` | `#0a0c10` to `#1f242e` | Panel elevation ladder |
-| ![](https://img.shields.io/badge/232833-232833?style=flat-square) | `--line` | `#232833` | Default divider |
-| ![](https://img.shields.io/badge/f4f6f8-f4f6f8?style=flat-square) | `--text` | `#f4f6f8` | Primary text |
-| ![](https://img.shields.io/badge/a7b0bf-a7b0bf?style=flat-square) | `--text-dim` | `#a7b0bf` | Prose and secondary text |
-| ![](https://img.shields.io/badge/8a93a3-8a93a3?style=flat-square) | `--text-faint` | `#8a93a3` | Micro labels and footnotes |
-| ![](https://img.shields.io/badge/1DB954-1DB954?style=flat-square) | `--brand` | `#1DB954` | Official Spotify green, signal only |
-| ![](https://img.shields.io/badge/1ed760-1ed760?style=flat-square) | `--brand-bright` | `#1ed760` | Active, focus, emphasis |
-| ![](https://img.shields.io/badge/1ed760-1ed760?style=flat-square) | `--measured` | `#1ed760` | **Measured feature** |
-| ![](https://img.shields.io/badge/f0a742-f0a742?style=flat-square) | `--imputed` | `#f0a742` | **Imputed feature**, never decoration |
-| ![](https://img.shields.io/badge/3d4552-3d4552?style=flat-square) | `--absent` | `#3d4552` | **Absent feature**, never decoration |
-| ![](https://img.shields.io/badge/f2545b-f2545b?style=flat-square) | `--danger` | `#f2545b` | Error and negative correlation |
-
-**Colour rule:** the green is scarce. If more than roughly 10% of the screen is `--brand`, it has
-stopped being a signal.
-
-### Contrast, measured rather than assumed
-
-WCAG ratios computed against the system's real backgrounds:
-
-| Colour | on `--void` | `--surface-1` | `--surface-2` | `--surface-3` |
-|---|---:|---:|---:|---:|
-| `--text` | 18.59 | 17.17 | 15.92 | 14.36 |
-| `--text-dim` | 9.21 | 8.51 | 7.89 | 7.11 |
-| `--text-faint` | 6.51 | 6.01 | 5.57 | 5.02 |
-| `--brand` | 7.79 | 7.19 | 6.67 | 6.01 |
-| `--brand-bright` | 10.50 | 9.69 | 8.99 | 8.11 |
-
-All pass AA (4.5 or above) for small text. `--text-faint` was **fixed** during the audit: its original
-`#6b7484` scored 4.27 on `--void` and **3.30** on `--surface-3`, failing AA exactly where it is used
-most. And `#1DB954` on a light background scores **2.59**, so the system is dark-only and the green
-only ever sits on `--void` or `--surface-*`. Any future light-background screen may not use `--brand`
-for small text.
-
-### How a token reaches a screen
-
-```mermaid
-flowchart LR
-    TOK["Tokens<br/><sub>index.css :root<br/>@theme inline → Tailwind</sub>"]
-    UTL["Utilities<br/><sub>.surface-card · .numeral · .label-micro<br/>animate-rise · animate-sweep · skeleton</sub>"]
-    PRIM["Primitives<br/><sub>Panel · Button · Badge<br/>shadcn/ui over Radix</sub>"]
-    DOM["Domain components<br/><sub>CoverageBar · MetricTile · TrackArt<br/>AudioFeatureBars · EChart (lazy)</sub>"]
-    BND["ResourceBoundary<br/><sub>the ONLY place mapping<br/>ResourceState&lt;T&gt; → Loading / Error / Empty</sub>"]
-    SCR["Screens<br/><sub>Overview · Catalog · Insights</sub>"]
-    DATA["api/queries.ts<br/><sub>TanStack Query → ApiResource&lt;T&gt;</sub>"]
-
-    TOK --> UTL --> PRIM --> DOM --> SCR
-    BND --> SCR
-    DATA --> BND
-
-    classDef a fill:#0b0c10,stroke:#1DB954,color:#d1fae5
-    classDef b fill:#0b0c10,stroke:#a78bfa,color:#ede9fe
-    classDef c fill:#0b0c10,stroke:#f0a742,color:#fde68a
-    class TOK,UTL,PRIM,DOM a
-    class BND,DATA c
-    class SCR b
-```
-
-**No screen writes its own loading, empty or error state.** Everything goes through
-`ResourceBoundary`, and `useApiResource` reduces a read to `loading | ready | failed`. There is no
-state in which `status === 'ready'` and the data is null.
-
-### Two details worth the paragraph
-
-**Generated cover art.** The catalogue has **no image column at all**, and `is_enriched = false` on
-57,637 of 57,637 albums, because the Spotify enrichment never ran. There is no cover to show and there
-never was. So instead of a grey placeholder, `lib/track-art.ts` derives a unique, deterministic SVG per
-track: an FNV-1a hash of the `trackId` seeds an xorshift; when the endpoint carries `audioFeatures`,
-the **real values** drive it (lobes from `danceability`, amplitude from `energy`, hue from `key` plus
-`valence`, rotation from `tempo`, brightness from `loudness`); when it does not, the xorshift
-synthesises the vector so the art stays unique and stable per track. Pure SVG, no network, no canvas.
-And the on-screen copy does **not** claim the art comes only from features: it says it comes from the
-track's identity and audio profile, which is what actually happens.
-
-**Bundle budget.** The ceiling is **350 kB gzip** of initial JS, because the demo runs on a small host
-and the first visitor already pays a cold start. Current measurement: **126 kB gzip of JS plus 7.8 kB
-of CSS**. ECharts is registered module by module (`BarChart`, `GridComponent`, `TooltipComponent`,
-`CanvasRenderer`) and loaded through `lazy()`, so its 165 kB gzip chunk only arrives when a chart
-mounts. The barrel import is banned.
-
-**Accessibility.** `prefers-reduced-motion: reduce` zeroes every animation and transition in a global
-block, and no component may reintroduce motion outside that umbrella.
-
-**Attribution.** The footer states plainly that the data comes from a public Kaggle dataset and
-**never from the Spotify API**, that Spotify is a trademark of Spotify AB, and that this project is
-**not affiliated**. Nothing in the UI may suggest "Powered by Spotify".
+Two gates run inside `dotnet test`, and both are **relative**. The model must beat the mean baseline's
+MAE by at least 5%, never an invented absolute number. The recommender is charged on nine thresholds,
+from both sides, each bound to the configuration and the population that calibrated it. Details in
+[ENGINEERING.md](ENGINEERING.md#quality-gates).
 
 ---
 
@@ -680,180 +344,34 @@ block, and no component may reintroduce motion outside that umbrella.
 
 ---
 
-## API surface
+## Quickstart
 
-| Area | Endpoints |
-|---|---|
-| Catalog | `GET /api/tracks?search=&page=&pageSize=` · `GET /api/tracks/{id}` · `POST /api/ingest/playlist/{playlistId}` |
-| Insights | `GET /api/insights/summary` · `popularity/top` · `distributions/{feature}` · `correlations` · `genres` · `artists` · `albums` · `albums/by-year` |
-| Model | `POST /api/model/train` · `GET /api/model/current` · `GET /api/model/dataset/stats` |
-| Prediction | `POST /api/predictions/popularity` (trackId **XOR** explicit features) |
-| Recommendations | `GET /api/recommendations/track/{id}?limit=&strategy=&genreMode=&blendWeight=&dedupe=` |
-| Diagnostics | `GET /api/internal/recommendations/{seedTrackId}/similar` |
-| Infra | `GET /health` · `/swagger` (development only) |
-
-Errors follow RFC 7807 with the request correlation id as `traceId`. Enums cross the boundary **by
-name**, not by ordinal, so reordering one does not silently change the contract.
-
-### What "explainable" actually returns
-
-```jsonc
-// GET /api/recommendations/track/{id}?limit=10
-{
-  "seedTrackId": "…", "seedName": "…", "seedGenre": "acoustic",
-  "seedIsImputed": false,
-  "indexedTrackCount": 89740,
-  "requestedGenreMode": "Boost", "effectiveGenreMode": "Boost",
-  "genreFellBackToCosineOnly": false,
-  "effectiveStrategy": "Content", "collaborativeSignalUnavailable": false,
-  "dedupeApplied": true, "totalDuplicatesCollapsed": 3,
-  "recommendations": [
-    {
-      "trackId": "…", "name": "…", "artist": "…", "genre": "acoustic",
-      "score": 0.9714,          // what ordered the list
-      "cosineScore": 0.9214,    // audio similarity alone, and …
-      "genreBoost": 0.0500,     // … the boost, reported separately, so it is auditable
-      "sharedGenre": "acoustic",
-      "isImputed": false,
-      "equivalentVersionsCollapsed": 2,   // this item speaks for 2 other pressings
-      "topFeatures": [          // original units, not z-scores: the number has to be readable
-        { "feature": "Energy",       "seedValue": 0.412, "candidateValue": 0.430, "contribution": 0.181 },
-        { "feature": "Acousticness", "seedValue": 0.884, "candidateValue": 0.861, "contribution": 0.167 },
-        { "feature": "Valence",      "seedValue": 0.331, "candidateValue": 0.318, "contribution": 0.144 }
-      ]
-    }
-  ],
-  "warnings": []
-}
-```
-
-Under `strategy=content` the arithmetic is visible: `score` is `cosineScore` plus `genreBoost`, always.
-Splitting the two is the whole point, since you can see exactly how far the genre moved a track up the
-list.
-
-Under `strategy=blend` the ranking score becomes `(1 - w) · contentNorm + w · jaccard`, and each item
-additionally reports `signal` (`content`, `collaborative` or `blended`), `coPlaylists` and
-`coOccurrenceScore`. The content term is **min-max rescaled across the candidate set** before
-blending, because the raw cosine lives in a narrow, high band in z-score space (roughly 0.95 to 0.99),
-and without rescaling content would dominate the blend by construction rather than on merit. A
-candidate reached only by co-occurrence keeps its audio explanation empty rather than faking one.
-
----
-
-## Getting started
-
-### Prerequisites
-
-- .NET 8 SDK
-- PostgreSQL 15 or newer
-- Node 22 or newer, for the SPA
-
-### 1. Configure
-
-Secrets live in User Secrets for development, or in environment variables, and never in the
-repository.
-
-```powershell
-dotnet user-secrets set "ConnectionStrings:SpotifyDb" `
-  "Host=localhost;Port=5432;Database=spotify_data_analysis;Username=postgres;Password=<password>" `
-  --project src/Host/SpotifyDataAnalysis.Api
-```
-
-Spotify credentials are **optional**. Only the live-ingestion path needs them, and the whole catalogue
-seeds from CSV without an API key:
-
-```powershell
-dotnet user-secrets set "Spotify:ClientId"     "<id>"     --project src/Host/SpotifyDataAnalysis.Api
-dotnet user-secrets set "Spotify:ClientSecret" "<secret>" --project src/Host/SpotifyDataAnalysis.Api
-```
-
-### 2. Migrate
-
-```powershell
-$env:ConnectionStrings__SpotifyDb = "Host=localhost;Port=5432;Database=spotify_data_analysis;Username=postgres;Password=<password>"
-dotnet ef database update --project src/Modules/Catalog/SpotifyDataAnalysis.Modules.Catalog.Infrastructure
-dotnet ef database update --project src/Modules/Prediction/SpotifyDataAnalysis.Modules.Prediction.Infrastructure
-```
-
-### 3. Load the data
-
-Neither dataset is versioned here. Download them and point the CLI at the files.
-
-| Dataset | Used for | Source |
-|---|---|---|
-| Spotify Tracks Dataset (maharshipandya) | catalogue, audio features, genre | [Kaggle](https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset) |
-| Spotify Playlists (Pichl et al., about 1.18 GB) | item-item co-occurrence | [Kaggle](https://www.kaggle.com/datasets/andrewmvd/spotify-playlists) |
-
-```powershell
-dotnet run --project src/Host/SpotifyDataAnalysis.Api -- seed-catalog     dataset.csv
-dotnet run --project src/Host/SpotifyDataAnalysis.Api -- seed-references  dataset.csv
-dotnet run --project src/Host/SpotifyDataAnalysis.Api -- seed-playlists   spotify-playlists/spotify_dataset.csv dataset.csv 50000
-dotnet run --project src/Host/SpotifyDataAnalysis.Api -- build-cooccurrence
-```
-
-Each step prints its own census: rows read, rows matched, match rate, duplicates, keys discarded as
-ambiguous. **Verify before moving on**, against `GET /api/insights/summary`:
-
-```
-totalTracks 89,740 · distinctArtists 29,811 · distinctAlbums 57,637 · distinctGenres 113
-```
-
-A divergence here is a load that failed in silence.
-
-### 4. Run
-
-```powershell
-dotnet run --project src/Host/SpotifyDataAnalysis.Api    # Swagger at /swagger, health at /health
-cd frontend; npm install; npm run dev                    # SPA on :5173
-```
-
-`frontend/.env.development` is versioned and already points at the Host's `http` profile
-(`http://localhost:5140`), and `appsettings.Development.json` already allows `http://localhost:5173`
-in CORS. For any other target, copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL`.
-Remember that it is resolved **at build time**, so changing the API URL means rebuilding the SPA.
-
-### 5. Train and query
-
-```powershell
-curl -X POST http://localhost:5140/api/model/train     # returns the champion election table
-curl http://localhost:5140/api/model/current           # version, metrics, feature importance
-curl "http://localhost:5140/api/recommendations/track/<trackId>?limit=10&strategy=blend"
-```
-
-### Or just Docker
+The API in a container, against a PostgreSQL that already holds the catalogue:
 
 ```powershell
 docker build -t spotifydataanalysis-api .
-docker run --rm -m 512m --memory-swap 512m -p 8080:8080 `
-  -e ConnectionStrings__SpotifyDb="Host=host.docker.internal;Port=5432;Database=spotify_data_analysis;Username=postgres;Password=<password>" `
-  spotifydataanalysis-api
+docker run --rm -p 8080:8080 -e ConnectionStrings__SpotifyDb="Host=host.docker.internal;Port=5432;Database=spotify_data_analysis;Username=postgres;Password=<password>" spotifydataanalysis-api
+curl http://localhost:8080/health
 ```
 
-### Tests
-
-```powershell
-dotnet test                                             # 826 tests
-dotnet test tests/SpotifyDataAnalysis.ArchitectureTests  # 45 boundary rules, fast
-```
-
-Two tests are marked `[PostgresFact]` and skip without a real database. CI **prints their names and
-the reason** in the job summary, because a skipped test that nobody can see is a lie told in green.
+Starting from an empty database (migrations, the two Kaggle datasets, the seeding CLI), running the SPA,
+training the model and every test gate: **[GETTING_STARTED.md](GETTING_STARTED.md)**.
 
 ---
 
 ## Known limitations
 
-Stated here rather than left for whoever reads the code to discover.
+Stated here rather than left for whoever reads the code to discover. The full table, with the cause
+and what would lift each one, is in [ENGINEERING.md](ENGINEERING.md#known-limitations).
 
-| Limitation | Cause | What would lift it |
-|---|---|---|
-| **R² of 0.393 is the ceiling of audio features alone** | Popularity is driven by marketing, editorial playlisting and artist fame, and that signal simply is not in a feature vector. The model beats the mean baseline by 33.1% on MAE, which is the honest claim. | Artist-level features (Block C), registered as technical debt. |
-| **`artists.popularity` and `followers` are `0` across all 29,811 artists** | Those fields only exist on the Spotify API, and the catalogue is seeded from CSV, so enrichment never ran. | Running the enrichment job with API credentials. |
-| **`release_year` is null across the catalogue** | The source dataset carries no release date, so `/api/insights/albums/by-year` returns a single null-year row, which the UI keeps visible rather than hiding. | A source that carries release dates. |
-| **No album cover exists** | `is_enriched = false` on 57,637 of 57,637 albums, and there is no image column at all. Handled by generating deterministic art per track instead of showing a grey placeholder. | The same enrichment path. |
-| **The imputation path has never run against real data** | `tracksWithImputedFeatures = 0` in the seeded catalogue, because the source rows are complete. The code and the UI handle `imputed` and `absent` correctly and are unit-tested, but those states have not been demonstrated end to end on real data. | A load that produces genuinely incomplete rows. |
-| **Recommender proxies were measured before dedup and blend landed** | The gate thresholds still hold, but the recorded numbers predate the last two features. | Re-running the measurement over the current engine. |
-| **The similarity index is built lazily** | The first request after a restart pays the build, up to 32 s on a throttled vCPU. | Warming it in a background task at startup, which is on the roadmap. |
+- **R² of 0.393 is the ceiling of audio features alone.** The model beats the mean baseline by 33.1%
+  on MAE, which is the honest claim.
+- **`artists.popularity` and `followers` are `0` across all 29,811 artists**, because enrichment needs
+  the Spotify API and the catalogue is seeded from CSV. No insight above uses them.
+- **`release_year` is null across the catalogue, and no album cover exists.** The UI says so instead of
+  hiding it, and generates deterministic art per track.
+- **The imputation path has never run against real data**: the seeded catalogue has 0 imputed tracks.
+- **The recommender gate does not measure `strategy=blend`**, by design.
 
 ---
 
@@ -866,9 +384,9 @@ Stated here rather than left for whoever reads the code to discover.
 | **E2** Analytics and EDA | Dapper read-side: summary, paginated ranking, distributions, Pearson correlations, and genre, artist, album and year cuts | ✅ Shipped |
 | **E3** Popularity model | Training dataset assembly, FastTree plus two baselines, relative quality gate, versioned model in `bytea`, inference endpoint, permutation feature importance | ✅ Shipped |
 | **E4** Recommendations | Content-based cosine kNN, explainability, genre as a relaxable boost, proxy evaluation with a two-sided gate, Pichl seeding, materialised co-occurrence blend, near-duplicate collapse | ✅ Shipped |
-| **E5** React SPA | Visual foundation and typed data layer, Overview, Catalog, Insights | ✅ Shipped |
-| **E5.4** Recommendations screen | Pick a track, get similar tracks with the explanation panel | 🚧 Next |
-| **E6** Operations | CI on clean clone ✅, containerisation ✅, forwarded headers ✅, unknown-query-parameter rejection ✅, **public deploy** 🚧, automated backup with a *tested* restore, minimal monitoring, background index warm-up | 🚧 In progress |
+| **E5** React SPA | Visual foundation and typed data layer, Overview, Catalog, Insights, Model | ✅ Shipped |
+| **E5.4** Recommendations screen | Pick a track, get similar tracks with the explanation panel | ✅ Shipped |
+| **E6** Operations | CI on clean clone ✅, containerisation ✅, forwarded headers ✅, unknown-query-parameter rejection ✅, background index warm-up ✅, **public deploy** 🚧, automated backup with a *tested* restore, minimal monitoring | 🚧 In progress |
 | Scheduled retraining | Model retrained on a schedule, versioned and promoted by policy | Planned |
 | Artist-level features (Block C) | The measured ceiling on R², which needs API enrichment first | Planned |
 
@@ -897,6 +415,10 @@ The full backlog, with acceptance criteria per card, lives on the
 
 | Document | Contents |
 |---|---|
+| [`GETTING_STARTED.md`](GETTING_STARTED.md) | Prerequisites, configuration, migrations, data load, running the API and the SPA, training, Docker, tests and troubleshooting |
+| [`ENGINEERING.md`](ENGINEERING.md) | The deep dive: data pipeline, every measurement with its configuration, both quality gates, data provenance, engineering decisions, API surface, design system, known limitations, and how to reproduce the insights above |
+| [`ARQUITETURA.md`](ARQUITETURA.md) | Code walkthrough in Portuguese: one request followed end to end, class by class, then the map of the rest |
+| [`documentacao/arquitetura-tecnica.pdf`](documentacao/arquitetura-tecnica.pdf) | Technical monograph in Portuguese: the maths and data structures behind similarity, selection, blending and concurrency |
 | [`frontend/DESIGN.md`](frontend/DESIGN.md) | The visual contract: tokens, measured contrast, motion, generated track art, bundle budget, and the three domain rules that outlive any palette |
 | [`frontend/README.md`](frontend/README.md) | SPA setup, environment variables, and how the front talks to the API (`ApiResult`, `PagedResult`, ProblemDetails) |
 | [`deploy/DEPLOY.md`](deploy/DEPLOY.md) | Deployment runbook, measured resource footprint, dump and restore, and the co-occurrence pruning options for a small disk |
@@ -944,4 +466,4 @@ Open to remote opportunities.
 
 ## License
 
-[MIT](LICENSE)
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Kauã Vilas Boas.
