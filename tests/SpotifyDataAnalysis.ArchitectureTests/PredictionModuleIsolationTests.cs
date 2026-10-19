@@ -126,10 +126,12 @@ public sealed class PredictionModuleIsolationTests
     {
         // O ML.NET é um adaptador de tecnologia: mora na Infrastructure, atrás da porta ITrainingDatasetProvider.
         // O domínio entrega listas tipadas e não conhece o framework de ML.
+        // ResideInNamespace é match exato e não enxerga Microsoft.ML.Data (ex.: [ColumnName]), Microsoft.ML.Trainers
+        // etc.; por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(PredictionDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.ML");
+            .ResideInNamespaceMatching(@"^Microsoft\.ML(\..+)?$");
 
         rule.Check(Architecture);
     }
