@@ -69,7 +69,9 @@ public sealed class SharedKernelPurityTests
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(SharedKernel)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.EntityFrameworkCore");
+            // ResideInNamespace é match exato e não enxerga Microsoft.EntityFrameworkCore.Metadata.Builders etc.;
+            // por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
+            .ResideInNamespaceMatching(@"^Microsoft\.EntityFrameworkCore(\..+)?$");
 
         rule.Check(Architecture);
     }
