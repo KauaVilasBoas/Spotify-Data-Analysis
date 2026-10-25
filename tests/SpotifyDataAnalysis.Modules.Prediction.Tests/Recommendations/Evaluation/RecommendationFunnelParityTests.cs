@@ -178,6 +178,43 @@ public sealed class RecommendationFunnelParityTests
         Assert.NotEqual(byDefault, byAlternative);
     }
 
+    // --- só-colaborativa imputada e indexada ---
+
+    [Fact]
+    public async Task Blend_com_so_colaborativa_imputada_empatada_com_versao_medida_tem_a_mesma_paridade()
+    {
+        Fixture fixture = ImputedCollaborativeOnlyScenario();
+
+        string[] endpoint = await EndpointRankingFor(
+            fixture, dedupe: true, GenreRankingModeContract.Off, RecommendationStrategyContract.Blend,
+            GetTrackRecommendationsQuery.DefaultBlendWeight);
+
+        Assert.Equal(
+            endpoint,
+            EvaluatorRankingFor(fixture, Setting(dedupe: true, boost: false, GetTrackRecommendationsQuery.DefaultBlendWeight)).Ids);
+    }
+
+    /// <summary>Sem isto a paridade acima seria vacuamente verde: a imputada está indexada, fora da janela de áudio da rodada 1 e colapsa com a medida.</summary>
+    [Fact]
+    public async Task Fixture_faz_a_so_colaborativa_imputada_ficar_indexada_fora_da_janela_e_colapsar_com_a_medida()
+    {
+        Fixture fixture = ImputedCollaborativeOnlyScenario();
+        GenreAffinityPolicy policy = GenreAffinityPolicy.Create(GenreRankingMode.Off, "pop", seedGenreIsImputed: false);
+
+        IReadOnlyList<TrackSimilarity> window = fixture.Index.FindNearestTo(
+            "seed", RecommendationOverFetch.CountForRound(Limit, 1), policy)!;
+
+        Assert.True(fixture.Index.IsImputedTrack("collabImputed"));
+        Assert.DoesNotContain(window, neighbor => neighbor.TrackId == "collabImputed");
+        Assert.Equal(fixture.NameOf["collabImputed"], fixture.NameOf["far14"]);
+
+        string[] withoutDedupe = await EndpointRankingFor(
+            fixture, dedupe: false, GenreRankingModeContract.Off, RecommendationStrategyContract.Blend,
+            GetTrackRecommendationsQuery.DefaultBlendWeight);
+        Assert.Contains("collabImputed", withoutDedupe);
+        Assert.Contains("far14", withoutDedupe);
+    }
+
     // --- genreMode = SameGenreOnly (content) ---
 
     // Dedupe ligado/desligado em cada cenário de over-fetch.
@@ -302,7 +339,8 @@ public sealed class RecommendationFunnelParityTests
     private sealed record EvaluatorResult(string[] Ids, int RoundsUsed);
 
     private sealed record Fixture(
-        SimilarityIndex Index, IReadOnlyList<TrackMetadataRow> Rows, IReadOnlyDictionary<string, string> NameOf,
+        SimilarityIndex Index, IReadOnlyList<RawTrackFeatures> Catalog, IReadOnlyList<TrackMetadataRow> Rows,
+        IReadOnlyDictionary<string, string> NameOf,
         IReadOnlyList<CoOccurringTrack>? Collaborative = null)
     {
         public IReadOnlyList<CoOccurringTrack> CoOccurring => Collaborative ?? [];
@@ -331,8 +369,35 @@ public sealed class RecommendationFunnelParityTests
             .ToArray();
 
         return new Fixture(
-            content.Index, rows, rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal),
+            content.Index, content.Catalog, rows,
+            rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal),
             collaborative);
+    }
+
+    /// <summary>
+    /// O <see cref="BlendScenario"/> (3, 40) mais "collabImputed": indexada com features IMPUTADAS e a mais distante da
+    /// semente no áudio, então só entra no blend pelo lado colaborativo (sem vizinha rica), com a mesma chave
+    /// "artista|título" de "far14" (medida) e Jaccard maior — as duas empatam no dedup e só a marca de imputação decide.
+    /// </summary>
+    private static Fixture ImputedCollaborativeOnlyScenario()
+    {
+        Fixture blend = BlendScenario(siblings: 3, distinct: 40);
+
+        var catalog = new List<RawTrackFeatures>(blend.Catalog)
+        {
+            new("collabImputed", Raw(0.01, 0.99, 0.01, 60.0, 0.99, 0.99, 0.99, 0.50, -30.0), "pop", IsImputed: true)
+        };
+        List<TrackMetadataRow> rows =
+        [
+            .. blend.Rows,
+            Row("collabImputed", "Obra far14", "Artista far14", "pop", 34) with { IsImputed = true }
+        ];
+        CoOccurringTrack[] collaborative =
+            [new("collabImputed", 95, 0.95), .. blend.CoOccurring];
+
+        return new Fixture(
+            SimilarityIndex.Build(catalog), catalog, rows,
+            rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal), collaborative);
     }
 
     /// <summary>
@@ -374,7 +439,8 @@ public sealed class RecommendationFunnelParityTests
         }
 
         return new Fixture(
-            SimilarityIndex.Build(catalog), rows, rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal));
+            SimilarityIndex.Build(catalog), catalog, rows,
+            rows.ToDictionary(row => row.TrackId, row => row.Name!, StringComparer.Ordinal));
     }
 
     private static TrackMetadataRow Row(string id, string name, string artist, string genre, int popularity) =>

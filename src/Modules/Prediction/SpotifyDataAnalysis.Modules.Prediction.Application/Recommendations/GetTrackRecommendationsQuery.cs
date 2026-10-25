@@ -249,7 +249,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
 
         RankedCandidate[] ranked = blends
             ? BlendCandidates(
-                request.SeedTrackId, candidates, RecommendationOverFetch.Prefix(coOccurring, window),
+                index, request.SeedTrackId, candidates, RecommendationOverFetch.Prefix(coOccurring, window),
                 request.BlendWeight)
             : ContentCandidates(candidates);
 
@@ -288,6 +288,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
     /// descartava o boost silenciosamente e devolvia ao usuário uma ordem que o blend não havia calculado.</para>
     /// </summary>
     private static RankedCandidate[] BlendCandidates(
+        SimilarityIndex index,
         string seedTrackId,
         IReadOnlyList<ExplainedTrackSimilarity> neighbors,
         IReadOnlyList<CoOccurringTrack> coOccurring,
@@ -316,7 +317,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
                 item.Signal,
                 item.CoPlaylists,
                 item.Jaccard,
-                item.Neighbor?.IsImputed ?? false,
+                index.IsImputedTrack(item.TrackId) ?? false,
                 item.Neighbor?.CosineSimilarity ?? 0.0);
         }
 
