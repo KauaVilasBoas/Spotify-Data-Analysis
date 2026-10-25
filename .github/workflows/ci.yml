@@ -33,7 +33,7 @@ jobs:
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
 
       # Cache do NuGet chaveado pelos .csproj: qualquer mudanca de dependencia invalida o cache.
       - name: Cache de pacotes NuGet
