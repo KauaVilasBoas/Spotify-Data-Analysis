@@ -151,4 +151,71 @@ public sealed class NearDuplicateCollapserTests
         Assert.Equal(3, result.Count);
         Assert.Equal(new[] { "a", "b", "c" }, result.Select(r => r.Representative.TrackId));
     }
+
+    private static DeduplicationCandidate[] RisingSunVersions() =>
+    [
+        Candidate("first", 1.0, name: "The House of the Rising Sun", artist: "The Animals", popularity: 40),
+        Candidate("sibling", 1.0, name: "House of the Rising Sun", artist: "The Animals", popularity: 90),
+        Candidate("late", 0.98, name: "House of the Rising Sun - Remastered", artist: "The Animals", popularity: 10)
+    ];
+
+    [Fact]
+    public void Collapse_WhenALaterCandidateSharesTheKeyOfAnAbsorbedVersion_DoesNotOpenASecondGroupForTheSameSong()
+    {
+        // "sibling" é absorvido por cosseno em "first" (chaves diferentes) e vira o representante; "late" tem a chave
+        // do "sibling", mas cosseno < limiar com ele. A chave do absorvido nunca entrou no mapa: "late" abre outro grupo.
+        NearDuplicateCollapser collapser = CollapserFor(("first", "sibling"));
+
+        IReadOnlyList<CollapsedRecommendation> result = collapser.Collapse(RisingSunVersions(), limit: 5);
+
+        CollapsedRecommendation only = Assert.Single(result);
+        Assert.Equal(2, only.CollapsedDuplicateCount);
+    }
+
+    [Fact]
+    public void Collapse_GroupsTheSameSongIdentically_WhetherTheInheritedKeyArrivesBeforeOrAfterTheGroupOpener()
+    {
+        // Com "sibling" antes de "first", a chave do "sibling" já está no mapa quando "late" chega e tudo funde em 1;
+        // na ordem inversa a chave do absorvido é registrada ao absorver e também dá 1. Só estas duas ordens são cobertas.
+        NearDuplicateCollapser collapser = CollapserFor(("first", "sibling"));
+        DeduplicationCandidate[] v = RisingSunVersions();
+
+        int siblingFirst = collapser.Collapse([v[1], v[0], v[2]], limit: 5).Count;
+        int firstFirst = collapser.Collapse([v[0], v[1], v[2]], limit: 5).Count;
+
+        Assert.Equal(siblingFirst, firstFirst);
+    }
+
+    [Fact]
+    public void Collapse_KnownLimit_WhenTheKeyHolderArrivesBeforeItsCosineTwin_TheSameSongStaysInTwoGroups()
+    {
+        // Limite conhecido, não garantia desejada: na ordem first, late, sibling, "late" abre um grupo (cosseno baixo com
+        // "first", chave de "sibling" ainda não mapeada) e "sibling" casa pela chave com ele. "first" fica sozinho,
+        // embora seja a mesma obra por cosseno. O dedup NÃO é independente de ordem.
+        NearDuplicateCollapser collapser = CollapserFor(("first", "sibling"));
+        DeduplicationCandidate[] v = RisingSunVersions();
+
+        IReadOnlyList<CollapsedRecommendation> result = collapser.Collapse([v[0], v[2], v[1]], limit: 5);
+
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void Collapse_KnownLimit_WhenKeyPointsToOneGroupAndCosineToAnother_TheGroupsStaySeparate()
+    {
+        // Limite conhecido, não garantia desejada: "c" casa por chave com o grupo de "a" e por cosseno com o de "b".
+        // A chave vence, "c" entra no grupo de "a" e os dois grupos NÃO são fundidos nem remapeados (decisão de produto).
+        NearDuplicateCollapser collapser = CollapserFor(("b", "c"));
+
+        IReadOnlyList<CollapsedRecommendation> result = collapser.Collapse(
+        [
+            Candidate("a", 0.9, name: "Song", artist: "Artist"),
+            Candidate("b", 0.8, name: "Other Song", artist: "Artist"),
+            Candidate("c", 0.7, name: "Song (Remaster)", artist: "Artist")
+        ], limit: 5);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(1, result[0].CollapsedDuplicateCount);
+        Assert.Equal(0, result[1].CollapsedDuplicateCount);
+    }
 }

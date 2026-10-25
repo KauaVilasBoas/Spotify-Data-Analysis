@@ -1,28 +1,27 @@
 using System.Data;
 using Dapper;
 using SpotifyDataAnalysis.Infrastructure.Data;
-using SpotifyDataAnalysis.Modules.Prediction.Domain.Recommendations.Evaluation;
 
-namespace SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.Evaluation;
+namespace SpotifyDataAnalysis.Modules.Prediction.Tests.Recommendations.Evaluation;
 
 /// <summary>
 /// Monta o insumo da avaliação do recomendador (E4.4) lendo o schema <c>catalog</c> com Dapper: a amostra FIXA de
 /// sementes, os grupos de quase-duplicatas e o censo que contextualiza os números. Mesma fronteira do E3.1/E4.1 —
-/// SQL puro, zero referência .NET a tipos do Catalog (posição guardada pelos ArchTests).
+/// SQL puro, zero referência .NET a tipos do Catalog.
 ///
 /// <para><b>Reprodutibilidade por SQL, não por Random:</b> a amostragem ordena por <c>md5(semente || chave)</c>.
 /// É determinística (a mesma semente textual devolve sempre as mesmas faixas), independe de cultura, de versão do
 /// runtime e da ordem física da tabela, e — ao contrário de sortear em memória — nunca materializa o catálogo
 /// inteiro no processo, o que a restrição de free tier proíbe.</para>
 ///
-/// <para><b>Sem porta/interface de propósito:</b> o avaliador do domínio não depende desta classe (recebe a amostra
+/// <para><b>Sem porta/interface de propósito:</b> o avaliador não depende desta classe (recebe a amostra
 /// pronta), então uma interface aqui só existiria para ser implementada uma vez — cerimônia sem ganho de
 /// testabilidade.</para>
 /// </summary>
 internal sealed class CatalogRecommenderEvaluationSampleSource : BaseDataAccess
 {
     /// <summary>
-    /// O predicado de ELEGIBILIDADE, idêntico em regra ao <c>WHERE</c> do <see cref="CatalogSimilarityFeatureSource"/>:
+    /// O predicado de ELEGIBILIDADE, idêntico em regra ao <c>WHERE</c> do <see cref="SpotifyDataAnalysis.Modules.Prediction.Application.Recommendations.CatalogSimilarityFeatureSource"/>:
     /// só faixa com as NOVE features contínuas presentes entra no índice, logo amostrar de um universo mais amplo
     /// produziria sementes que o avaliador só teria como descartar. Restatado aqui (e não extraído do SQL do E4.1)
     /// para não reescrever uma consulta de produção já validada em smoke por conveniência cosmética.

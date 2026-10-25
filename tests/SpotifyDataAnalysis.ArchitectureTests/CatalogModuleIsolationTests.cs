@@ -90,7 +90,9 @@ public sealed class CatalogModuleIsolationTests
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(CatalogDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.EntityFrameworkCore");
+            // ResideInNamespace é match exato e não enxerga Microsoft.EntityFrameworkCore.Metadata.Builders etc.;
+            // por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
+            .ResideInNamespaceMatching(@"^Microsoft\.EntityFrameworkCore(\..+)?$");
 
         rule.Check(Architecture);
     }
@@ -98,10 +100,13 @@ public sealed class CatalogModuleIsolationTests
     [Fact]
     public void CatalogDomain_ShouldNotDependOn_AspNetCore()
     {
+        // ResideInNamespace faz correspondência exata de namespace. Como os tipos do ASP.NET Core residem
+        // em sub-namespaces (Microsoft.AspNetCore.Http, Microsoft.AspNetCore.Mvc, etc.) e nunca no
+        // namespace raiz "Microsoft.AspNetCore", é necessário usar ResideInNamespaceMatching com regex.
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(CatalogDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.AspNetCore");
+            .ResideInNamespaceMatching(@"Microsoft\.AspNetCore(\..+)?");
 
         rule.Check(Architecture);
     }
@@ -158,7 +163,9 @@ public sealed class CatalogModuleIsolationTests
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(CatalogContracts)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.EntityFrameworkCore");
+            // ResideInNamespace é match exato e não enxerga Microsoft.EntityFrameworkCore.Metadata.Builders etc.;
+            // por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
+            .ResideInNamespaceMatching(@"^Microsoft\.EntityFrameworkCore(\..+)?$");
 
         rule.Check(Architecture);
     }

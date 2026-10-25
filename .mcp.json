@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "vault": {
+      "command": "npx",
+      "args": ["-y", "@bitbonsai/mcpvault@latest", "${SPOTIFY_VAULT_PATH}"],
+      "env": {}
+    }
+  }
+}

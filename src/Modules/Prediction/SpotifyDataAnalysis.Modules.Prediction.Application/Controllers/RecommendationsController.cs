@@ -53,6 +53,13 @@ public sealed class RecommendationsController : SpotifyControllerBase
     /// → 422 (não há vetor, logo não há como recomendar). <c>limit</c> fora de [1, 50], <c>explainTopK</c>
     /// fora de [1, 9] ou <c>genreMode</c> desconhecido → 400 (ProblemDetails).</para>
     ///
+    /// <para><b>Índice ainda montando (503 + Retry-After):</b> na janela de arranque do servidor — tipicamente
+    /// alguns segundos, dependendo do tamanho do catálogo —, o índice de similaridade em memória ainda não foi
+    /// construído. Nesse intervalo, qualquer chamada recebe <c>503 Service Unavailable</c> com o header
+    /// <c>Retry-After: 5</c> (segundos sugeridos). Repita a requisição após esse intervalo; o índice nunca
+    /// fica permanentemente indisponível — se o warm-up falhou no arranque, a primeira chamada seguinte o monta
+    /// sob demanda. O corpo da resposta segue RFC 7807 (<see cref="ProblemDetails"/>).</para>
+    ///
     /// <para><b>Exemplo de resposta (recortado):</b>
     /// <c>{ "success": true, "data": { "seedTrackId": "0e7ipj03S05BNilyu5bRzt", "seedName": "Nome da Semente",
     /// "seedGenre": "pop", "seedIsImputed": false, "indexedTrackCount": 89712,
@@ -78,6 +85,7 @@ public sealed class RecommendationsController : SpotifyControllerBase
     [ProducesResponseType(typeof(ValidationProblemDetails), 400)]
     [ProducesResponseType(typeof(ProblemDetails), 404)]
     [ProducesResponseType(typeof(ProblemDetails), 422)]
+    [ProducesResponseType(typeof(ProblemDetails), 503)]
     public async Task<ActionResult<ApiResult<TrackRecommendationsResponse>>> GetTrackRecommendations(
         string id,
         [FromQuery] int limit = GetTrackRecommendationsQuery.DefaultLimit,

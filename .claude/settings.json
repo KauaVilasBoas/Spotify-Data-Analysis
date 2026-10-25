@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/vault-guard.mjs"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/session-guard.mjs"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "ponytail@ponytail": true,
+    "caveman@caveman": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(dotnet --version)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet restore *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet run *)",
+      "Bash(dotnet ef *)",
+      "Bash(dotnet sln *)",
+      "Bash(dotnet new *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet remove *)",
+      "Bash(dotnet user-secrets *)",
+      "PowerShell(dotnet build *)",
+      "PowerShell(dotnet test *)",
+      "PowerShell(dotnet run *)",
+      "PowerShell(dotnet ef *)",
+      "Bash(npm ci)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npm test)",
+      "Bash(npx oxlint *)",
+      "Bash(npx tsc *)",
+      "Bash(agent-browser *)",
+      "PowerShell(npm run *)",
+      "PowerShell(npm test)",
+      "PowerShell(agent-browser *)",
+      "mcp__trello__list_boards",
+      "mcp__trello__list_workspaces",
+      "mcp__trello__set_active_board",
+      "mcp__trello__get_active_board_info",
+      "mcp__trello__get_lists",
+      "mcp__trello__add_list_to_board",
+      "mcp__trello__update_list",
+      "mcp__trello__update_list_position",
+      "mcp__trello__get_board_labels",
+      "mcp__trello__get_board_members",
+      "mcp__trello__create_label",
+      "mcp__trello__update_label",
+      "mcp__trello__get_cards_by_list_id",
+      "mcp__trello__get_my_cards",
+      "mcp__trello__get_card",
+      "mcp__trello__add_card_to_list",
+      "mcp__trello__add_cards_to_list",
+      "mcp__trello__update_card_details",
+      "mcp__trello__move_card",
+      "mcp__trello__archive_card",
+      "mcp__trello__add_comment",
+      "mcp__trello__get_card_comments",
+      "mcp__trello__update_comment",
+      "mcp__trello__create_checklist",
+      "mcp__trello__add_checklist_item",
+      "mcp__trello__get_checklist_items",
+      "mcp__trello__get_checklist_by_name",
+      "mcp__trello__update_checklist_item",
+      "mcp__trello__get_acceptance_criteria",
+      "mcp__trello__find_checklist_items_by_description",
+      "mcp__trello__get_recent_activity"
+    ]
+  }
+}

@@ -76,17 +76,6 @@ internal sealed class GetTrackRecommendationsQueryHandler
         "matriz nunca foi construída): as recomendações caíram no content-based puro. O colaborativo não foi " +
         "ignorado em silêncio.";
 
-    /// <summary>
-    /// Fator de over-fetch do dedup (E4.7): para entregar <c>limit</c> itens DISTINTOS após colapsar
-    /// quase-duplicatas, é preciso pedir mais candidatas do que o limite. 3× cobre com folga o cenário medido no
-    /// E4.4 (maior grupo de duplicatas = 54, mas raríssimo no topo de uma semente típica), sem varrer o catálogo
-    /// além do necessário — a varredura kNN é O(n) no tamanho do índice, não no over-fetch.
-    /// </summary>
-    private const int DedupeOverFetchFactor = 3;
-
-    /// <summary>Piso do over-fetch, para limites pequenos ainda terem margem de colapso (ex.: limit=1 pede 10).</summary>
-    private const int MinimumDedupeOverFetch = 10;
-
     private readonly ITrackSimilarityIndexProvider _indexProvider;
     private readonly ITrackMetadataSource _metadataSource;
     private readonly ITrackCoOccurrenceSource _coOccurrenceSource;
@@ -127,9 +116,14 @@ internal sealed class GetTrackRecommendationsQueryHandler
         // Over-fetch: com dedup (E4.7) ou blend (E4.6), pede-se MAIS candidatas que o limite — colapsar ou blendar
         // reduziria o resultado abaixo do pedido, e o contrato exige entregar `limit` itens distintos. Sem nenhum
         // dos dois, pede-se exatamente `limit` (o comportamento do E4.2/E4.3 permanece intacto).
+        //
+        // A varredura é UMA, na janela da última rodada (E4.9): ela é O(n) no tamanho do índice, então refazê-la por
+        // rodada custaria uma nova passada por 89.740 faixas. As rodadas do laço adaptativo abaixo leem PREFIXOS
+        // desta varredura, que são exatamente os top-N que uma segunda varredura devolveria. O MESMO vale para o lado
+        // colaborativo: busca-se a janela máxima uma vez e cada rodada lê o prefixo dela (E4.12).
         bool overFetches = request.Dedupe || request.Strategy == RecommendationStrategyContract.Blend;
         int fetchCount = overFetches
-            ? Math.Max(limit * DedupeOverFetchFactor, MinimumDedupeOverFetch)
+            ? RecommendationOverFetch.MaximumCountFor(limit)
             : limit;
 
         IReadOnlyList<ExplainedTrackSimilarity>? neighbors =
@@ -146,21 +140,31 @@ internal sealed class GetTrackRecommendationsQueryHandler
             ? await _coOccurrenceSource.FindCoOccurringAsync(request.SeedTrackId, fetchCount, cancellationToken)
             : [];
 
-        RankedCandidate[] ranked = request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count > 0
-            ? BlendCandidates(request.SeedTrackId, neighbors, coOccurring, request.BlendWeight)
-            : ContentCandidates(neighbors);
+        bool blends = request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count > 0;
 
         bool collaborativeUnavailable =
             request.Strategy == RecommendationStrategyContract.Blend && coOccurring.Count == 0;
 
-        // Metadata de TODOS os candidatos (inclui faixas só-colaborativas que não vêm do índice content).
-        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata =
-            await LoadMetadataAsync(ranked.Select(candidate => candidate.TrackId), cancellationToken);
+        // Metadata de TODOS os candidatos da varredura (inclui faixas só-colaborativas, que não vêm do índice
+        // content). UMA leitura serve a todas as rodadas: o dedup precisa da chave "artista|título" e da popularity
+        // de qualquer candidata que uma rodada posterior possa alcançar, e ir ao banco por rodada trocaria CPU
+        // reaproveitada por ida e volta de rede.
+        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata = await LoadMetadataAsync(
+            neighbors.Select(neighbor => neighbor.TrackId).Concat(coOccurring.Select(track => track.TrackId)),
+            cancellationToken);
 
-        (IReadOnlyList<RankedCandidate> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
-            request.Dedupe
-                ? Deduplicate(ranked, candidateMetadata, index, limit)
-                : (TakeLimit(ranked, limit), EmptyCollapsedCounts);
+        PostProcessedCandidates postProcessed = overFetches
+            ? RecommendationOverFetch.Resolve(
+                limit,
+                Math.Max(neighbors.Count, coOccurring.Count),
+                window => PostProcess(
+                    request, neighbors, coOccurring, candidateMetadata, index, limit, window, blends),
+                result => result.Representatives.Count).Result
+            : PostProcess(
+                request, neighbors, coOccurring, candidateMetadata, index, limit, neighbors.Count, blends);
+
+        IReadOnlyList<RankedCandidate> representatives = postProcessed.Representatives;
+        IReadOnlyDictionary<string, int> collapsedCounts = postProcessed.CollapsedCounts;
 
         IReadOnlyList<TrackRecommendationItem> recommendations = BuildRecommendations(
             representatives, candidateMetadata, seedMetadata?.Genre, explainTopK, collapsedCounts);
@@ -198,15 +202,65 @@ internal sealed class GetTrackRecommendationsQueryHandler
     /// Um candidato já rankeado, no formato que o dedup e a montagem consomem — o denominador comum entre o content
     /// puro e o blend. Carrega a vizinha rica (quando há sinal de áudio) e os campos colaborativos (quando há
     /// co-ocorrência), para a montagem do item saber qual "porquê" exibir sem reconsultar nada.
+    ///
+    /// <para><b><see cref="Score"/> é o ÚNICO score (E4.10, DP-2):</b> é a chave pela qual este candidato foi
+    /// ordenado e é o número que a resposta expõe. Ordenar por um número e mostrar outro foi a causa raiz do bug em
+    /// que o boost de gênero do E4.3 era calculado e depois descartado na ordenação final do blend — por isso não
+    /// existe aqui um segundo score de ranking.</para>
     /// </summary>
     private sealed record RankedCandidate(
         string TrackId,
+        double Score,
         ExplainedTrackSimilarity? Neighbor,
         RecommendationSignal Signal,
         int CoPlaylists,
         double CoOccurrenceScore,
         bool IsImputed,
         double DedupeCosine);
+
+    /// <summary>
+    /// O resultado de UMA rodada de pós-processamento: os representantes que irão para a resposta e quantas
+    /// quase-duplicatas cada um absorveu. Os dois viajam juntos porque a contagem de colapsadas só faz sentido em
+    /// relação aos representantes daquela mesma rodada.
+    /// </summary>
+    private sealed record PostProcessedCandidates(
+        IReadOnlyList<RankedCandidate> Representatives, IReadOnlyDictionary<string, int> CollapsedCounts);
+
+    /// <summary>
+    /// Pós-processa as primeiras <paramref name="window"/> candidatas do FUNIL: blend colaborativo (E4.6) quando há
+    /// sinal, depois dedup de quase-duplicatas (E4.7), cortando em <paramref name="limit"/>. É a função que o laço
+    /// adaptativo do <see cref="RecommendationOverFetch"/> repete com a janela dobrada quando o resultado sai curto.
+    ///
+    /// <para><b>A janela corta as DUAS listas</b> (E4.12), pelo mesmo prefixo: a de áudio e a colaborativa. Cortar só a
+    /// de áudio fazia a rodada 1 do blend disputar com o top-máximo colaborativo em vez do top-30 — ou seja, o
+    /// resultado mudava para sementes que a rodada 1 já resolvia, contra o que o E4.9 prometeu.</para>
+    /// </summary>
+    private static PostProcessedCandidates PostProcess(
+        GetTrackRecommendationsQuery request,
+        IReadOnlyList<ExplainedTrackSimilarity> neighbors,
+        IReadOnlyList<CoOccurringTrack> coOccurring,
+        IReadOnlyDictionary<string, TrackMetadataRow> candidateMetadata,
+        SimilarityIndex index,
+        int limit,
+        int window,
+        bool blends)
+    {
+        IReadOnlyList<ExplainedTrackSimilarity> candidates = RecommendationOverFetch.Prefix(neighbors, window);
+
+        RankedCandidate[] ranked = blends
+            ? BlendCandidates(
+                index, request.SeedTrackId, candidates, RecommendationOverFetch.Prefix(coOccurring, window),
+                request.BlendWeight)
+            : ContentCandidates(candidates);
+
+        if (!request.Dedupe)
+            return new PostProcessedCandidates(TakeLimit(ranked, limit), EmptyCollapsedCounts);
+
+        (IReadOnlyList<RankedCandidate> representatives, IReadOnlyDictionary<string, int> collapsedCounts) =
+            Deduplicate(ranked, candidateMetadata, index, limit);
+
+        return new PostProcessedCandidates(representatives, collapsedCounts);
+    }
 
     /// <summary>Traduz o top-N content puro (E4.1–E4.3) em candidatos rankeados — sinal ContentOnly, sem colaborativo.</summary>
     private static RankedCandidate[] ContentCandidates(IReadOnlyList<ExplainedTrackSimilarity> neighbors)
@@ -216,7 +270,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
         {
             ExplainedTrackSimilarity neighbor = neighbors[i];
             candidates[i] = new RankedCandidate(
-                neighbor.TrackId, neighbor, RecommendationSignal.ContentOnly,
+                neighbor.TrackId, neighbor.Similarity, neighbor, RecommendationSignal.ContentOnly,
                 CoPlaylists: 0, CoOccurrenceScore: 0.0, neighbor.IsImputed, neighbor.CosineSimilarity);
         }
 
@@ -227,8 +281,14 @@ internal sealed class GetTrackRecommendationsQueryHandler
     /// Blenda o content-based com o colaborativo (E4.6) via <see cref="RecommendationBlender"/> e traduz o ranking
     /// blendado em candidatos. Faixas só-colaborativas entram sem vizinha rica; o cosseno de dedup delas é 0 (não
     /// têm vetor comparável no top-N de áudio), então só colapsam por chave textual — o que é correto.
+    ///
+    /// <para><b>A parcela de content é o score HÍBRIDO do E4.3 (E4.10), não o cosseno nu:</b> é
+    /// <see cref="ExplainedTrackSimilarity.Similarity"/> que entra no blender, então o boost de gênero continua
+    /// pesando na chave de ordenação final. Passar <see cref="ExplainedTrackSimilarity.CosineSimilarity"/> aqui
+    /// descartava o boost silenciosamente e devolvia ao usuário uma ordem que o blend não havia calculado.</para>
     /// </summary>
     private static RankedCandidate[] BlendCandidates(
+        SimilarityIndex index,
         string seedTrackId,
         IReadOnlyList<ExplainedTrackSimilarity> neighbors,
         IReadOnlyList<CoOccurringTrack> coOccurring,
@@ -236,7 +296,7 @@ internal sealed class GetTrackRecommendationsQueryHandler
     {
         var contentCandidates = new List<BlendContentCandidate>(neighbors.Count);
         foreach (ExplainedTrackSimilarity neighbor in neighbors)
-            contentCandidates.Add(new BlendContentCandidate(neighbor.TrackId, neighbor.CosineSimilarity, neighbor));
+            contentCandidates.Add(BlendContentCandidate.From(neighbor));
 
         var collaborativeCandidates = new List<BlendCollaborativeCandidate>(coOccurring.Count);
         foreach (CoOccurringTrack track in coOccurring)
@@ -252,11 +312,12 @@ internal sealed class GetTrackRecommendationsQueryHandler
             BlendedRecommendation item = blended[i];
             candidates[i] = new RankedCandidate(
                 item.TrackId,
+                item.FinalScore,
                 item.Neighbor,
                 item.Signal,
                 item.CoPlaylists,
                 item.Jaccard,
-                item.Neighbor?.IsImputed ?? false,
+                index.IsImputedTrack(item.TrackId) ?? false,
                 item.Neighbor?.CosineSimilarity ?? 0.0);
         }
 
@@ -383,9 +444,9 @@ internal sealed class GetTrackRecommendationsQueryHandler
                 Artist = row?.Artist,
                 Album = row?.Album,
                 Genre = row?.Genre,
-                // Faixa só-colaborativa não tem score de áudio: o Score exibido é o Jaccard (o único sinal que a
-                // sustentou), e cosine/genreBoost ficam zerados — coerente com signal=collaborative.
-                Score = neighbor?.Similarity ?? candidate.CoOccurrenceScore,
+                // E4.10, DP-2: o score exposto é EXATAMENTE a chave pela qual o candidato foi ordenado — no content
+                // puro o híbrido do E4.3, no blend o score final do blender. Nunca um número recomposto aqui.
+                Score = candidate.Score,
                 CosineScore = neighbor?.CosineSimilarity ?? 0.0,
                 GenreBoost = neighbor?.GenreBonus ?? 0.0,
                 IsImputed = candidate.IsImputed,

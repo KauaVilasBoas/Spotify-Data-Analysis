@@ -32,8 +32,12 @@ import {
   getCurrentModel,
   getDatasetStats,
   getTrackRecommendations,
+  predictPopularity,
+  resolveRecommendationParams,
   type DatasetStats,
   type ModelVersion,
+  type PopularityPredictionResponse,
+  type RecommendationParams,
   type TrackRecommendations,
 } from './prediction'
 
@@ -57,8 +61,9 @@ export const queryKeys = {
   track: (id: string) => ['catalog', 'track', id] as const,
   model: ['prediction', 'model', 'current'] as const,
   datasetStats: ['prediction', 'dataset', 'stats'] as const,
-  recommendations: (trackId: string, limit: number) =>
-    ['prediction', 'recommendations', trackId, limit] as const,
+  recommendations: (trackId: string, params: RecommendationParams) =>
+    ['prediction', 'recommendations', trackId, params] as const,
+  prediction: (trackId: string) => ['prediction', 'popularity', trackId] as const,
 }
 
 type QueryConfig<T> = Omit<UseQueryOptions<T, Error, T, readonly unknown[]>, 'queryKey' | 'queryFn'>
@@ -191,11 +196,27 @@ export function useDatasetStats(): ApiResource<DatasetStats> {
 
 export function useTrackRecommendations(
   trackId: string | null,
-  limit: number,
+  params: RecommendationParams = {},
 ): ApiResource<TrackRecommendations> {
+  // Defaults resolvidos aqui, antes de montar a chave, para que {} e os defaults
+  // explícitos gerem a mesma entrada de cache.
+  const resolved = resolveRecommendationParams(params)
   return useApiQuery(
-    queryKeys.recommendations(trackId ?? '', limit),
-    (signal) => getTrackRecommendations(trackId as string, limit, signal),
+    queryKeys.recommendations(trackId ?? '', resolved),
+    (signal) => getTrackRecommendations(trackId as string, resolved, signal),
+    { enabled: trackId !== null },
+  )
+}
+
+/**
+ * Query (não mutation) habilitada só quando há faixa selecionada.
+ * Predição é idempotente por trackId, query é mais simples que mutation
+ * e integra direto no ResourceBoundary sem estado local de submit.
+ */
+export function usePopularityPrediction(trackId: string | null): ApiResource<PopularityPredictionResponse> {
+  return useApiQuery(
+    queryKeys.prediction(trackId ?? ''),
+    (signal) => predictPopularity(trackId as string, signal),
     { enabled: trackId !== null },
   )
 }

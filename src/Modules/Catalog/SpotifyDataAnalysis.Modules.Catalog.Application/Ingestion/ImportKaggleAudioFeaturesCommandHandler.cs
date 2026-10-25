@@ -25,9 +25,6 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion;
 internal sealed class ImportKaggleAudioFeaturesCommandHandler
     : ICommandHandler<ImportKaggleAudioFeaturesCommand, ImportKaggleAudioFeaturesResult>
 {
-    /// <summary>Origem gravada nas features importadas — rastreia de onde o dado veio (auditoria da ingestão).</summary>
-    private const string SourceName = "kaggle:spotify-tracks-dataset";
-
     private readonly IKaggleAudioFeaturesReader _reader;
     private readonly TrackMatcher _matcher;
     private readonly IAudioFeatureImputer _imputer;
@@ -78,7 +75,7 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
             }
 
             ImputedAudioFeatures values = _imputer.Impute(row, medians);
-            track.AttachAudioFeatures(BuildFeatures(values, row.Genre));
+            track.AttachAudioFeatures(AudioFeaturesFactory.Build(values, row.Genre));
 
             if (values.IsImputed)
                 imputed++;
@@ -104,21 +101,4 @@ internal sealed class ImportKaggleAudioFeaturesCommandHandler
         return builder.Build();
     }
 
-    private static AudioFeatures BuildFeatures(ImputedAudioFeatures values, string? genre)
-        => AudioFeatures.Create(
-            danceability: values[AudioFeature.Danceability],
-            energy: values[AudioFeature.Energy],
-            valence: values[AudioFeature.Valence],
-            tempo: values[AudioFeature.Tempo],
-            acousticness: values[AudioFeature.Acousticness],
-            instrumentalness: values[AudioFeature.Instrumentalness],
-            liveness: values[AudioFeature.Liveness],
-            speechiness: values[AudioFeature.Speechiness],
-            loudness: values[AudioFeature.Loudness],
-            key: (int)values[AudioFeature.Key],
-            mode: (int)values[AudioFeature.Mode],
-            timeSignature: (int)values[AudioFeature.TimeSignature],
-            source: SourceName,
-            genre: genre,
-            isImputed: values.IsImputed);
 }

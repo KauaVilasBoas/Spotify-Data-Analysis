@@ -25,6 +25,8 @@ public sealed class PredictionModuleIsolationTests
 {
     private static readonly Architecture Architecture = AssemblyRegistry.Architecture;
 
+    private const string EvaluationNamespacePattern = @"^SpotifyDataAnalysis\.(.+\.)?Evaluation(\..+)?$";
+
     private static readonly ClrAssembly PredictionDomain =
         typeof(Modules.Prediction.Domain.PredictionDomainAssemblyReference).Assembly;
 
@@ -89,7 +91,9 @@ public sealed class PredictionModuleIsolationTests
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(PredictionDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.EntityFrameworkCore");
+            // ResideInNamespace é match exato e não enxerga Microsoft.EntityFrameworkCore.Metadata.Builders etc.;
+            // por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
+            .ResideInNamespaceMatching(@"^Microsoft\.EntityFrameworkCore(\..+)?$");
 
         rule.Check(Architecture);
     }
@@ -97,10 +101,13 @@ public sealed class PredictionModuleIsolationTests
     [Fact]
     public void PredictionDomain_ShouldNotDependOn_AspNetCore()
     {
+        // ResideInNamespace faz correspondência exata de namespace. Como os tipos do ASP.NET Core residem
+        // em sub-namespaces (Microsoft.AspNetCore.Http, Microsoft.AspNetCore.Mvc, etc.) e nunca no
+        // namespace raiz "Microsoft.AspNetCore", é necessário usar ResideInNamespaceMatching com regex.
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(PredictionDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.AspNetCore");
+            .ResideInNamespaceMatching(@"Microsoft\.AspNetCore(\..+)?");
 
         rule.Check(Architecture);
     }
@@ -121,10 +128,32 @@ public sealed class PredictionModuleIsolationTests
     {
         // O ML.NET é um adaptador de tecnologia: mora na Infrastructure, atrás da porta ITrainingDatasetProvider.
         // O domínio entrega listas tipadas e não conhece o framework de ML.
+        // ResideInNamespace é match exato e não enxerga Microsoft.ML.Data (ex.: [ColumnName]), Microsoft.ML.Trainers
+        // etc.; por isso ResideInNamespaceMatching cobrindo o namespace e seus sub-namespaces.
         IArchRule rule = ArchRuleDefinition
             .Types().That().ResideInAssembly(PredictionDomain)
             .Should().NotDependOnAnyTypesThat()
-            .ResideInNamespace("Microsoft.ML");
+            .ResideInNamespaceMatching(@"^Microsoft\.ML(\..+)?$");
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void PredictionProductionAssemblies_ShouldNotDeclareTypes_InEvaluationNamespaces()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(PredictionDomain, PredictionContracts, PredictionApplication, PredictionInfrastructure)
+            .Should().NotResideInNamespaceMatching(EvaluationNamespacePattern);
+
+        rule.Check(Architecture);
+    }
+
+    [Fact]
+    public void PredictionProductionAssemblies_ShouldNotDeclareTypes_NamedAsEvaluationHarness()
+    {
+        IArchRule rule = ArchRuleDefinition
+            .Types().That().ResideInAssembly(PredictionDomain, PredictionContracts, PredictionApplication, PredictionInfrastructure)
+            .Should().NotHaveNameMatching(@"^Recommender(Quality|Evaluation)");
 
         rule.Check(Architecture);
     }

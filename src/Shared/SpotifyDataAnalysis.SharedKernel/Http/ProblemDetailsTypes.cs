@@ -26,6 +26,9 @@ public static class ProblemDetailsTypes
     /// <summary>400 — one or more request fields failed validation.</summary>
     public const string ValidationError = BaseUri + "validation-error";
 
+    /// <summary>503 — the service is temporarily unavailable; the client should retry after a short interval.</summary>
+    public const string ServiceUnavailable = BaseUri + "service-unavailable";
+
     /// <summary>500 — an unexpected, unhandled error occurred.</summary>
     public const string InternalError = BaseUri + "internal-error";
 }

@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 
 /// <summary>
@@ -7,14 +9,18 @@ namespace SpotifyDataAnalysis.Modules.Catalog.Application.Ingestion.Imputation;
 /// imputação se retroalimentaria. Ao final, calcula a mediana exata por (gênero, feature) e global.
 ///
 /// <b>Trade-off de memória, assumido:</b> a mediana exata exige guardar as observações (~114k linhas × 12
-/// features ≈ dezenas de MB). É aceitável para um dataset local e mantém o resultado exato e reproduzível;
+/// features ≈ 11 MB medidos no dataset real). É aceitável para um dataset local e mantém o resultado exato e reproduzível;
 /// se o volume crescer uma ordem de grandeza, a saída é um estimador de quantil por streaming (t-digest),
 /// trocando exatidão por memória constante.
+///
+/// Cada observação é guardada <b>uma vez só</b>: no bucket do seu gênero, ou no das linhas sem gênero. A
+/// mediana global não tem bucket próprio — é a mediana da união de todos eles, montada em <see cref="Build"/>
+/// (mesmo multiconjunto, logo o mesmo valor).
 /// </summary>
 public sealed class AudioFeatureMedianProfileBuilder
 {
     private readonly Dictionary<string, Dictionary<AudioFeature, List<double>>> _byGenre = new(StringComparer.Ordinal);
-    private readonly Dictionary<AudioFeature, List<double>> _global = new();
+    private readonly Dictionary<AudioFeature, List<double>> _withoutGenre = new();
 
     /// <summary>Quantas linhas observadas tinham pelo menos uma feature ausente.</summary>
     public int RowsWithMissingValues { get; private set; }
@@ -38,10 +44,7 @@ public sealed class AudioFeatureMedianProfileBuilder
                 continue;
             }
 
-            Bucket(_global, feature).Add(value.Value);
-
-            if (genre is not null)
-                Bucket(GenreBuckets(genre), feature).Add(value.Value);
+            Bucket(genre is null ? _withoutGenre : GenreBuckets(genre), feature).Add(value.Value);
         }
 
         if (hasMissing)
@@ -56,7 +59,48 @@ public sealed class AudioFeatureMedianProfileBuilder
                 entry => ToMedians(entry.Value),
                 StringComparer.Ordinal);
 
-        return new AudioFeatureMedianProfile(byGenre, ToMedians(_global));
+        return new AudioFeatureMedianProfile(byGenre, GlobalMedians());
+    }
+
+    private Dictionary<AudioFeature, double> GlobalMedians()
+    {
+        var medians = new Dictionary<AudioFeature, double>();
+
+        foreach (AudioFeature feature in AudioFeatureAccessor.All)
+        {
+            int total = _withoutGenre.TryGetValue(feature, out List<double>? ungrouped) ? ungrouped.Count : 0;
+
+            foreach (Dictionary<AudioFeature, List<double>> buckets in _byGenre.Values)
+            {
+                if (buckets.TryGetValue(feature, out List<double>? values))
+                    total += values.Count;
+            }
+
+            if (total == 0)
+                continue;
+
+            double[] union = new double[total];
+            int offset = 0;
+
+            if (ungrouped is not null)
+            {
+                ungrouped.CopyTo(union, offset);
+                offset += ungrouped.Count;
+            }
+
+            foreach (Dictionary<AudioFeature, List<double>> buckets in _byGenre.Values)
+            {
+                if (!buckets.TryGetValue(feature, out List<double>? values))
+                    continue;
+
+                values.CopyTo(union, offset);
+                offset += values.Count;
+            }
+
+            medians[feature] = Median(union);
+        }
+
+        return medians;
     }
 
     private Dictionary<AudioFeature, List<double>> GenreBuckets(string genre)
@@ -85,19 +129,19 @@ public sealed class AudioFeatureMedianProfileBuilder
         Dictionary<AudioFeature, List<double>> buckets)
         => buckets
             .Where(entry => entry.Value.Count > 0)
-            .ToDictionary(entry => entry.Key, entry => Median(entry.Value));
+            .ToDictionary(entry => entry.Key, entry => Median(CollectionsMarshal.AsSpan(entry.Value)));
 
     /// <summary>
     /// Mediana clássica: valor central da amostra ordenada, ou a média dos dois centrais quando a contagem
     /// é par.
     /// </summary>
-    private static double Median(List<double> values)
+    private static double Median(Span<double> values)
     {
         values.Sort();
 
-        int middle = values.Count / 2;
+        int middle = values.Length / 2;
 
-        return values.Count % 2 == 1
+        return values.Length % 2 == 1
             ? values[middle]
             : (values[middle - 1] + values[middle]) / 2d;
     }

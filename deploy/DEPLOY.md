@@ -4,21 +4,82 @@ Runbook do E6.2. Três recursos independentes: **API .NET 8** (container), **Pos
 **SPA estática**. A SPA NÃO é servida pelo Host .NET; ela vive num host estático próprio e fala com a API
 por HTTP, com CORS como único mecanismo de ligação.
 
-## Números medidos (E6.2, 17/08/2026)
+## Números medidos (E6.9, 13/09/2026)
 
-Container `spotifydataanalysis-api:e62` apontando para o Postgres com o dataset completo
-(89.740 faixas, 37.121 playlists, 1.481.511 pares de co-ocorrência).
+Container `spotifydataanalysis-api:e5ab833` (HEAD, over-fetch adaptativo, E4.9) apontando para o
+Postgres local com o dataset completo (89.740 faixas, 37.121 playlists, 1.481.511 pares de
+co-ocorrência). CPU livre (sem throttle). Script: `deploy/measure-latency.ps1` na versão do commit
+`53d78e4` (13/09/2026). O script atual (`a38e8c6`) NÃO reproduz esta tabela: ele mede latência e cold
+start (seção seguinte), não RAM, e não roda a estratégia `blend`; para refazer a tabela de RAM é preciso
+o script daquele commit (`git show 53d78e4:deploy/measure-latency.ps1`).
 
-| Cenário | Pico de RAM | Boot até `/health` | 1ª recomendação | p95 content | p95 blend | OOM |
-| --- | --- | --- | --- | --- | --- | --- |
-| 512 MB, CPU livre | 310,1 MiB | 9,5 s | 6,9 s | 715 ms | 204 ms | não |
-| 256 MB, CPU livre | 217,3 MiB | 11,1 s | 16,2 s | 402 ms | 166 ms | não |
-| 512 MB, 0,1 vCPU | 142,9 MiB | 51,1 s | 32,4 s | 1.915 ms | 2.479 ms | não |
-| 256 MB, 0,1 vCPU | 138,4 MiB | 31,9 s | 25,5 s | 2.614 ms | 2.337 ms | não |
+**Metodologia:** 300 sementes determinísticas (semente textual `e4.4-proxies-v1`, query
+`md5(semente || id)`), requisições sequenciais (1 cliente), 3 rodadas,
+1.800 requisições totais por tier (300 sementes × 3 rodadas × 2 estratégias). RAM lida de
+`docker stats --no-stream` após o warm-up e após a última rodada. `docker stats` devolve uso
+**corrente**, não pico histórico: os valores abaixo são "uso após a rodada", não pico.
+
+| Cenário | RAM pós-warmup | RAM pós-medição | OOM |
+| --- | --- | --- | --- |
+| 512 MB, CPU livre | 161,6 MiB | 310,9 MiB | não |
+| 256 MB, CPU livre | 140,3 MiB | 148,3 MiB | não |
 
 Disco do banco: **388 MB** no total, dos quais `prediction.track_cooccurrence` = 254 MB (65%).
 
-O gargalo do free tier neste projeto é **CPU e disco**, não RAM.
+**O que esta medição prova:** o índice de similaridade cabe em 256 MB e o app serve 1.800 requisições
+sequenciais nesse tier sem OOM.
+
+**O que esta medição NÃO prova:** latência e cold start. Eles foram medidos depois, com outra
+metodologia (próxima seção).
+
+### Latência e cold start (E6.12, 10/10/2026)
+
+Commit da aplicação `d7bc20a`, 89.740 faixas no banco, `deploy/measure-latency.ps1` na versão do commit
+`a38e8c6` (um comando, ver o cabeçalho do script). VM do Docker com 20 CPUs e 16 GB. Resultado: medição **válida** (THROTTLE, V1, V2 e V3 passaram, código de saída 0).
+Os números e as condições estão na seção "Free-tier footprint" do `README.md`.
+
+**Metodologia:** carga pelo `k6` v2.3.0 (imagem oficial `grafana/k6` fixada por digest) em container na
+mesma rede Docker da API, 1 usuário virtual, uma passada sequencial pelas 300 sementes
+`e4.4-proxies-v1` por rodada, 5 rodadas, estratégia `content`. Quatro combinações
+{512 MB, 256 MB} x {`--cpus 0.1`, sem limite}. Aquecimento: janelas de 20 requisições descartadas até a
+média de duas janelas consecutivas diferir menos de 10% (piso 50, teto 200). Cold start: 3 `docker run`
+novos por combinação, cronômetro iniciado antes do `docker run`. Validade bloqueante sobre o eixo de
+CPU: o throttle tem de ser provado no `cpu.stat`, a média a 0,1 CPU tem de ser maior que a sem limite
+(V1), a diferença entre as medianas tem de superar a maior amplitude entre rodadas (V2), e as quatro
+combinações têm de estar completas com zero resposta diferente de 200 (V3). O tier de RAM não entra
+na validade: a aplicação cabe no tier de 256 MB (148,3 MiB em uso ao fim da corrida de 13/09, tabela
+acima; na medição de 10/10 foram 156,6 MiB com throttle e 167,6 MiB sem, lidos ao fim da carga), então
+não se esperava efeito grande do tier. Na medição de 10/10 a diferença entre 256 e 512 MB na média
+ficou dentro da amplitude entre rodadas (cerca de 45 ms a 0,1 CPU, cerca de 1 ms sem limite); só um
+efeito maior que isso seria detectado, e como o tier de 256 MB sempre rodou depois do de 512 MB, um
+efeito pequeno não se separa de efeito de ordem.
+
+**Limitações conhecidas desta medição:**
+
+- A estratégia `blend` (co-ocorrência no Postgres) não foi medida.
+- Cliente, API e Postgres dividem a mesma máquina (Docker Desktop sobre WSL2): é um comparativo entre
+  cenários, não uma promessa de produção. Latência de um Postgres gerenciado remoto não está incluída.
+- Um pré-voo percorreu as 300 sementes antes de tudo, então todas as medições (cold starts incluídos)
+  rodaram com o cache do Postgres e do SO quente para elas.
+- `--cpus 0.1` é cota CFS, não uma vCPU lenta. Os percentis parecem bimodais (inferido de p50 e p95; o
+  script não grava histograma) e o p99 chega a cerca de 490 ms na rodada 1.
+- A média a 0,1 CPU ainda caía quando a medição terminou (512 MB: 156,6, 125,6, 118,5, 108,6, 107,8 ms;
+  256 MB: 149,3, 153,2, 109,4, 116,1, 107,3 ms). A mediana das cinco rodadas é um teto do regime, não o
+  regime; a razão para a média sem limite vai de cerca de 7,6 (rodada 5) a cerca de 10,4 vezes (rodada 1).
+  O critério de aquecimento converge antes do regime sob cota de CFS.
+- A ordem das combinações é fixa (0,1 CPU antes de sem limite, 512 antes de 256 MB).
+
+**Pendências:**
+
+- Remedir com aquecimento por tempo de relógio ou com sementes distintas, para chegar ao platô.
+- O cold start de ~21 s a 0,1 CPU é medido com disco e cache locais; o provedor real pode diferir (ver
+  a medição de 83 s com spin-down abaixo).
+
+**Os números do E6.2 (17/08/2026) foram substituídos.** Aquela medição não tinha metodologia
+registrada nem script; a comparação direta seria inválida porque o código e a metodologia mudaram ao
+mesmo tempo.
+
+O gargalo do free tier neste projeto é **CPU e disco**, não RAM: o working set cabe folgado em 256 MB.
 
 ## Requisitos do plano
 
@@ -112,8 +173,10 @@ Imagem resultante: 349 MB.
 ## Cold start
 
 Com spin-down ligado e 0,1 vCPU, a primeira recomendação depois da hibernação levou **83 s**
-(51 s de boot + 32 s de montagem do índice de similaridade). O índice é montado sob demanda, na
-primeira chamada de `/api/recommendations`, e custa 25 s nessa CPU.
+(51 s de boot + 32 s de montagem do índice de similaridade). O índice é montado em background no
+arranque (commit 32262b6): durante a montagem o endpoint devolve 503 com `Retry-After: 5`; a
+primeira chamada após o warm-up já encontra o serviço pronto. Em container local, a primeira
+recomendação leva cerca de 2,1 s sem limite de CPU e cerca de 21 s a 0,1 CPU (seção acima).
 
 Duas mitigações conhecidas, ambas fora do escopo do E6.2:
 

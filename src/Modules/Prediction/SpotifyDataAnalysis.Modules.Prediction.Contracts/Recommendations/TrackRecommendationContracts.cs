@@ -144,8 +144,15 @@ public sealed class TrackRecommendationItem
     public string? Genre { get; init; }
 
     /// <summary>
-    /// O score HÍBRIDO que ordena o ranking (E4.3): <see cref="CosineScore"/> + <see cref="GenreBoost"/>. Quando o
-    /// gênero não pesa (modo off/fallback), coincide com o cosseno — o comportamento do E4.1.
+    /// O score que ORDENOU esta faixa no ranking — e é o mesmo número, sem recomposição (E4.10, DP-2): ordenar por um
+    /// número e exibir outro foi a causa raiz de o boost de gênero ser calculado e descartado no blend.
+    ///
+    /// <para>Em <c>strategy=content</c> é o score HÍBRIDO do E4.3, <see cref="CosineScore"/> + <see cref="GenreBoost"/>
+    /// (e coincide com o cosseno quando o gênero não pesa, o comportamento do E4.1). Em <c>strategy=blend</c> é o score
+    /// final do blend: a soma ponderada da parcela de content — já híbrida, com o boost dentro — reescalada ao conjunto
+    /// de candidatas, com o <see cref="CoOccurrenceScore"/>. Nesse modo o valor está em [0, 1] e NÃO é
+    /// <c>CosineScore + GenreBoost</c>; esses dois seguem expostos como auditoria do que o gênero moveu, não como
+    /// ranking alternativo.</para>
     /// </summary>
     public double Score { get; init; }
 
