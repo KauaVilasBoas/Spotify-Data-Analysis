@@ -24,7 +24,7 @@
 <!-- LIVE DEMO: when the public deploy (E6) is up, add its badge here and a link under the hero image. -->
 
 <p align="center">
-  <b>89,740</b> tracks &nbsp;·&nbsp; <b>113</b> genres &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>889</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
+  <b>89,740</b> tracks &nbsp;·&nbsp; <b>113</b> genres &nbsp;·&nbsp; <b>1.48M</b> co-occurrence pairs &nbsp;·&nbsp; <b>891</b> tests &nbsp;·&nbsp; <b>45</b> architecture rules &nbsp;·&nbsp; <b>MAE 11.54</b> (33.1% below baseline)
 </p>
 
 <p align="center">
@@ -339,7 +339,7 @@ from both sides, each bound to the configuration and the population that calibra
 | Frontend | React 19, Vite 8, TypeScript 6 (`strict`, `noUncheckedIndexedAccess`), Tailwind 4, shadcn/ui, ECharts 6, TanStack Query, cmdk for the command palette, Motion |
 | Security | Security headers, HSTS, forwarded-headers hardening, unknown-query-parameter rejection, RFC 7807, secrets only in User Secrets or environment variables |
 | Observability | Serilog with JSON console output, correlation ids end to end, request logging, `/health` with a Postgres probe |
-| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **889 tests across 7 projects** |
+| Testing | xUnit, ArchUnitNET, hand-written fakes instead of a mocking framework. **891 tests across 7 projects** |
 | CI | GitHub Actions: clean-clone build in Release, full test run, and a step that **names every skipped test and the reason**, so "green" never means "did not run" |
 
 ---

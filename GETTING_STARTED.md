@@ -137,7 +137,7 @@ configuration (CORS origins, forwarded headers, the SPA's build-time API URL) is
 ## Tests and quality gates
 
 ```powershell
-dotnet test                                             # 889 tests
+dotnet test                                             # 891 tests
 dotnet test tests/SpotifyDataAnalysis.ArchitectureTests  # 45 boundary rules, fast
 ```
 
@@ -159,8 +159,8 @@ nobody can see is a lie told in green. With `ConnectionStrings__SpotifyDb` set i
 run for real, and they are the only tests that exercise the recommender gate against the real
 catalogue.
 
-Measured on 2026-10-25: 889 tests. With `ConnectionStrings__SpotifyDb` set, 889 passed,
-0 skipped. Without it, 886 passed, 3 skipped (the three above), 0 failed.
+Measured on 2026-10-25: 891 tests. With `ConnectionStrings__SpotifyDb` set, 891 passed,
+0 skipped. Without it, 888 passed, 3 skipped (the three above), 0 failed.
 
 ## Troubleshooting
 
