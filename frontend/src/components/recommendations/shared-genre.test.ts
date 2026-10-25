@@ -16,4 +16,7 @@ describe('genreInfluencedRanking', () => {
     expect(genreInfluencedRanking('sameGenreOnly', 0)).toBe(true)
     expect(genreInfluencedRanking('SameGenreOnly', 0)).toBe(true)
   })
+  it('fallback (pedido SameGenreOnly, efetivo off) com boost 0: não influenciou', () => {
+    expect(genreInfluencedRanking('off', 0)).toBe(false)
+  })
 })

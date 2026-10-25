@@ -12,7 +12,7 @@ interface RecommendationItemCardProps {
   item: RecommendationItem
   rank: number
   showBlend: boolean
-  requestedGenreMode: string
+  effectiveGenreMode: string
 }
 
 function FeatureRow({
@@ -48,7 +48,7 @@ function FeatureRow({
   )
 }
 
-function RecommendationItemCard({ item, rank, showBlend, requestedGenreMode }: RecommendationItemCardProps) {
+function RecommendationItemCard({ item, rank, showBlend, effectiveGenreMode }: RecommendationItemCardProps) {
   return (
     <li className="animate-rise border-b border-line/50 px-5 py-4 last:border-b-0">
       <div className="flex items-start gap-4">
@@ -80,7 +80,7 @@ function RecommendationItemCard({ item, rank, showBlend, requestedGenreMode }: R
             )}
           </p>
           {item.sharedGenre !== null &&
-            (genreInfluencedRanking(requestedGenreMode, item.genreBoost) ? (
+            (genreInfluencedRanking(effectiveGenreMode, item.genreBoost) ? (
               <p className="text-xs text-text-faint">
                 Shared genre: <span className="text-text-dim">{item.sharedGenre}</span>
               </p>
@@ -172,10 +172,10 @@ function RecommendationItemCard({ item, rank, showBlend, requestedGenreMode }: R
 interface RecommendationListProps {
   items: RecommendationItem[]
   showBlend: boolean
-  requestedGenreMode: string
+  effectiveGenreMode: string
 }
 
-export function RecommendationList({ items, showBlend, requestedGenreMode }: RecommendationListProps) {
+export function RecommendationList({ items, showBlend, effectiveGenreMode }: RecommendationListProps) {
   if (items.length === 0) {
     return (
       <p className="px-5 py-8 text-sm text-text-faint">
@@ -192,7 +192,7 @@ export function RecommendationList({ items, showBlend, requestedGenreMode }: Rec
           item={item}
           rank={index + 1}
           showBlend={showBlend}
-          requestedGenreMode={requestedGenreMode}
+          effectiveGenreMode={effectiveGenreMode}
         />
       ))}
     </ul>
