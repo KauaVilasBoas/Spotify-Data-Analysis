@@ -102,9 +102,9 @@ public sealed class NearDuplicateCollapser
                 if (!candidate.DuplicateKey.IsEmpty)
                     byKey[candidate.DuplicateKey.Value] = group;
 
-                // Já temos itens distintos suficientes: para de abrir grupos novos. Grupos já abertos ainda
-                // absorvem duplicatas das candidatas restantes (a contagem de colapsadas fica correta), mas o
-                // resultado nunca passa de `limit`.
+                // Já temos itens distintos suficientes: o laço termina aqui. As candidatas restantes não são
+                // examinadas, então as contagens de colapsadas são um piso (só contam o que foi visto até este
+                // ponto), e o resultado nunca passa de `limit`.
                 if (groups.Count >= limit)
                     break;
             }

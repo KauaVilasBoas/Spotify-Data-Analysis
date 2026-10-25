@@ -21,9 +21,10 @@ public enum RecommendationSignal
 /// vizinha rica original, para o representante blendado herdar a explicabilidade sem recalculá-la.
 /// </summary>
 /// <remarks>
-/// O construtor é privado para forçar a criação via <see cref="From(ExplainedTrackSimilarity)"/> ou
+/// O construtor é privado para que a criação passe por <see cref="From(ExplainedTrackSimilarity)"/> ou
 /// <see cref="From(TrackSimilarity)"/>. Os factory methods extraem <c>.Similarity</c> (o score HÍBRIDO do E4.3) —
-/// não <c>.CosineSimilarity</c> —, eliminando estruturalmente o defeito do E4.10 de descartar o boost de gênero.
+/// não <c>.CosineSimilarity</c> —, o que evita o defeito do E4.10 de descartar o boost de gênero na criação. Não é
+/// garantia estrutural: as propriedades são <c>init</c>, então <c>candidate with { ContentScore = ... }</c> compila.
 /// </remarks>
 public sealed record BlendContentCandidate
 {
@@ -61,11 +62,8 @@ public sealed record BlendContentCandidate
     /// extrai o score HÍBRIDO (<see cref="TrackSimilarity.Similarity"/>) e define <see cref="Neighbor"/> como
     /// <c>null</c>, pois a avaliação não consome explicabilidade por feature.
     /// </summary>
-    public static BlendContentCandidate From(TrackSimilarity neighbor)
-    {
-        ArgumentNullException.ThrowIfNull(neighbor);
-        return new BlendContentCandidate(neighbor.TrackId, neighbor.Similarity, null);
-    }
+    public static BlendContentCandidate From(TrackSimilarity neighbor) =>
+        new(neighbor.TrackId, neighbor.Similarity, null);
 }
 
 /// <summary>Um vizinho colaborativo visto pelo blend: identidade, quantas playlists compartilha e o Jaccard já normalizado.</summary>
