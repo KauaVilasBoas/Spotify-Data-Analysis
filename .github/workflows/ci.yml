@@ -54,11 +54,13 @@ jobs:
       # verbosity=normal e obrigatorio: e o que faz cada teste ignorado aparecer nomeado no log,
       # com o motivo do skip (os [PostgresFact]/[CatalogPostgresFact] exigem Postgres real e o
       # [KaggleDatasetFact] exige o dataset.csv gitignored; todos sao pulados de proposito).
+      # --logger trx sem LogFileName: cada projeto grava o seu TRX. Com nome fixo, o ultimo projeto
+      # sobrescreve os anteriores e os skips deles somem do resumo.
       - name: Test (Release)
         run: >
           dotnet test SpotifyDataAnalysis.sln -c Release --no-build
           --logger "console;verbosity=normal"
-          --logger "trx;LogFileName=test-results.trx"
+          --logger trx
           --results-directory ${{ runner.temp }}/test-results
 
       # O skip nao pode ficar escondido: este passo lista no stdout do job E no summary quais
@@ -68,7 +70,10 @@ jobs:
         shell: bash
         run: |
           RESULTS_DIR="${{ runner.temp }}/test-results"
-          IGNORADOS=$(grep -rhoP '(?<=outcome="NotExecuted" testName=")[^"]+' "$RESULTS_DIR" 2>/dev/null | sort || true)
+          # No TRX, testName vem ANTES de outcome em <UnitTestResult>: filtra o elemento e extrai o nome, sem depender da ordem.
+          IGNORADOS=$(grep -rhoP --include='*.trx' '<UnitTestResult\b[^>]*>' "$RESULTS_DIR" 2>/dev/null \
+            | grep 'outcome="NotExecuted"' | grep -oP '(?<= testName=")[^"]+' \
+            | sed -e 's/&quot;/"/g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e "s/&apos;/'/g" -e 's/&amp;/\&/g' | sort || true)
           TOTAL=$(printf '%s' "$IGNORADOS" | grep -c . || true)
           MOTIVO='[PostgresFact]/[CatalogPostgresFact] requerem Postgres real (ConnectionStrings__SpotifyDb ausente no CI, DP-1 do E6.1); [KaggleDatasetFact] requer o dataset.csv gitignored na raiz.'
           {
