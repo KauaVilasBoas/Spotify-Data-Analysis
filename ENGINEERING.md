@@ -290,7 +290,7 @@ Database on disk, re-measured 2026-09-12 with `pg_total_relation_size`:
 | **database total** | | **388 MB** |
 
 **Verdict on the ~0.5 GB free-tier budget: it fits, with 124 MB of headroom (76% used).** The blend is
-what consumes it — the co-occurrence matrix alone is 65% of the database and half the budget, to serve
+what consumes it: the co-occurrence matrix alone is 65% of the database and half the budget, to serve
 a signal that covers **9,664 of 89,740 tracks (10.8%)**, and only **37 of the 300 sampled seeds**. That
 ratio, not the absolute size, is the argument for pruning the matrix by a minimum `co_playlists` before
 the catalogue grows again.
