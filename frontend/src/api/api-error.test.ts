@@ -5,7 +5,7 @@ import {
   toApiError,
 } from './api-error'
 
-describe('apiErrorFromProblem — 503 unavailable', () => {
+describe('apiErrorFromProblem, 503 unavailable', () => {
   it('status 503 sem Retry-After → kind unavailable, retryAfterSeconds undefined', () => {
     const err = apiErrorFromProblem(503, undefined, undefined)
     expect(err.kind).toBe('unavailable')
@@ -73,14 +73,14 @@ describe('ApiError.isRecoverable', () => {
   })
 })
 
-describe('toApiError — passthrough', () => {
+describe('toApiError, passthrough', () => {
   it('ApiError já formado passa sem alteração', () => {
     const original = apiErrorFromKind('unavailable')
     expect(toApiError(original)).toBe(original)
   })
 })
 
-describe('apiErrorFromProblem — status existentes não regridem', () => {
+describe('apiErrorFromProblem, status existentes não regridem', () => {
   it('400 → validation', () => expect(apiErrorFromProblem(400, undefined, undefined).kind).toBe('validation'))
   it('403 → forbidden', () => expect(apiErrorFromProblem(403, undefined, undefined).kind).toBe('forbidden'))
   it('404 → notFound', () => expect(apiErrorFromProblem(404, undefined, undefined).kind).toBe('notFound'))

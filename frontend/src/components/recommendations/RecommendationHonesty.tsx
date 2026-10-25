@@ -67,7 +67,7 @@ export function RecommendationHonesty({ rec, requestedStrategy }: HonestyProps) 
   const effectiveStrategyNorm = normalizeEnum(rec.effectiveStrategy)
   const effectiveGenreModeNorm = normalizeEnum(rec.effectiveGenreMode)
   // requestedGenreMode: lido do echo da API porque não há campo equivalente para
-  // estratégia — a API só devolve effectiveStrategy, não requestedStrategy.
+  // estratégia, a API só devolve effectiveStrategy, não requestedStrategy.
   // Estratégia continua comparada via prop para não introduzir assimetria falsa.
   const requestedGenreMode = normalizeEnum(rec.requestedGenreMode)
 
@@ -84,7 +84,7 @@ export function RecommendationHonesty({ rec, requestedStrategy }: HonestyProps) 
 
   return (
     <div className="space-y-4">
-      {/* Warnings do servidor — sempre visíveis, sem "ver mais" */}
+      {/* Warnings do servidor, sempre visíveis, sem "ver mais" */}
       {rec.warnings.map((w, i) => (
         <AlertRow key={i} severity="warn">
           {w}
@@ -134,7 +134,7 @@ export function RecommendationHonesty({ rec, requestedStrategy }: HonestyProps) 
         </AlertRow>
       )}
 
-      {/* Estatísticas do índice — sempre presentes */}
+      {/* Estatísticas do índice, sempre presentes */}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-faint">
         <span>
           Index size: <span className="text-text-dim">{formatInteger(rec.indexedTrackCount)} tracks</span>

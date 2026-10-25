@@ -114,7 +114,7 @@ function RecommendationItemCard({ item, rank, showBlend, effectiveGenreMode }: R
               )}
             </p>
           )}
-          {/* blend: cosine e genre são auditoria — não somam para o Blend score */}
+          {/* blend: cosine e genre são auditoria, não somam para o Blend score */}
           {showBlend && (
             <p className="text-[0.65rem] text-text-faint">
               {blendScoreDecompositionLabel()}: cosine{' '}

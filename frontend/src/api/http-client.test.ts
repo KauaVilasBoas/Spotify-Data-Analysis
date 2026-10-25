@@ -11,7 +11,7 @@ const mockConfig = {
 }
 
 vi.mock('./config', () => ({
-  // resolveBaseUrl importada como valor real — sem await no top-level
+  // resolveBaseUrl importada como valor real, sem await no top-level
   resolveBaseUrl: (raw: string | undefined): string => {
     const trimmed = raw?.trim() ?? ''
     if (trimmed.length === 0) return ''

@@ -210,7 +210,7 @@ export function useTrackRecommendations(
 
 /**
  * Query (não mutation) habilitada só quando há faixa selecionada.
- * Predição é idempotente por trackId — query é mais simples que mutation
+ * Predição é idempotente por trackId, query é mais simples que mutation
  * e integra direto no ResourceBoundary sem estado local de submit.
  */
 export function usePopularityPrediction(trackId: string | null): ApiResource<PopularityPredictionResponse> {

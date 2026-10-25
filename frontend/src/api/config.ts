@@ -28,7 +28,7 @@ export function resolveBaseUrl(raw: string | undefined): string {
     return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed
   }
 
-  // Check literal prefix case-insensitively — URL constructor infers the
+  // Check literal prefix case-insensitively, URL constructor infers the
   // protocol from the string, so new URL('https:evil.com') succeeds (opaque
   // path) even though the value is not a valid absolute URL for fetching.
   const invalid = `Invalid VITE_API_BASE_URL: "${trimmed}". Use http://, https://, a relative path starting with /, or leave it empty for same-origin.`
@@ -53,7 +53,7 @@ function normalizeTimeout(value: string | undefined): number {
 }
 
 export const apiConfig = {
-  /** Raw VITE_API_BASE_URL value — call resolveBaseUrl(apiConfig.rawBaseUrl) inside getResource. */
+  /** Raw VITE_API_BASE_URL value, call resolveBaseUrl(apiConfig.rawBaseUrl) inside getResource. */
   rawBaseUrl: import.meta.env.VITE_API_BASE_URL as string | undefined,
   timeoutMs: normalizeTimeout(RAW_TIMEOUT),
 } as const

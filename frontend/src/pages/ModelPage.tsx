@@ -12,7 +12,7 @@ import { PredictionPanel } from '@/components/model/PredictionPanel'
 export function ModelPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // URL é a fonte da verdade da faixa selecionada — derivado direto, sem useState,
+  // URL é a fonte da verdade da faixa selecionada, derivado direto, sem useState,
   // para que navegar de volta/avançar ou chegar via link já traga a faixa certa.
   const selectedTrackId = searchParams.get('track')
 

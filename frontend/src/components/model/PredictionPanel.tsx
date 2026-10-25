@@ -65,7 +65,7 @@ function PredictionResult({ prediction }: PredictionResultProps) {
         )}
       </div>
 
-      {/* Warnings — obrigatórios, nunca escondidos */}
+      {/* Warnings, obrigatórios, nunca escondidos */}
       {prediction.warnings.length > 0 && (
         <div className="rounded-[var(--radius-sm)] border border-imputed/40 bg-imputed/8 p-4">
           <div className="flex items-start gap-3">

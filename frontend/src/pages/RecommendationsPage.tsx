@@ -43,7 +43,7 @@ export function RecommendationsPage() {
     genreMode: DEFAULT_GENRE_MODE,
   })
 
-  // Hook de recomendações — desabilitado quando não há semente.
+  // Hook de recomendações, desabilitado quando não há semente.
   const recommendationsResource = useTrackRecommendations(selectedTrackId, params)
 
   // A estratégia efetiva exibida ao usuário normaliza a caixa do enum .NET.

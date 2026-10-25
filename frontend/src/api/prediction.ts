@@ -117,7 +117,7 @@ export interface RecommendationParams {
   blendWeight?: number
 }
 
-// Defaults de todos os parâmetros de recomendação — aplicados uma única vez aqui,
+// Defaults de todos os parâmetros de recomendação, aplicados uma única vez aqui,
 // antes de montar a chave de cache, para que {} e os defaults explícitos mapeiem
 // para a mesma entrada no TanStack Query.
 export function resolveRecommendationParams(params: RecommendationParams): Required<RecommendationParams> {
