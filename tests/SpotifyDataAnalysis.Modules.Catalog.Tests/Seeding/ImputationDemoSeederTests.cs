@@ -36,12 +36,8 @@ public sealed class CatalogPostgresFactAttribute : FactAttribute
 /// </summary>
 public sealed class ImputationDemoSeederTests : IAsyncLifetime, IDisposable
 {
-    // A connection string vem da variável de ambiente, nunca do arquivo.
     private static string ConnectionString =>
-        Environment.GetEnvironmentVariable("ConnectionStrings__SpotifyDb")
-        // Fallback local: mesmo valor dos User Secrets da API, só para o dev local que roda o teste
-        // sem a variável — nunca gravado em arquivo versionado.
-        ?? "Host=localhost;Port=5432;Database=spotify_data_analysis;Username=postgres;Password=admin";
+        Environment.GetEnvironmentVariable("ConnectionStrings__SpotifyDb")!;
 
     /// <summary>
     /// Os ids concretos gerados pelo seeder — usados para filtrar de forma traduzível pelo EF.
